@@ -1,0 +1,20 @@
+[package]
+name = "swap-cli"
+description = "covenant-swap demo CLI: make-offer / take-offer / reclaim"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "covenant-swap"
+path = "src/main.rs"
+
+[dependencies]
+anyhow.workspace = true
+clap.workspace = true
+hex.workspace = true
+serde_json.workspace = true
+covenant = { path = "../covenant" }
+swap-core = { path = "../swap-core" }

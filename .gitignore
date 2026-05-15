@@ -1,0 +1,14 @@
+# Rust
+/target
+**/*.rs.bk
+# Cargo.lock is committed — this workspace ships a binary (swap-cli).
+
+# Elements regtest data
+/.regtest
+*.log
+
+# Editor / OS
+.DS_Store
+.idea/
+.vscode/
+*.swp

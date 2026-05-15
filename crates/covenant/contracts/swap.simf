@@ -1,0 +1,76 @@
+/*
+ * covenant-swap — the swap covenant
+ * ---------------------------------
+ * A Liquid UTXO that holds asset A and can be spent two ways:
+ *
+ *   SETTLE  — by anyone, but ONLY if the spending transaction pays the maker
+ *             exactly `AMOUNT_B` of `ASSET_B` to `MAKER_SPK`.
+ *   REFUND  — by the maker, after block height `TIMEOUT`.
+ *
+ * The terms (ASSET_B, AMOUNT_B, MAKER_SPK, TIMEOUT, MAKER_PK) are compile-time
+ * parameters: they are baked into this program, hence into the tapleaf, hence
+ * into the UTXO's address. They cannot be changed after the offer is published.
+ *
+ * STATUS: DRAFT. Written for SimplicityHL. Jet names/signatures and the
+ * introspection API must be confirmed against the compiler in
+ * github.com/Blockstream/simplicity-codespace before relying on this. The
+ * structure — two paths, introspect the settle output, verify a sig+timelock —
+ * is the design; the exact jet surface is what to validate on day 1.
+ *
+ * v1 assumes the counter-payment output is EXPLICIT (unblinded) so the covenant
+ * can read its asset and amount directly. See docs/DESIGN.md §4.
+ */
+
+// ---------------------------------------------------------------------------
+// Offer terms — substituted at compile time (see crates/covenant/src/lib.rs).
+// ---------------------------------------------------------------------------
+const ASSET_B: ExplicitAsset      = param::ASSET_B;       // 32-byte asset id
+const AMOUNT_B: ExplicitAmount    = param::AMOUNT_B;      // exact units wanted
+const MAKER_SPK: u256             = param::MAKER_SPK;     // SHA256 of maker scriptPubKey
+const TIMEOUT: Height             = param::TIMEOUT;       // refund unlock height
+const MAKER_PK: Pubkey            = param::MAKER_PK;      // maker BIP-340 key
+
+// ---------------------------------------------------------------------------
+// SETTLE — permissionless fill.
+//
+// The witness supplies the index of the output that pays the maker. The
+// covenant still re-checks asset, amount and script at that index, so a wrong
+// index just fails the asserts — the witness is a hint, not a trust point.
+// ---------------------------------------------------------------------------
+fn settle(settle_vout: u32) {
+    // The maker must receive ASSET_B at this output.
+    let out_asset: ExplicitAsset = jet::output_asset(settle_vout);
+    assert!(jet::eq_explicit_asset(out_asset, ASSET_B));
+
+    // ...exactly AMOUNT_B of it.
+    let out_amount: ExplicitAmount = jet::output_amount(settle_vout);
+    assert!(jet::eq_explicit_amount(out_amount, AMOUNT_B));
+
+    // ...to the maker's script.
+    let out_spk: u256 = jet::output_script_hash(settle_vout);
+    assert!(jet::eq_256(out_spk, MAKER_SPK));
+
+    // No signature required: the covenant itself authorises the spend.
+}
+
+// ---------------------------------------------------------------------------
+// REFUND — maker reclaims an unfilled offer after the timeout.
+// ---------------------------------------------------------------------------
+fn refund(sig: Signature) {
+    // Timelock: the spending tx must be at or past TIMEOUT.
+    jet::check_lock_height(TIMEOUT);
+
+    // Maker authorises with a BIP-340 signature over the standard sighash.
+    let msg: u256 = jet::sig_all_hash();
+    jet::bip_0340_verify((MAKER_PK, msg), sig);
+}
+
+// ---------------------------------------------------------------------------
+// Entry point — the witness selects the path.
+// ---------------------------------------------------------------------------
+fn main() {
+    match witness::PATH {
+        Left(settle_vout: u32)  => settle(settle_vout),
+        Right(sig: Signature)   => refund(sig),
+    }
+}
