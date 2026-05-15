@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Trading on Liquid — the landscape</title>
+<style>
+  :root {
+    --bg:#0c0e14; --panel:#151823; --panel2:#1c2030; --ink:#e8eaf2;
+    --muted:#9aa0b4; --line:#2a2f42; --accent:#6ad6c8; --accent2:#c8a8ff;
+    --today:#7fb4ff; --target:#6ad6c8; --adjacent:#f0a6c8; --warn:#ffcf6a;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font:15px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;}
+  .wrap{max-width:1080px;margin:0 auto;padding:48px 28px 90px;}
+  .eyebrow{text-transform:uppercase;letter-spacing:.18em;font-size:12px;
+    color:var(--accent);font-weight:700;}
+  h1{font-size:36px;margin:10px 0 6px;letter-spacing:-.02em;
+    background:linear-gradient(100deg,var(--accent),var(--accent2));
+    -webkit-background-clip:text;background-clip:text;color:transparent;}
+  .sub{color:var(--muted);font-size:16px;margin-bottom:8px;}
+  h2{font-size:13px;text-transform:uppercase;letter-spacing:.14em;
+    color:var(--accent);margin:46px 0 18px;font-weight:700;}
+  p{color:#cdd1e0;} code{background:var(--panel2);border:1px solid var(--line);
+    border-radius:5px;padding:1px 6px;font-size:13px;
+    font-family:ui-monospace,Menlo,monospace;color:var(--accent);}
+  /* ---- positioning map ---- */
+  .map{position:relative;height:520px;margin:8px 0 10px;
+    background:var(--panel);border:1px solid var(--line);border-radius:14px;}
+  .plot{position:absolute;left:64px;right:28px;top:24px;bottom:56px;
+    background:
+      linear-gradient(var(--line),var(--line)) center/1px 100% no-repeat,
+      linear-gradient(var(--line),var(--line)) center/100% 1px no-repeat;}
+  .quad{position:absolute;font-size:11px;color:#5a6078;letter-spacing:.05em;
+    text-transform:uppercase;}
+  .q-tl{top:8px;left:10px;} .q-tr{top:8px;right:10px;}
+  .q-bl{bottom:8px;left:10px;} .q-br{bottom:8px;right:10px;}
+  .axis-x{position:absolute;left:64px;right:28px;bottom:24px;text-align:center;
+    color:var(--muted);font-size:12px;font-weight:600;}
+  .axis-y{position:absolute;left:14px;top:50%;transform:rotate(-90deg);
+    transform-origin:left;color:var(--muted);font-size:12px;font-weight:600;
+    white-space:nowrap;}
+  .dot{position:absolute;width:13px;height:13px;border-radius:50%;
+    transform:translate(-50%,50%);box-shadow:0 0 0 4px rgba(0,0,0,.35);}
+  .lab{position:absolute;transform:translate(-50%,50%);font-size:12.5px;
+    font-weight:600;white-space:nowrap;margin-top:-20px;}
+  .d-today{background:var(--today);} .l-today{color:var(--today);}
+  .d-target{background:var(--target);} .l-target{color:var(--target);}
+  .d-adj{background:var(--adjacent);} .l-adj{color:var(--adjacent);}
+  .d-warn{background:var(--warn);} .l-warn{color:var(--warn);}
+  .legend{display:flex;gap:18px;flex-wrap:wrap;font-size:12.5px;
+    color:var(--muted);margin-top:6px;}
+  .legend span{display:flex;align-items:center;gap:6px;}
+  .key{width:10px;height:10px;border-radius:50%;}
+  /* ---- table ---- */
+  table{width:100%;border-collapse:collapse;margin-top:4px;font-size:13px;}
+  th,td{text-align:left;padding:9px 10px;border-bottom:1px solid var(--line);
+    vertical-align:top;}
+  th{color:var(--muted);font-weight:600;text-transform:uppercase;
+    letter-spacing:.06em;font-size:10.5px;}
+  td.m{font-weight:700;}
+  .t-today{color:var(--today);} .t-target{color:var(--target);}
+  .t-adj{color:var(--adjacent);} .t-warn{color:var(--warn);}
+  .flow{font-family:ui-monospace,Menlo,monospace;font-size:12px;
+    color:#cdd1e0;white-space:pre-wrap;}
+  .card{background:var(--panel);border:1px solid var(--line);
+    border-radius:12px;padding:16px 18px;margin-bottom:12px;}
+  .card.bl{border-left:3px solid var(--today);}
+  .card.tg{border-left:3px solid var(--target);}
+  .card.ad{border-left:3px solid var(--adjacent);}
+  .card.wn{border-left:3px solid var(--warn);}
+  .card h3{margin:0 0 4px;font-size:15px;}
+  .card .v{color:var(--muted);font-size:13px;}
+  .muted{color:var(--muted);}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<div class="eyebrow">Mosaik · decision aid</div>
+<h1>Trading on Liquid — the landscape</h1>
+<div class="sub">Where the swap mechanisms sit, and where Mosaik should go next.</div>
+
+<h2>The map</h2>
+<div class="map">
+  <div class="plot">
+    <div class="quad q-tl">maker keeps the option<br>· per-offer cost</div>
+    <div class="quad q-tr">maker keeps the option<br>· fund once</div>
+    <div class="quad q-bl">maker committed<br>· per-offer cost</div>
+    <div class="quad q-br">maker committed<br>· fund once</div>
+
+    <!-- dots: left% = capital efficiency, bottom% = maker optionality -->
+    <div class="dot d-today"  style="left:22%;bottom:18%;"></div>
+    <div class="lab l-today"  style="left:22%;bottom:18%;">LiquiDEX</div>
+
+    <div class="dot d-today"  style="left:26%;bottom:9%;"></div>
+    <div class="lab l-today"  style="left:26%;bottom:9%;">Firm Tessera (Mosaik today)</div>
+
+    <div class="dot d-target" style="left:84%;bottom:82%;"></div>
+    <div class="lab l-target" style="left:84%;bottom:82%;">RFQ covenant vault</div>
+
+    <div class="dot d-adj"    style="left:70%;bottom:93%;"></div>
+    <div class="lab l-adj"    style="left:70%;bottom:93%;">Simplicity-DEX options</div>
+
+    <div class="dot d-warn"   style="left:90%;bottom:7%;"></div>
+    <div class="lab l-warn"   style="left:90%;bottom:7%;">AMM covenant</div>
+
+    <div class="dot d-adj"    style="left:16%;bottom:44%;"></div>
+    <div class="lab l-adj"    style="left:16%;bottom:44%;">HTLC / submarine</div>
+  </div>
+  <div class="axis-x">capital efficiency  →  (per-offer UTXO · · · fund-once vault)</div>
+  <div class="axis-y">maker optionality  →</div>
+</div>
+<div class="legend">
+  <span><span class="key" style="background:var(--today)"></span>here today / off-the-shelf</span>
+  <span><span class="key" style="background:var(--target)"></span>the target</span>
+  <span><span class="key" style="background:var(--adjacent)"></span>adjacent — worth borrowing</span>
+  <span><span class="key" style="background:var(--warn)"></span>tempting but lossy</span>
+</div>
+
+<h2>Side by side</h2>
+<table>
+<tr>
+  <th>Mechanism</th><th>Offer lifetime</th><th>Broadcasts</th>
+  <th>Holds the option</th><th>Capital model</th><th>Needs Simplicity</th>
+  <th>Cross-L2</th>
+</tr>
+<tr>
+  <td class="m t-today">LiquiDEX (LWK)</td>
+  <td>firm, until taken</td><td>taker</td><td>taker</td>
+  <td>1 UTXO / offer</td><td>no</td><td>no</td>
+</tr>
+<tr>
+  <td class="m t-today">Firm Tessera covenant</td>
+  <td>firm, until taken</td><td>taker (anyone)</td><td>taker</td>
+  <td>1 UTXO / offer</td><td>yes — introspection</td><td>no</td>
+</tr>
+<tr>
+  <td class="m t-target">RFQ covenant vault</td>
+  <td>ephemeral quotes (s)</td><td>taker</td><td><strong>maker</strong></td>
+  <td>fund once → ∞ quotes</td><td>yes — state + introspection</td><td>no</td>
+</tr>
+<tr>
+  <td class="m t-adj">Simplicity-DEX options</td>
+  <td>option term</td><td>either</td><td><strong>maker</strong> (priced)</td>
+  <td>1 collateral covenant → many token pairs</td>
+  <td>yes — covenant + tokens</td><td>no</td>
+</tr>
+<tr>
+  <td class="m t-warn">AMM covenant</td>
+  <td>always-on</td><td>taker (anyone)</td><td>nobody → toxic flow</td>
+  <td>fund once → pool</td><td>yes — recursive covenant</td><td>no</td>
+</tr>
+<tr>
+  <td class="m t-adj">HTLC / submarine</td>
+  <td>per swap</td><td>both legs</td><td>maker-ish</td>
+  <td>1 HTLC / swap</td><td>optional (Script works)</td><td><strong>yes</strong></td>
+</tr>
+<tr>
+  <td class="m muted">Custodial (Boltz-style)</td>
+  <td>per swap</td><td>service</td><td>service</td>
+  <td>service float</td><td>no</td><td>yes</td>
+</tr>
+</table>
+
+<h2>How each one trades</h2>
+
+<div class="card bl">
+  <h3>LiquiDEX</h3>
+  <div class="flow">maker pre-signs a 2-of-2 PSET  →  taker completes + broadcasts</div>
+  <div class="v">Off-the-shelf in LWK. Atomic, no covenant. But the maker is committed the moment it signs, and the taker chooses when to take — the taker gets a free option.</div>
+</div>
+<div class="card bl">
+  <h3>Firm Tessera covenant — Mosaik today</h3>
+  <div class="flow">maker funds a covenant UTXO  →  anyone spends it iff they pay the maker</div>
+  <div class="v">Permissionless, trustless, no maker server. Same weakness as LiquiDEX: one UTXO per offer, and the firm offer is a free option for whoever fills it.</div>
+</div>
+<div class="card tg">
+  <h3>RFQ covenant vault — the target</h3>
+  <div class="flow">fund a stateful vault once  →  sign ∞ off-chain quotes (expiry + nonce)
+  →  taker fills one  →  covenant peels the vault &amp; re-forms it</div>
+  <div class="v">Capital-efficient and the maker keeps optionality: quotes are ephemeral and revocable (nonce bump). Cost: a recursive, stateful covenant — the advanced build.</div>
+</div>
+<div class="card ad">
+  <h3>Simplicity-DEX options</h3>
+  <div class="flow">collateral covenant + Option/Grantor tokens  →  Nostr discovery
+  →  oracle-free settlement by incentive</div>
+  <div class="v">A sibling product, not spot trading: the maker sells a <em>priced</em> option. Borrow its Nostr relay and covenant patterns rather than rebuild them.</div>
+</div>
+<div class="card wn">
+  <h3>AMM covenant</h3>
+  <div class="flow">fund a pool once  →  anyone swaps against x·y=k</div>
+  <div class="v">Always-on, zero ops — but no optionality at all: it quotes through every market move, so it bleeds to toxic flow / LVR. Fine for stable pairs, not a maker's main venue.</div>
+</div>
+<div class="card ad">
+  <h3>HTLC / submarine swap</h3>
+  <div class="flow">two hash-locked legs, one preimage  →  pay leg A, reveal, claim leg B</div>
+  <div class="v">The orthogonal axis: this is how you reach <strong>Lightning and other chains</strong>. A Simplicity HTLC covenant can also enforce the counter-payment — combine it with the Tessera for cross-L2.</div>
+</div>
+
+<h2>Where Mosaik should go</h2>
+<p>
+  Today Mosaik sits bottom-left — a <span class="t-today">firm Tessera covenant</span>:
+  correct and trustless, but one UTXO per offer and the optionality leaks to the
+  taker. The move is up-and-right to the <span class="t-target">RFQ covenant
+  vault</span>: fund once, quote freely off-chain, stay revocable. Borrow the
+  <span class="t-adj">Simplicity-DEX</span> Nostr relay and covenant patterns
+  instead of rebuilding them, and keep the firm Tessera as the simple
+  permissionless primitive underneath. Add an <span class="t-adj">HTLC-Tessera</span>
+  later for cross-L2 reach. Treat the <span class="t-warn">AMM</span> as a
+  complement for stable pairs only — never the main book.
+</p>
+<p class="muted">
+  One covenant idea — "the offer is a coin" — spans the whole map; the axes are
+  just how much you fund up front and how much optionality the maker keeps.
+</p>
+
+</div>
+</body>
+</html>

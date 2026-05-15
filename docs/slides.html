@@ -1,0 +1,349 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Mosaik — hackathon deck</title>
+<style>
+  :root{
+    --bg:#0c0e14; --panel:#151823; --panel2:#1c2030; --ink:#e8eaf2;
+    --muted:#9aa0b4; --line:#2a2f42; --accent:#6ad6c8; --accent2:#c8a8ff;
+    --ok:#6ad6c8; --warn:#ffcf6a; --bad:#f0a6c8;
+  }
+  *{box-sizing:border-box;}
+  html,body{height:100%;margin:0;}
+  body{background:var(--bg);color:var(--ink);overflow:hidden;
+    font:18px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;}
+
+  .slide{position:fixed;inset:0;display:none;flex-direction:column;
+    justify-content:center;padding:7vh 9vw;}
+  .slide.active{display:flex;animation:fade .35s ease;}
+  @keyframes fade{from{opacity:0;transform:translateY(8px);}to{opacity:1;}}
+
+  .eyebrow{text-transform:uppercase;letter-spacing:.22em;font-size:14px;
+    color:var(--accent);font-weight:700;margin-bottom:18px;}
+  h1{font-size:84px;line-height:1.02;margin:0 0 16px;letter-spacing:-.03em;
+    background:linear-gradient(100deg,var(--accent),var(--accent2));
+    -webkit-background-clip:text;background-clip:text;color:transparent;}
+  h2{font-size:44px;line-height:1.1;margin:0 0 22px;letter-spacing:-.02em;}
+  .big{font-size:30px;color:var(--ink);max-width:1000px;}
+  .dim{color:var(--muted);}
+  p{max-width:1000px;font-size:21px;}
+  code{font-family:ui-monospace,Menlo,monospace;font-size:.9em;
+    background:var(--panel2);border:1px solid var(--line);border-radius:6px;
+    padding:2px 7px;color:#cdd1e0;}
+  .accent{color:var(--accent);} .accent2{color:var(--accent2);}
+  .warn{color:var(--warn);} .bad{color:var(--bad);}
+
+  ul{padding-left:0;list-style:none;margin:14px 0;}
+  ul li{font-size:23px;padding:9px 0 9px 34px;position:relative;max-width:980px;}
+  ul li:before{content:"";position:absolute;left:0;top:18px;width:11px;
+    height:11px;border-radius:3px;background:var(--accent);}
+  ul.x li:before{background:var(--bad);}
+  ul.check li:before{content:"✓";background:none;color:var(--ok);
+    font-weight:700;top:7px;font-size:22px;}
+  ul li b{color:var(--ink);}
+
+  .quote{font-size:34px;line-height:1.3;border-left:4px solid var(--accent2);
+    padding-left:28px;max-width:1000px;}
+
+  .code{background:#0a0c12;border:1px solid var(--line);border-radius:14px;
+    padding:24px 30px;font-family:ui-monospace,Menlo,monospace;font-size:19px;
+    line-height:1.6;color:#cdd1e0;max-width:1040px;white-space:pre;overflow:auto;}
+  .code .kw{color:var(--accent2);font-weight:600;}
+  .code .jet{color:var(--accent);}
+  .code .c{color:var(--muted);}
+
+  .cards{display:flex;gap:16px;flex-wrap:wrap;margin-top:14px;}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:14px;
+    padding:18px 22px;flex:1;min-width:210px;}
+  .card .t{font-size:12px;text-transform:uppercase;letter-spacing:.12em;
+    color:var(--accent);font-weight:700;}
+  .card .h{font-size:20px;font-weight:700;margin:6px 0 5px;}
+  .card p{font-size:15px;color:var(--muted);margin:0;}
+
+  .doors{display:flex;gap:18px;margin-top:10px;flex-wrap:wrap;}
+  .door{flex:1;min-width:300px;background:var(--panel);border:1px solid var(--line);
+    border-radius:14px;padding:22px 24px;}
+  .door.s{border-top:4px solid var(--accent);}
+  .door.r{border-top:4px solid var(--warn);}
+  .door .dt{font-size:24px;font-weight:700;}
+  .door.s .dt{color:var(--accent);} .door.r .dt{color:var(--warn);}
+  .door .dd{font-size:17px;color:var(--muted);margin-top:8px;}
+
+  .flow{display:flex;gap:14px;align-items:stretch;margin-top:18px;flex-wrap:wrap;}
+  .fstep{flex:1;min-width:200px;background:var(--panel);border:1px solid var(--line);
+    border-radius:12px;padding:16px 18px;}
+  .fstep .n{color:var(--accent);font-weight:700;font-size:14px;}
+  .fstep .x{font-size:18px;margin-top:6px;color:var(--ink);}
+
+  /* layered stack */
+  .layers{display:flex;flex-direction:column;gap:10px;margin-top:14px;
+    max-width:1040px;}
+  .layer{background:var(--panel);border:1px solid var(--line);border-radius:12px;
+    padding:14px 22px;display:flex;align-items:baseline;gap:18px;}
+  .layer .ln{font-size:12px;text-transform:uppercase;letter-spacing:.12em;
+    color:var(--accent);font-weight:700;width:160px;flex-shrink:0;}
+  .layer .lv{font-size:19px;}
+  .layer .lv .dim{font-size:15px;}
+
+  .demo-cue{font-size:64px;line-height:1.05;letter-spacing:-.02em;
+    background:linear-gradient(100deg,var(--accent),var(--accent2));
+    -webkit-background-clip:text;background-clip:text;color:transparent;
+    margin-bottom:18px;}
+
+  /* chrome */
+  .bar{position:fixed;top:0;left:0;height:3px;background:var(--accent);
+    transition:width .3s;z-index:10;}
+  .count{position:fixed;bottom:22px;right:30px;font-size:13px;color:var(--muted);
+    font-family:ui-monospace,Menlo,monospace;z-index:10;}
+  .hint{position:fixed;bottom:22px;left:30px;font-size:12px;color:var(--line);
+    z-index:10;}
+  .tag{position:fixed;top:20px;right:30px;font-size:12px;color:var(--muted);
+    text-transform:uppercase;letter-spacing:.18em;font-weight:700;z-index:10;}
+  .tag b{color:var(--accent);}
+</style>
+</head>
+<body>
+
+<div class="bar" id="bar"></div>
+<div class="tag"><b>Mosaik</b></div>
+<div class="count" id="count"></div>
+<div class="hint">← → to navigate</div>
+
+<!-- 1 — title -->
+<section class="slide active">
+  <div class="eyebrow">Blockstream Simplicity Hackathon · Turin 2026</div>
+  <h1>Mosaik</h1>
+  <div class="big">A covenant DEX on Liquid.<br>
+    <span class="dim">The order is the coin.</span></div>
+</section>
+
+<!-- 2 — problem -->
+<section class="slide">
+  <div class="eyebrow">The problem</div>
+  <h2>An order is a promise.</h2>
+  <ul>
+    <li>A centralized exchange holds your funds — and can fail.</li>
+    <li>A market maker quotes a price — and can renege.</li>
+    <li>Every venue between you and the trade is a party you trust.</li>
+  </ul>
+  <p class="big" style="margin-top:24px">What if the order simply
+    <span class="accent">could not break?</span></p>
+</section>
+
+<!-- 3 — the idea -->
+<section class="slide">
+  <div class="eyebrow">The idea</div>
+  <h2>The order <span class="accent">is</span> the coin.</h2>
+  <p class="big">A maker locks asset A into one Liquid coin governed by a
+    Simplicity covenant — a <span class="accent2">Tessera</span>.</p>
+  <div class="quote" style="margin-top:26px">An order isn't a promise a market
+    maker might break. It's a covenant the coin itself keeps.</div>
+</section>
+
+<!-- 4 — the name -->
+<section class="slide">
+  <div class="eyebrow">The name · Roma antiqua</div>
+  <h2>A token, and the picture<br>it builds.</h2>
+  <div class="doors">
+    <div class="door s">
+      <div class="dt">tessera</div>
+      <div class="dd">A token in ancient Rome. The <i>tessera hospitalis</i> was
+        a small tablet snapped in two — each party kept a half. Rejoin the
+        halves and they fit: the bond is proven. A <b>bearer token, redeemed by
+        fit</b> — no registry, no signature, no trusted third party.</div>
+    </div>
+    <div class="door r">
+      <div class="dt">musīvum</div>
+      <div class="dd">From <i>opus musīvum</i> — a picture laid from thousands of
+        tesserae. No single tile is the image. Set side by side, the
+        independent pieces <b>become one.</b></div>
+    </div>
+  </div>
+  <p class="big" style="margin-top:22px">Every Mosaik offer is one
+    <span class="accent">Tessera</span> — a covenant coin redeemed when the
+    matching transaction fits. The order book is the
+    <span class="accent2">mosaic</span> they form.</p>
+</section>
+
+<!-- 5 — the tessera -->
+<section class="slide">
+  <div class="eyebrow">The Tessera</div>
+  <h2>Two doors. No keys.</h2>
+  <div class="doors">
+    <div class="door s">
+      <div class="dt">SETTLE</div>
+      <div class="dd">Spendable by <b>anyone</b> — if the transaction pays the
+        maker exactly <code>amount_b</code> of <code>asset_b</code>. One atomic
+        swap. The coin refuses any spend that underpays.</div>
+    </div>
+    <div class="door r">
+      <div class="dt">REFUND · keyless</div>
+      <div class="dd">After <code>timeout</code>, <b>anyone</b> may sweep the
+        coin — but only back to the maker. No key, no signature. The maker can
+        stay offline forever.</div>
+    </div>
+  </div>
+</section>
+
+<!-- 6 — how a swap runs -->
+<section class="slide">
+  <div class="eyebrow">How a swap runs</div>
+  <h2>One transaction. Both legs, or neither.</h2>
+  <div class="flow">
+    <div class="fstep"><div class="n">MAKER</div>
+      <div class="x">Locks asset A in a Tessera. Goes offline.</div></div>
+    <div class="fstep"><div class="n">TAKER</div>
+      <div class="x">Finds it on the Nostr orderbook.</div></div>
+    <div class="fstep"><div class="n">TAKER</div>
+      <div class="x">Builds one tx — pays the maker, takes asset A.</div></div>
+    <div class="fstep"><div class="n">COVENANT</div>
+      <div class="x">The node runs it — confirms, or rejects.</div></div>
+  </div>
+  <p class="dim" style="margin-top:20px">No escrow. No matching engine. No
+    maker server.</p>
+</section>
+
+<!-- 7 — why simplicity -->
+<section class="slide">
+  <div class="eyebrow">Why Simplicity</div>
+  <h2>A coin that reads its own<br>spending transaction.</h2>
+  <p class="big">Bitcoin Script cannot inspect the outputs of the transaction
+    spending a coin. <span class="accent">Simplicity can.</span></p>
+  <p class="dim" style="margin-top:14px">Transaction introspection is the
+    primitive. A covenant that <em>enforces a trade</em> — checks the amount,
+    the asset, the destination — is the thing that genuinely needs it.</p>
+</section>
+
+<!-- 8 — keyless -->
+<section class="slide">
+  <div class="eyebrow">Our design</div>
+  <h2>No keys. Anywhere.</h2>
+  <p class="big">Most covenant swaps still sign something. Mosaik signs
+    <span class="accent">nothing</span> — both doors are pure introspection.</p>
+  <ul>
+    <li>Four numbers in the tapleaf: <b>asset, amount, maker script,
+      timeout.</b></li>
+    <li>No maker key. The maker is just an address.</li>
+    <li>The simplest covenant that can possibly enforce a swap.</li>
+  </ul>
+</section>
+
+<!-- 9 — attack -->
+<section class="slide">
+  <div class="eyebrow">The demo · centrepiece</div>
+  <h2 class="bad">We tried to cheat it.</h2>
+  <p class="big">Three fraudulent fills — each a well-formed, balanced
+    transaction the mempool would accept:</p>
+  <ul class="x">
+    <li><b>Underpay the maker</b> &nbsp;→&nbsp; <span class="bad">rejected</span></li>
+    <li><b>Pay the wrong address</b> &nbsp;→&nbsp; <span class="bad">rejected</span></li>
+    <li><b>Hide the maker's output</b> &nbsp;→&nbsp; <span class="bad">rejected</span></li>
+  </ul>
+  <p class="accent" style="margin-top:18px;font-size:24px">Watch the lock stop a
+    thief — not just turn for an honest fill.</p>
+</section>
+
+<!-- 10 — live demo -->
+<section class="slide">
+  <div class="eyebrow">Live</div>
+  <div class="demo-cue">Let's watch it run.</div>
+  <p class="big">The browser wallet — two real wallets on a Liquid regtest.</p>
+  <ul>
+    <li>Fund · make an offer · take it — a real on-chain settlement.</li>
+    <li>Attack the covenant — watch it reject the fraud.</li>
+    <li>Reclaim — the keyless REFUND sweeps an offer home.</li>
+  </ul>
+</section>
+
+<!-- 11 — proof -->
+<section class="slide">
+  <div class="eyebrow">It's real</div>
+  <h2>Not a mockup. Enforced on-chain.</h2>
+  <ul class="check">
+    <li>The covenant compiles to a 32-byte CMR and is executed by
+      <b>elementsd with Simplicity consensus rules</b> — the node enforces it,
+      not us.</li>
+    <li>Every fill is <b>one Elements transaction</b>; every settlement and
+      reclaim is on-chain and re-checkable.</li>
+    <li><b>Multi-asset</b> — L-BTC/asset, asset/asset, both directions.</li>
+    <li>Covered by execution tests and <b>on-chain regtest integration
+      tests</b> — including the rejected attacks.</li>
+  </ul>
+</section>
+
+<!-- 12 — stack -->
+<section class="slide">
+  <div class="eyebrow">The stack</div>
+  <h2>Liquid, Simplicity, Nostr, Rust.</h2>
+  <div class="layers">
+    <div class="layer"><div class="ln">Chain</div>
+      <div class="lv">Liquid Network <span class="dim">· Elements, confidential, federated</span></div></div>
+    <div class="layer"><div class="ln">Consensus</div>
+      <div class="lv">Simplicity-capable <code>elementsd</code> <span class="dim">· runs the covenant, leaf version 0xbe</span></div></div>
+    <div class="layer"><div class="ln">Covenant</div>
+      <div class="lv">SimplicityHL <span class="dim">· the Tessera — compiled to a CMR (crate <code>tessera</code>)</span></div></div>
+    <div class="layer"><div class="ln">Settlement</div>
+      <div class="lv">Rust <span class="dim">· multi-asset tx construction, SETTLE &amp; REFUND (<code>mosaik-core</code>)</span></div></div>
+    <div class="layer"><div class="ln">Discovery</div>
+      <div class="lv">Nostr orderbook <span class="dim">· offers as addressable events, no server (<code>mosaik-relay</code>)</span></div></div>
+    <div class="layer"><div class="ln">App</div>
+      <div class="lv">CLI + single-file browser wallet <span class="dim">· (<code>mosaik-cli</code> + webapp)</span></div></div>
+  </div>
+</section>
+
+<!-- 13 — roadmap -->
+<section class="slide">
+  <div class="eyebrow">Where it goes</div>
+  <h2>From limit orders to a liquidity layer.</h2>
+  <ul>
+    <li><b>Partial fills</b> — sweep a grid of covenant UTXOs in one tx.</li>
+    <li><b>Recursive vault</b> — a fill re-locks the remainder; fund once,
+      fill many.</li>
+    <li><b>Cross-L2 legs</b> — a hash-preimage branch bridges to Lightning and
+      RGB.</li>
+    <li><b>Confidential v2</b> — covenant settlement over blinded amounts.</li>
+  </ul>
+</section>
+
+<!-- 14 — close -->
+<section class="slide">
+  <div class="eyebrow">Mosaik</div>
+  <h1>The order is the coin.</h1>
+  <div class="big dim">No exchange. No matching engine. No custody.<br>
+    The coin enforces the trade.</div>
+  <p style="margin-top:28px;font-size:19px">
+    <span class="accent">github.com/kaleidoswap/mosaik</span></p>
+  <p class="dim" style="margin-top:4px;font-size:14px">A Tessera is one offer —
+    one covenant, one tile. Mosaik is the market they form.<br>
+    Blockstream Simplicity Bootcamp &amp; Hackathon · Turin · 2026 ·
+    part of the KaleidoSwap family.</p>
+</section>
+
+<script>
+  const slides = [...document.querySelectorAll('.slide')];
+  let i = 0;
+  function show(n) {
+    i = Math.max(0, Math.min(slides.length - 1, n));
+    slides.forEach((s, k) => s.classList.toggle('active', k === i));
+    document.getElementById('bar').style.width =
+      ((i + 1) / slides.length * 100) + '%';
+    document.getElementById('count').textContent =
+      (i + 1) + ' / ' + slides.length;
+  }
+  document.addEventListener('keydown', e => {
+    if (['ArrowRight', 'ArrowDown', ' ', 'PageDown'].includes(e.key)) {
+      e.preventDefault(); show(i + 1);
+    } else if (['ArrowLeft', 'ArrowUp', 'PageUp'].includes(e.key)) {
+      e.preventDefault(); show(i - 1);
+    } else if (e.key === 'Home') { show(0); }
+    else if (e.key === 'End') { show(slides.length - 1); }
+  });
+  document.addEventListener('click', e => {
+    show(i + (e.clientX < window.innerWidth * 0.32 ? -1 : 1));
+  });
+  show(0);
+</script>
+</body>
+</html>

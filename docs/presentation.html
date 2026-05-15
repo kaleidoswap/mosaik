@@ -1,0 +1,288 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Mosaik — a covenant DEX on Liquid</title>
+<style>
+  :root{
+    --bg:#0c0e14; --panel:#151823; --panel2:#1c2030; --ink:#e8eaf2;
+    --muted:#9aa0b4; --line:#2a2f42; --accent:#6ad6c8; --accent2:#c8a8ff;
+    --ok:#6ad6c8; --warn:#ffcf6a; --bad:#f0a6c8;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font:15px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;}
+  .wrap{max-width:980px;margin:0 auto;padding:0 26px 90px;}
+  a{color:var(--accent);}
+
+  /* hero */
+  .hero{padding:74px 0 38px;border-bottom:1px solid var(--line);}
+  .eyebrow{text-transform:uppercase;letter-spacing:.2em;font-size:12px;
+    color:var(--accent);font-weight:700;}
+  h1{font-size:58px;line-height:1.04;margin:14px 0 10px;letter-spacing:-.03em;
+    background:linear-gradient(100deg,var(--accent),var(--accent2));
+    -webkit-background-clip:text;background-clip:text;color:transparent;}
+  .tagline{font-size:21px;color:var(--ink);max-width:680px;}
+  .lede{font-size:15px;color:var(--muted);max-width:680px;margin-top:12px;}
+  .pills{display:flex;gap:8px;flex-wrap:wrap;margin-top:22px;}
+  .pill{font-size:12px;font-weight:600;border:1px solid var(--line);
+    background:var(--panel2);border-radius:999px;padding:6px 13px;color:var(--muted);}
+  .pill b{color:var(--accent);}
+
+  h2{font-size:13px;text-transform:uppercase;letter-spacing:.15em;
+    color:var(--accent);margin:56px 0 6px;font-weight:700;}
+  h2 .n{color:var(--line);margin-right:10px;}
+  .sub{color:var(--muted);font-size:14px;margin:0 0 18px;max-width:740px;}
+  p{max-width:740px;}
+  code{font-family:ui-monospace,Menlo,monospace;font-size:.92em;
+    background:var(--panel2);border:1px solid var(--line);border-radius:5px;
+    padding:1px 5px;color:#cdd1e0;}
+  .quote{border-left:3px solid var(--accent2);padding:4px 0 4px 18px;
+    font-size:18px;color:var(--ink);margin:24px 0;max-width:720px;}
+
+  .cols{display:grid;grid-template-columns:1fr 1fr;gap:14px;}
+  .cols3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px;}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:14px;
+    padding:18px 20px;}
+  .card h3{margin:2px 0 6px;font-size:16px;}
+  .card p{font-size:13.5px;color:var(--muted);margin:0;}
+  .card .tag{font-size:11px;text-transform:uppercase;letter-spacing:.1em;
+    font-weight:700;color:var(--accent);}
+
+  /* covenant box */
+  .covenant{background:var(--panel);border:1px solid var(--line);
+    border-radius:14px;padding:4px 0;margin:18px 0;}
+  .door{padding:16px 20px;border-bottom:1px solid var(--line);}
+  .door:last-child{border-bottom:0;}
+  .door .h{font-weight:700;font-size:15px;}
+  .door.settle .h{color:var(--accent);} .door.refund .h{color:var(--warn);}
+  .door .d{font-size:13.5px;color:var(--muted);margin-top:3px;}
+
+  /* flow */
+  .flow{display:grid;grid-template-columns:1fr 1fr 1fr;gap:0;margin:16px 0;}
+  .lane{padding:0 6px;}
+  .lane .who{text-align:center;font-weight:700;font-size:12px;
+    text-transform:uppercase;letter-spacing:.1em;padding-bottom:9px;color:var(--muted);}
+  .step{background:var(--panel);border:1px solid var(--line);border-radius:10px;
+    padding:9px 11px;margin:7px 0;font-size:12px;color:var(--muted);}
+  .step b{color:var(--ink);}
+  .arrow{text-align:center;color:var(--line);font-size:11px;}
+
+  table{width:100%;border-collapse:collapse;margin:12px 0;font-size:13.5px;}
+  th,td{text-align:left;padding:9px 12px;border-bottom:1px solid var(--line);
+    vertical-align:top;}
+  th{color:var(--accent);font-size:11px;text-transform:uppercase;letter-spacing:.08em;}
+  td.k{color:var(--muted);white-space:nowrap;}
+  .ok{color:var(--ok);font-weight:700;}
+
+  ul.checks{list-style:none;padding:0;margin:14px 0;}
+  ul.checks li{padding:7px 0 7px 26px;position:relative;font-size:14px;
+    border-bottom:1px solid var(--line);}
+  ul.checks li:before{content:"✓";position:absolute;left:0;color:var(--ok);
+    font-weight:700;}
+  ul.checks li b{color:var(--ink);}
+  ul.checks li.todo:before{content:"○";color:var(--muted);}
+
+  .attack{background:var(--panel);border:1px solid var(--bad);border-radius:12px;
+    padding:16px 20px;margin:16px 0;}
+  .attack .h{color:var(--bad);font-weight:700;font-size:14px;}
+  .attack ul{margin:8px 0 0;padding-left:18px;font-size:13.5px;color:var(--muted);}
+
+  footer{margin-top:64px;padding-top:24px;border-top:1px solid var(--line);
+    color:var(--muted);font-size:12.5px;}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<!-- ───────── hero ───────── -->
+<div class="hero">
+  <div class="eyebrow">Mosaik</div>
+  <h1>The order is the coin.</h1>
+  <div class="tagline">A covenant DEX on the Liquid Network. Every order is a
+    <strong>Tessera</strong> — a single coin whose Simplicity covenant enforces
+    the trade itself.</div>
+  <div class="lede">No exchange. No matching engine. No maker server. No custody.
+    The coin rejects any spend that doesn't honour its terms — so a swap is
+    trustless by construction, not by promise.</div>
+  <div class="pills">
+    <span class="pill"><b>Liquid</b> Network</span>
+    <span class="pill"><b>Simplicity</b> covenants</span>
+    <span class="pill"><b>Nostr</b> orderbook</span>
+    <span class="pill">non-custodial</span>
+    <span class="pill">on-chain enforced</span>
+  </div>
+</div>
+
+<!-- ───────── 01 the idea ───────── -->
+<h2><span class="n">01</span> The idea</h2>
+<p class="sub">A maker wants to sell asset A for asset B. Instead of posting an
+order to an exchange that might not honour it, they lock asset A into one Liquid
+coin governed by a covenant.</p>
+
+<div class="quote">On Mosaik, an order isn't a promise a market maker might
+break — it's a covenant the coin itself keeps.</div>
+
+<p>That single UTXO <em>is</em> the offer. It is <b>permissionless</b> (anyone
+can fill it, the maker need not be online), <b>uncheatable</b> (the taker cannot
+take asset A without paying asset B — the coin refuses), <b>atomic</b> (one
+transaction moves both assets or neither confirms), and needs <b>no
+infrastructure</b> at all.</p>
+
+<!-- ───────── 02 the covenant ───────── -->
+<h2><span class="n">02</span> A Tessera — two doors, no keys</h2>
+<p class="sub">The covenant is <strong>keyless</strong>: pure transaction
+introspection, no signatures anywhere. A coin reads the transaction trying to
+spend it and allows it only through one of two doors.</p>
+
+<div class="covenant">
+  <div class="door settle">
+    <div class="h">SETTLE — fill the offer</div>
+    <div class="d">Spendable by <b>anyone</b>, if the spending transaction has
+      an output paying exactly <code>amount_b</code> of <code>asset_b</code> to
+      the maker. The taker keeps asset A; the maker is paid. One atomic swap.</div>
+  </div>
+  <div class="door refund">
+    <div class="h">REFUND — reclaim the offer (keyless)</div>
+    <div class="d">After block height <code>timeout</code>, spendable by
+      <b>anyone</b> — but only by a transaction that returns the locked asset to
+      the maker. No key, no signature. The maker can stay offline forever; a
+      griefer can only pay the network fee to hand the maker their coin back.</div>
+  </div>
+</div>
+
+<p style="font-size:13.5px;color:var(--muted)">Four terms — asset id, amount,
+maker script, timeout — are committed into the Taproot tapleaf, so they cannot
+change once the offer is funded. There is no maker public key: the maker is
+just an address.</p>
+
+<!-- ───────── 03 how a swap runs ───────── -->
+<h2><span class="n">03</span> How a swap runs</h2>
+<div class="flow">
+  <div class="lane">
+    <div class="who">Maker</div>
+    <div class="step"><b>1.</b> Lock asset A in a Tessera UTXO — terms baked
+      into the tapleaf.</div>
+    <div class="arrow">│ then offline ▼</div>
+    <div class="step"><b>4.</b> Receives asset B automatically when a taker
+      fills, or the coin is swept home after the timeout.</div>
+  </div>
+  <div class="lane">
+    <div class="who">Tessera covenant</div>
+    <div class="step">Holds asset A. Reads every spending transaction.</div>
+    <div class="arrow">▲ executed on-chain ▼</div>
+    <div class="step">Accepts the spend only through SETTLE or REFUND —
+      rejects everything else.</div>
+  </div>
+  <div class="lane">
+    <div class="who">Taker</div>
+    <div class="step"><b>2.</b> Discover the offer over the Nostr orderbook;
+      re-derive the covenant address, verify the on-chain UTXO.</div>
+    <div class="arrow">▼</div>
+    <div class="step"><b>3.</b> Build one transaction: covenant UTXO in,
+      asset B to the maker, asset A out. Broadcast.</div>
+  </div>
+</div>
+
+<!-- ───────── 04 why simplicity ───────── -->
+<h2><span class="n">04</span> Why this needs Simplicity</h2>
+<p>The whole construction rests on <b>transaction introspection</b> — a coin
+reading the outputs of the transaction spending it, and checking amounts,
+assets and scripts. Bitcoin Script cannot do this. LiquiDEX-style swaps get
+atomicity from a <code>SIGHASH</code> trick; adaptor-signature PTLCs work on
+plain Taproot. A covenant that <em>enforces the counter-payment itself</em> is
+the thing that genuinely requires Simplicity — and Mosaik runs it on-chain,
+validated by a Simplicity-capable <code>elementsd</code>.</p>
+
+<!-- ───────── 05 built & demoable ───────── -->
+<h2><span class="n">05</span> Built &amp; demoable</h2>
+<p class="sub">Not a slide deck — a working covenant DEX, enforced on a live
+Elements regtest.</p>
+<ul class="checks">
+  <li><b>The covenant compiles</b> to a Commitment Merkle Root and is execution-
+    tested — SETTLE and the keyless REFUND.</li>
+  <li><b>Enforced on-chain</b> — a Simplicity-capable node executes the covenant
+    and rejects any spend that underpays the maker.</li>
+  <li><b>Multi-asset swaps</b> — L-BTC/asset, asset/L-BTC and asset/asset, in
+    either direction. The covenant never inspects the locked asset.</li>
+  <li><b>Keyless reclaim</b> — the maker recovers an unfilled offer after the
+    timeout with no key and no signature.</li>
+  <li><b>Nostr orderbook</b> — offers are published and discovered over Nostr;
+    no server, no account.</li>
+  <li><b>Browser wallet</b> — a two-wallet maker/taker UI: fund, make offers,
+    swap, inspect the live covenant.</li>
+  <li class="todo">Partial fills — sweep a grid of covenant UTXOs in one tx
+    <span style="color:var(--muted)">(roadmap)</span>.</li>
+</ul>
+
+<div class="attack">
+  <div class="h">⚔ Attack the covenant — the demo's centrepiece</div>
+  <p style="font-size:13.5px;color:var(--muted);margin:6px 0 0">The wallet UI
+    ships deliberate <em>cheating</em> fills. Each builds a well-formed,
+    balanced transaction the mempool would accept — and the covenant rejects
+    every one:</p>
+  <ul>
+    <li><b>Underpay the maker</b> — pay one unit short → rejected.</li>
+    <li><b>Pay the wrong address</b> — redirect the maker's output → rejected.</li>
+    <li><b>Hide the maker output</b> — move it off index 0 → rejected.</li>
+  </ul>
+  <p style="font-size:13px;color:var(--muted);margin:8px 0 0">Watching the coin
+    <em>stop a thief</em> — not just turn for an honest fill — is what makes the
+    covenant's value visceral.</p>
+</div>
+
+<!-- ───────── 06 the stack ───────── -->
+<h2><span class="n">06</span> The stack</h2>
+<div class="cols">
+  <div class="card">
+    <div class="tag">tessera</div>
+    <h3>The covenant</h3>
+    <p>The Tessera covenant in SimplicityHL, parameterised and compiled to a
+      CMR; Taproot address derivation; witness assembly.</p>
+  </div>
+  <div class="card">
+    <div class="tag">mosaik-core</div>
+    <h3>Offers &amp; settlement</h3>
+    <p>Offer types, multi-asset Elements transaction construction, the SETTLE
+      and keyless REFUND builders, the Elements RPC client.</p>
+  </div>
+  <div class="card">
+    <div class="tag">mosaik-relay</div>
+    <h3>The Nostr orderbook</h3>
+    <p>Offers published as addressable Nostr events; browse and discover with
+      no server in the path.</p>
+  </div>
+  <div class="card">
+    <div class="tag">mosaik-cli + webapp</div>
+    <h3>CLI &amp; wallet UI</h3>
+    <p>The <code>mosaik</code> command and a single-file browser wallet — fund,
+      make, take, reclaim, and inspect the covenant live.</p>
+  </div>
+</div>
+
+<!-- ───────── 07 roadmap ───────── -->
+<h2><span class="n">07</span> Where it goes</h2>
+<table>
+  <tr><th>Next</th><th>What it adds</th></tr>
+  <tr><td class="k">Partial fills</td><td>A maker funds a grid of covenant
+    UTXOs; a taker sweeps several in one transaction — depth and partial
+    execution with no covenant change.</td></tr>
+  <tr><td class="k">Recursive vault</td><td>A SETTLE re-locks the remainder into
+    a fresh covenant — fund once, fill many times.</td></tr>
+  <tr><td class="k">Cross-L2 legs</td><td>A hash-preimage branch lets a Tessera
+    be one leg of an atomic swap with Lightning or RGB.</td></tr>
+  <tr><td class="k">Confidential v2</td><td>Verify a blinded maker output —
+    covenant settlement with Liquid's confidential amounts.</td></tr>
+</table>
+
+<footer>
+  <b style="color:var(--ink)">Mosaik</b> — a covenant DEX on Liquid.
+  Built for the Blockstream Simplicity Bootcamp &amp; Hackathon, Blox Space,
+  Turin, 16–17 May 2026. &nbsp;·&nbsp; A Tessera is one offer — one covenant,
+  one tile; Mosaik is the market they form. Part of the KaleidoSwap family.
+</footer>
+
+</div>
+</body>
+</html>

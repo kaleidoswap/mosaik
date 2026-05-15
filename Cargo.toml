@@ -1,0 +1,30 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/tessera",
+    "crates/mosaik-core",
+    "crates/mosaik-relay",
+    "crates/mosaik-cli",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+authors = ["KaleidoSwap"]
+repository = "https://github.com/kaleidoswap/mosaik"
+
+[workspace.dependencies]
+anyhow = "1"
+clap = { version = "4", features = ["derive"] }
+hex = "0.4"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+ureq = { version = "2", features = ["json"] }
+simplicityhl = "0.6.0-rc.0"
+
+# Liquid / Simplicity crates — added during the hackathon as each milestone
+# lands, so the workspace builds cleanly from day 0:
+#   elements   = "0.25"   # Elements/Liquid transactions, PSET
+#   lwk_wollet = "0.x"    # Liquid Wallet Kit — wallet, scanning, PSET
+#   simplicity = "0.x"    # rust-simplicity — compile/parse Simplicity programs

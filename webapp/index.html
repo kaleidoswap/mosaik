@@ -1,0 +1,1483 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Mosaik DEX - covenant trading console</title>
+<style>
+  :root {
+    --bg: #070b12;
+    --bg-2: #0b111c;
+    --panel: #101827;
+    --panel-2: #151f31;
+    --panel-3: #1b263a;
+    --line: rgba(255, 255, 255, 0.08);
+    --line-strong: rgba(255, 255, 255, 0.15);
+    --ink: #f6f8fb;
+    --muted: rgba(246, 248, 251, 0.62);
+    --dim: rgba(246, 248, 251, 0.38);
+    --green: #00d09c;
+    --green-2: #15e99a;
+    --purple: #6f32ff;
+    --purple-2: #9d78ff;
+    --amber: #f6c343;
+    --red: #f2637b;
+    --liquid: #22e1c9;
+    --shadow: 0 18px 55px rgba(0, 0, 0, 0.42);
+    --mono: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+    --sans: "Spline Sans", Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  }
+
+  * { box-sizing: border-box; }
+
+  html { min-height: 100%; background: var(--bg); }
+
+  body {
+    min-height: 100vh;
+    margin: 0;
+    color: var(--ink);
+    background:
+      linear-gradient(135deg, rgba(111, 50, 255, 0.14), transparent 26%),
+      linear-gradient(225deg, rgba(0, 208, 156, 0.11), transparent 24%),
+      linear-gradient(180deg, var(--bg-2), var(--bg) 34%, #06090f);
+    font: 14px/1.45 var(--sans);
+    overflow-x: hidden;
+  }
+
+  button, input, select { font: inherit; }
+
+  button {
+    min-height: 38px;
+    border: 0;
+    border-radius: 8px;
+    color: #04140f;
+    background: linear-gradient(135deg, var(--green-2), var(--green));
+    padding: 0 14px;
+    font-size: 13px;
+    font-weight: 800;
+    cursor: pointer;
+    box-shadow: 0 0 22px rgba(0, 208, 156, 0.18);
+  }
+
+  button:hover { filter: brightness(1.06); }
+
+  button:focus-visible,
+  input:focus-visible,
+  select:focus-visible {
+    outline: 2px solid rgba(21, 233, 154, 0.8);
+    outline-offset: 2px;
+  }
+
+  button:disabled { cursor: not-allowed; filter: grayscale(0.25); opacity: 0.42; }
+
+  button.maker {
+    color: #100628;
+    background: linear-gradient(135deg, var(--purple-2), var(--purple));
+    box-shadow: 0 0 22px rgba(111, 50, 255, 0.2);
+  }
+
+  button.ghost {
+    color: var(--ink);
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid var(--line);
+    box-shadow: none;
+  }
+
+  button.bad {
+    min-height: 30px;
+    color: var(--red);
+    background: rgba(242, 99, 123, 0.08);
+    border: 1px solid rgba(242, 99, 123, 0.28);
+    padding: 0 10px;
+    font-size: 11px;
+    box-shadow: none;
+  }
+
+  input, select {
+    width: 100%;
+    min-height: 42px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    color: var(--ink);
+    background: #0b1220;
+    padding: 0 12px;
+  }
+
+  label {
+    display: block;
+    margin-bottom: 6px;
+    color: var(--dim);
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+  }
+
+  .app-shell { width: min(1580px, 100%); margin: 0 auto; padding: 14px; }
+
+  .topbar {
+    display: grid;
+    grid-template-columns: minmax(210px, 1fr) auto minmax(210px, 1fr);
+    gap: 14px;
+    align-items: center;
+    min-height: 66px;
+    margin-bottom: 10px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: rgba(11, 17, 28, 0.86);
+    box-shadow: var(--shadow);
+    backdrop-filter: blur(18px);
+    padding: 10px 14px;
+  }
+
+  .brand { display: flex; align-items: center; gap: 12px; min-width: 0; }
+
+  .mark {
+    display: grid;
+    grid-template-columns: repeat(3, 9px);
+    grid-template-rows: repeat(3, 9px);
+    gap: 3px;
+    width: 36px;
+    height: 36px;
+    border-radius: 8px;
+    padding: 4px;
+    background: #0d1625;
+    border: 1px solid var(--line);
+  }
+
+  .mark span {
+    display: block;
+    border-radius: 3px;
+    background: var(--green);
+    box-shadow: 0 0 12px rgba(0, 208, 156, 0.34);
+  }
+
+  .mark span:nth-child(2),
+  .mark span:nth-child(5) {
+    background: var(--purple);
+    box-shadow: 0 0 12px rgba(111, 50, 255, 0.34);
+  }
+
+  .mark span:nth-child(6),
+  .mark span:nth-child(8) {
+    background: var(--amber);
+    box-shadow: 0 0 12px rgba(246, 195, 67, 0.24);
+  }
+
+  .brand-copy { min-width: 0; }
+
+  .eyebrow {
+    color: var(--green);
+    font-size: 10px;
+    font-weight: 900;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+  }
+
+  h1 { margin: 1px 0 0; font-size: 20px; line-height: 1.1; }
+
+  .pair-select {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+  }
+
+  .pair-select label { margin: 0; }
+
+  .pair-select select {
+    width: auto;
+    min-width: 190px;
+    min-height: 44px;
+    color: var(--green-2);
+    background: #0d1625;
+    border-color: rgba(0, 208, 156, 0.28);
+    font: 900 17px/1 var(--mono);
+    letter-spacing: 0.04em;
+  }
+
+  .height {
+    justify-self: end;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    color: var(--dim);
+    font-size: 11px;
+    text-align: right;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+  }
+
+  .height b {
+    display: inline-grid;
+    min-width: 84px;
+    min-height: 34px;
+    place-items: center;
+    border: 1px solid rgba(0, 208, 156, 0.2);
+    border-radius: 8px;
+    color: var(--green-2);
+    background: rgba(0, 208, 156, 0.08);
+    font: 800 15px/1 var(--mono);
+    letter-spacing: 0;
+  }
+
+  .ticker-strip {
+    display: grid;
+    grid-template-columns: 1.2fr repeat(5, minmax(110px, 1fr));
+    gap: 1px;
+    overflow: hidden;
+    margin-bottom: 10px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: var(--line);
+  }
+
+  .ticker-cell {
+    min-height: 62px;
+    background: rgba(16, 24, 39, 0.94);
+    padding: 11px 14px;
+  }
+
+  .ticker-cell .k {
+    color: var(--dim);
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+  }
+
+  .ticker-cell .v { margin-top: 5px; color: var(--ink); font: 800 16px/1.1 var(--mono); }
+
+  .ticker-cell.pair .v { color: var(--green-2); font-size: 22px; }
+
+  .ticker-cell .up { color: var(--green); }
+  .ticker-cell .down { color: var(--red); }
+
+  .ticker-cell.nostr .v { color: var(--purple-2); font-size: 13px; }
+
+  .dex-grid {
+    display: grid;
+    grid-template-columns: minmax(236px, 0.74fr) minmax(420px, 1.7fr) minmax(320px, 0.9fr);
+    grid-template-areas:
+      "book chart ticket"
+      "book depth trades"
+      "wallet offers trades";
+    gap: 10px;
+  }
+
+  .panel {
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: rgba(16, 24, 39, 0.94);
+    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.22);
+    overflow: hidden;
+  }
+
+  .panel-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    min-height: 48px;
+    border-bottom: 1px solid var(--line);
+    padding: 10px 14px;
+  }
+
+  .panel-title { margin: 0; font-size: 14px; font-weight: 900; }
+
+  .panel-meta { color: var(--dim); font-size: 11px; font-weight: 700; }
+
+  .book { grid-area: book; }
+
+  .book-table { padding: 10px 0; }
+
+  .book-head {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    padding: 0 12px 6px;
+    color: var(--dim);
+    font: 800 10px/1 var(--sans);
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+  }
+
+  .book-head span:last-child { text-align: right; }
+
+  .book-row {
+    position: relative;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    min-height: 30px;
+    align-items: center;
+    padding: 0 12px;
+    font: 700 12px/1 var(--mono);
+    cursor: pointer;
+  }
+
+  .book-row:hover { background: rgba(255, 255, 255, 0.04); }
+
+  .book-row::before {
+    content: "";
+    position: absolute;
+    top: 3px;
+    bottom: 3px;
+    left: 0;
+    width: var(--w);
+    opacity: 0.22;
+  }
+
+  .book-row.ask::before { background: var(--red); }
+  .book-row.bid::before { background: var(--green); }
+
+  .book-row span { position: relative; z-index: 1; }
+
+  .book-row span:last-child { color: rgba(246, 248, 251, 0.78); text-align: right; }
+
+  .ask .price { color: var(--red); }
+  .bid .price { color: var(--green); }
+
+  .spread {
+    display: grid;
+    place-items: center;
+    min-height: 66px;
+    border-top: 1px solid var(--line);
+    border-bottom: 1px solid var(--line);
+    color: var(--green-2);
+    background: linear-gradient(90deg, rgba(0, 208, 156, 0.06), rgba(111, 50, 255, 0.08));
+    font: 900 24px/1 var(--mono);
+  }
+
+  .spread small {
+    display: block;
+    margin-top: 6px;
+    color: var(--dim);
+    font: 800 10px/1 var(--sans);
+    letter-spacing: 0.16em;
+    text-align: center;
+    text-transform: uppercase;
+  }
+
+  .chart { grid-area: chart; min-height: 454px; }
+
+  .chart-stage {
+    position: relative;
+    min-height: 405px;
+    padding: 14px;
+    background:
+      linear-gradient(rgba(255, 255, 255, 0.045) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255, 255, 255, 0.035) 1px, transparent 1px);
+    background-size: 100% 62px, 82px 100%;
+  }
+
+  .chart-svg { display: block; width: 100%; height: 316px; }
+
+  .ticket { grid-area: ticket; }
+
+  .tabs {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    border-bottom: 1px solid var(--line);
+  }
+
+  .tabs button {
+    min-height: 44px;
+    border-radius: 0;
+    color: var(--dim);
+    background: transparent;
+    border-right: 1px solid var(--line);
+    box-shadow: none;
+  }
+
+  .tabs button:last-child { border-right: 0; }
+
+  .tabs button.active {
+    color: var(--ink);
+    background: rgba(255, 255, 255, 0.05);
+    box-shadow: inset 0 -2px 0 var(--green);
+  }
+
+  .ticket-body { padding: 14px; }
+
+  .side-toggle {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    margin-bottom: 14px;
+  }
+
+  .side-toggle button {
+    min-height: 44px;
+    color: var(--muted);
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid var(--line);
+    box-shadow: none;
+  }
+
+  .side-toggle button.sell.active {
+    color: var(--red);
+    background: rgba(242, 99, 123, 0.1);
+    border-color: rgba(242, 99, 123, 0.4);
+  }
+
+  .side-toggle button.buy.active {
+    color: var(--green);
+    background: rgba(0, 208, 156, 0.1);
+    border-color: rgba(0, 208, 156, 0.4);
+  }
+
+  .row { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+
+  .row + .row { margin-top: 12px; }
+
+  .form-block { margin-bottom: 12px; }
+
+  .input-shell { position: relative; }
+
+  .input-shell .unit {
+    position: absolute;
+    top: 50%;
+    right: 12px;
+    color: var(--dim);
+    transform: translateY(-50%);
+    font-weight: 800;
+    font-size: 12px;
+  }
+
+  .input-shell input { padding-right: 60px; }
+
+  .make-btn { width: 100%; min-height: 46px; margin-top: 4px; }
+
+  .note { margin-top: 10px; color: var(--dim); font-size: 11px; }
+
+  .wallets { grid-area: wallet; }
+
+  .wallet-side { padding: 12px 14px; }
+
+  .wallet-top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    margin-bottom: 10px;
+  }
+
+  .role {
+    color: var(--green-2);
+    font: 800 12px/1 var(--mono);
+  }
+
+  .bals {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 8px;
+    margin-bottom: 10px;
+  }
+
+  .balance-pill {
+    min-width: 0;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.035);
+    padding: 8px;
+  }
+
+  .balance-pill .k {
+    color: var(--dim);
+    font-size: 10px;
+    font-weight: 900;
+    text-transform: uppercase;
+  }
+
+  .balance-pill .v {
+    margin-top: 4px;
+    color: var(--ink);
+    font: 800 13px/1.2 var(--mono);
+    overflow-wrap: anywhere;
+  }
+
+  .addr {
+    overflow-wrap: anywhere;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    color: rgba(246, 248, 251, 0.74);
+    background: #0a101c;
+    padding: 8px;
+    font: 11px/1.35 var(--mono);
+  }
+
+  .depth { grid-area: depth; min-height: 248px; }
+
+  .depth-stage { padding: 14px; }
+
+  .depth-bar {
+    display: flex;
+    height: 30px;
+    border-radius: 6px;
+    overflow: hidden;
+    margin: 6px 0 14px;
+    background: #0a101c;
+  }
+
+  .depth-bar .b { background: rgba(0, 208, 156, 0.5); }
+  .depth-bar .a { background: rgba(242, 99, 123, 0.5); }
+
+  .depth-legend {
+    display: flex;
+    justify-content: space-between;
+    font: 700 12px/1 var(--mono);
+  }
+
+  .depth-legend .b { color: var(--green); }
+  .depth-legend .a { color: var(--red); }
+
+  .maker-rows { display: grid; gap: 7px; margin-top: 14px; }
+
+  .maker-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 8px 10px;
+    font-size: 12px;
+  }
+
+  .maker-row .n { font-weight: 800; }
+  .maker-row .s { color: var(--muted); font-family: var(--mono); }
+
+  .offers-panel { grid-area: offers; min-height: 330px; }
+
+  .offers-list { display: grid; gap: 10px; padding: 12px; }
+
+  .offer-card {
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.035);
+    overflow: hidden;
+  }
+
+  .offer-card.own { border-color: rgba(111, 50, 255, 0.36); }
+
+  .offer-main {
+    display: grid;
+    grid-template-columns: minmax(200px, 1fr) auto;
+    gap: 12px;
+    align-items: start;
+    padding: 13px;
+  }
+
+  .offer-top {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-bottom: 8px;
+  }
+
+  .side-tag {
+    display: inline-grid;
+    min-height: 20px;
+    place-items: center;
+    border-radius: 5px;
+    padding: 0 8px;
+    font: 900 10px/1 var(--sans);
+    letter-spacing: 0.1em;
+  }
+
+  .side-tag.ask { color: var(--red); background: rgba(242, 99, 123, 0.14); }
+  .side-tag.bid { color: var(--green); background: rgba(0, 208, 156, 0.14); }
+
+  .maker-tag {
+    display: inline-grid;
+    min-height: 20px;
+    place-items: center;
+    border: 1px solid var(--line);
+    border-radius: 5px;
+    color: var(--muted);
+    padding: 0 8px;
+    font: 800 10px/1 var(--sans);
+    letter-spacing: 0.06em;
+  }
+
+  .maker-tag.own {
+    color: var(--purple-2);
+    border-color: rgba(111, 50, 255, 0.4);
+    background: rgba(111, 50, 255, 0.1);
+  }
+
+  .nostr-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    color: var(--purple-2);
+    font: 700 10px/1 var(--mono);
+  }
+
+  .nostr-badge::before {
+    content: "";
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--purple-2);
+    box-shadow: 0 0 8px rgba(157, 120, 255, 0.7);
+  }
+
+  .trade {
+    color: var(--muted);
+    font-size: 14px;
+    font-weight: 800;
+  }
+
+  .trade .a { color: var(--purple-2); }
+  .trade .b { color: var(--green-2); }
+
+  .offer-meta {
+    display: grid;
+    grid-template-columns: 96px minmax(0, 1fr);
+    gap: 4px 10px;
+    margin-top: 10px;
+    color: var(--dim);
+    font-size: 11px;
+  }
+
+  .offer-meta code {
+    overflow-wrap: anywhere;
+    color: rgba(246, 248, 251, 0.72);
+    font-family: var(--mono);
+  }
+
+  .offer-actions {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 8px;
+  }
+
+  .cheats {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 7px;
+    border-top: 1px solid var(--line);
+    padding: 10px 13px;
+    background: rgba(242, 99, 123, 0.04);
+  }
+
+  .cheats .lbl {
+    color: var(--red);
+    font-size: 10px;
+    font-weight: 900;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+  }
+
+  .contract {
+    display: none;
+    border-top: 1px solid var(--line);
+    padding: 12px 13px;
+    color: var(--muted);
+    font-size: 12px;
+    background: #0a101c;
+  }
+
+  .contract.show { display: block; }
+
+  .contract b { color: var(--ink); }
+
+  .contract code, .contract pre { font-family: var(--mono); }
+
+  .contract pre {
+    max-height: 220px;
+    overflow: auto;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    color: rgba(246, 248, 251, 0.78);
+    background: #060a11;
+    padding: 10px;
+    font-size: 11px;
+  }
+
+  .path { margin-top: 8px; }
+  .path b { color: var(--green); }
+  .path.refund b { color: var(--amber); }
+
+  .nostr-box {
+    margin-top: 10px;
+    border: 1px solid rgba(111, 50, 255, 0.26);
+    border-radius: 8px;
+    background: rgba(111, 50, 255, 0.06);
+    padding: 10px;
+  }
+
+  .nostr-box .hd {
+    color: var(--purple-2);
+    font: 900 11px/1 var(--sans);
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    margin-bottom: 8px;
+  }
+
+  .nostr-box .kv {
+    display: grid;
+    grid-template-columns: 78px minmax(0, 1fr);
+    gap: 3px 10px;
+    font-size: 11px;
+  }
+
+  .nostr-box .kv span { color: var(--dim); }
+  .nostr-box .kv code { overflow-wrap: anywhere; color: rgba(246, 248, 251, 0.78); }
+
+  .empty {
+    margin: 12px;
+    border: 1px dashed var(--line-strong);
+    border-radius: 8px;
+    color: var(--dim);
+    padding: 30px;
+    text-align: center;
+  }
+
+  .trades { grid-area: trades; }
+
+  .trade-list { display: grid; padding: 8px 0; }
+
+  .market-row {
+    display: grid;
+    grid-template-columns: 0.9fr 0.9fr 1fr;
+    gap: 8px;
+    min-height: 34px;
+    align-items: center;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.045);
+    padding: 0 14px;
+    font: 700 12px/1 var(--mono);
+  }
+
+  .market-row.header {
+    min-height: 28px;
+    color: var(--dim);
+    font: 800 10px/1 var(--sans);
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+  }
+
+  .market-row .up { color: var(--green); }
+  .market-row .down { color: var(--red); }
+  .market-row span:last-child { color: var(--dim); text-align: right; }
+
+  .toast {
+    position: fixed;
+    left: 50%;
+    bottom: 22px;
+    z-index: 20;
+    max-width: min(620px, calc(100vw - 28px));
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    color: var(--ink);
+    background: rgba(16, 24, 39, 0.96);
+    box-shadow: var(--shadow);
+    opacity: 0;
+    padding: 12px 16px;
+    pointer-events: none;
+    transform: translateX(-50%);
+    transition: opacity 0.2s ease;
+  }
+
+  .toast.show { opacity: 1; }
+  .toast.ok { border-color: rgba(0, 208, 156, 0.45); }
+  .toast.err { border-color: rgba(242, 99, 123, 0.55); }
+  .toast code { color: var(--green); font-family: var(--mono); }
+
+  @media (max-width: 1180px) {
+    .topbar { grid-template-columns: 1fr; }
+    .pair-select { justify-content: flex-start; }
+    .height { justify-self: stretch; justify-content: space-between; text-align: left; }
+    .ticker-strip { grid-template-columns: repeat(3, minmax(170px, 1fr)); }
+    .dex-grid {
+      grid-template-columns: minmax(0, 1fr) minmax(320px, 0.72fr);
+      grid-template-areas:
+        "chart ticket"
+        "depth book"
+        "offers trades"
+        "wallet wallet";
+    }
+  }
+
+  @media (max-width: 820px) {
+    .app-shell { padding: 10px; }
+    .ticker-strip, .dex-grid { grid-template-columns: 1fr; }
+    .dex-grid {
+      grid-template-areas:
+        "chart" "ticket" "book" "depth" "wallet" "offers" "trades";
+    }
+    .ticker-strip { overflow: visible; }
+    .chart-svg { height: 230px; }
+    .row, .offer-main { grid-template-columns: 1fr; }
+    .offer-actions { justify-content: flex-start; }
+  }
+</style>
+</head>
+<body>
+<div class="app-shell">
+
+<header class="topbar">
+  <div class="brand">
+    <div class="mark" aria-hidden="true">
+      <span></span><span></span><span></span>
+      <span></span><span></span><span></span>
+      <span></span><span></span><span></span>
+    </div>
+    <div class="brand-copy">
+      <div class="eyebrow">Mosaik</div>
+      <h1>Covenant DEX</h1>
+    </div>
+  </div>
+  <div class="pair-select">
+    <label for="pairFilter">Trading pair</label>
+    <select id="pairFilter" aria-label="Trading pair filter"></select>
+  </div>
+  <div class="height">
+    <span>Liquid regtest height</span>
+    <b id="height">--</b>
+  </div>
+</header>
+
+<section class="ticker-strip" aria-label="Market summary">
+  <div class="ticker-cell pair">
+    <div class="k">Pair</div>
+    <div class="v" id="tk-pair">--</div>
+  </div>
+  <div class="ticker-cell">
+    <div class="k">Last price</div>
+    <div class="v" id="tk-last">--</div>
+  </div>
+  <div class="ticker-cell">
+    <div class="k">Open offers</div>
+    <div class="v" id="tk-offers">--</div>
+  </div>
+  <div class="ticker-cell">
+    <div class="k">Best bid</div>
+    <div class="v up" id="tk-bid">--</div>
+  </div>
+  <div class="ticker-cell">
+    <div class="k">Best ask</div>
+    <div class="v down" id="tk-ask">--</div>
+  </div>
+  <div class="ticker-cell nostr">
+    <div class="k">Nostr orderbook</div>
+    <div class="v" id="tk-nostr">kind 30050</div>
+  </div>
+</section>
+
+<main class="dex-grid">
+  <aside class="panel book" aria-label="Order book">
+    <div class="panel-head">
+      <h2 class="panel-title">Order Book</h2>
+      <span class="panel-meta" id="book-meta">live covenant offers</span>
+    </div>
+    <div class="book-table" id="book"></div>
+  </aside>
+
+  <section class="panel chart" aria-label="Covenant settlements">
+    <div class="panel-head">
+      <h2 class="panel-title">Covenant Settlements</h2>
+      <span class="panel-meta" id="chart-meta">this pair, on-chain</span>
+    </div>
+    <div class="chart-stage" id="chart"></div>
+  </section>
+
+  <section class="panel ticket" aria-label="Create covenant offer">
+    <div class="tabs">
+      <button class="active" type="button">Limit offer</button>
+      <button type="button" disabled>Market</button>
+    </div>
+    <div class="ticket-body">
+      <div class="side-toggle" aria-label="Offer side">
+        <button class="sell active" id="sideSell" type="button">Sell base</button>
+        <button class="buy" id="sideBuy" type="button">Buy base</button>
+      </div>
+      <div class="row">
+        <div>
+          <label for="lockAsset">Lock asset</label>
+          <select id="lockAsset"></select>
+        </div>
+        <div>
+          <label for="wantAsset">Want asset</label>
+          <select id="wantAsset"></select>
+        </div>
+      </div>
+      <div class="row">
+        <div>
+          <label for="amountA">Lock amount</label>
+          <div class="input-shell">
+            <input id="amountA" type="number" value="0.01" min="0" step="any">
+            <span class="unit" id="unitA">base</span>
+          </div>
+        </div>
+        <div>
+          <label for="wantAmount">Want amount</label>
+          <div class="input-shell">
+            <input id="wantAmount" type="number" value="50" min="0" step="any">
+            <span class="unit" id="unitB">quote</span>
+          </div>
+        </div>
+      </div>
+      <div class="form-block">
+        <label for="timeout">Refund height</label>
+        <input id="timeout" type="number" value="500" min="1">
+      </div>
+      <button class="maker make-btn" id="makeOffer">Fund covenant and publish offer</button>
+      <div class="note">You post as a maker from your own wallet. The locked
+        asset moves into a covenant UTXO and the offer is published to the
+        Nostr orderbook (kind 30050). Settlement succeeds only when the maker
+        is paid.</div>
+    </div>
+  </section>
+
+  <section class="panel depth" aria-label="Liquidity for this pair">
+    <div class="panel-head">
+      <h2 class="panel-title">Liquidity</h2>
+      <span class="panel-meta" id="depth-meta">locked in covenants</span>
+    </div>
+    <div class="depth-stage" id="depth"></div>
+  </section>
+
+  <section class="panel wallets" aria-label="Your wallet">
+    <div class="panel-head">
+      <h2 class="panel-title">Your Wallet</h2>
+      <span class="panel-meta">maker + taker</span>
+    </div>
+    <div class="wallet-side">
+      <div class="wallet-top">
+        <div class="role" id="u-role">mosaik-user</div>
+        <button id="fundUser">Fund wallet</button>
+      </div>
+      <div class="bals" id="u-bals"></div>
+      <label>Address</label>
+      <div class="addr" id="u-addr">--</div>
+    </div>
+  </section>
+
+  <section class="panel offers-panel" aria-label="Open offers">
+    <div class="panel-head">
+      <h2 class="panel-title">Open Orders</h2>
+      <span class="panel-meta" id="offers-meta">covenant offer book</span>
+    </div>
+    <div id="offers"></div>
+  </section>
+
+  <aside class="panel trades" aria-label="Market trades">
+    <div class="panel-head">
+      <h2 class="panel-title">Market Trades</h2>
+      <span class="panel-meta">live tape</span>
+    </div>
+    <div class="trade-list" id="trades"></div>
+  </aside>
+</main>
+
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+const $ = id => document.getElementById(id);
+let state = { assets: [], offers: [], trades: [], block_count: 0, user: null, relay: '' };
+let selectedPair = null;
+let offerSide = 'sell'; // 'sell' = lock base / 'buy' = lock quote
+
+const esc = s => String(s == null ? '' : s)
+  .replace(/[&<>]/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;' }[c]));
+// Every asset (L-BTC and the test assets) uses 8 decimals.
+const units = raw => Number(raw || 0) / 1e8;
+const fmt = n => Number(n || 0).toLocaleString(undefined, { maximumFractionDigits: 8 });
+const fmtAmt = (raw, name) => fmt(units(raw)) + ' ' + name;
+const short = (s, n) => { s = String(s || ''); return s.length > n ? s.slice(0, n) + '…' : s; };
+
+// L-BTC is the base when present; otherwise alphabetical-ish rank.
+const ASSET_RANK = { 'L-BTC': 0, 'USDT': 1, 'EURx': 2 };
+const rank = a => (a in ASSET_RANK ? ASSET_RANK[a] : 99);
+// Canonical [base, quote] for a pair of asset names.
+const canon = (x, y) => (rank(x) <= rank(y) ? [x, y] : [y, x]);
+const pairKey = (x, y) => { const [b, q] = canon(x, y); return b + '/' + q; };
+
+// An offer, projected onto its canonical pair.
+function project(o) {
+  const [base, quote] = canon(o.lock_name, o.want_name);
+  const ask = o.lock_name === base; // maker locks base -> selling base
+  return {
+    pair: base + '/' + quote, base, quote,
+    side: ask ? 'ask' : 'bid',
+    // price is always quote per base
+    price: ask
+      ? units(o.amount_b) / Math.max(units(o.amount_a), 1e-12)
+      : units(o.amount_a) / Math.max(units(o.amount_b), 1e-12),
+    // size is always in the base asset
+    size: ask ? units(o.amount_a) : units(o.amount_b),
+  };
+}
+
+function toast(msg, kind) {
+  const t = $('toast');
+  t.className = 'toast show ' + (kind || '');
+  t.innerHTML = msg;
+  setTimeout(() => t.classList.remove('show'), 5500);
+}
+
+async function api(path, body) {
+  const opt = path === '/api/state'
+    ? { method: 'GET' }
+    : { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body || {}) };
+  const res = await fetch(path, opt);
+  const contentType = res.headers.get('content-type') || '';
+  if (!contentType.includes('application/json')) {
+    throw new Error('Wallet API is unavailable in this preview');
+  }
+  const data = await res.json();
+  if (!res.ok || data.error) throw new Error(data.error || ('HTTP ' + res.status));
+  return data;
+}
+
+function assetOptions() {
+  return ['L-BTC', ...state.assets];
+}
+
+function fillSelect(sel, selected) {
+  const opts = assetOptions();
+  sel.innerHTML = opts.map(a => `<option value="${a}">${a}</option>`).join('');
+  if (selected && opts.includes(selected)) sel.value = selected;
+}
+
+// ---- pair filter -----------------------------------------------------------
+
+// Every pair that has an offer or a settlement.
+function allPairs() {
+  const set = new Set();
+  for (const o of state.offers) set.add(pairKey(o.lock_name, o.want_name));
+  for (const t of state.trades) set.add(pairKey(t.lock_name, t.want_name));
+  return [...set].sort();
+}
+
+function syncPairFilter() {
+  const pairs = allPairs();
+  const sel = $('pairFilter');
+  if (!pairs.length) {
+    sel.innerHTML = '<option>— no pairs yet —</option>';
+    selectedPair = null;
+    return;
+  }
+  if (!selectedPair || !pairs.includes(selectedPair)) selectedPair = pairs[0];
+  sel.innerHTML = pairs.map(p => `<option value="${p}">${p}</option>`).join('');
+  sel.value = selectedPair;
+}
+
+const pairOffers = () =>
+  state.offers.filter(o => pairKey(o.lock_name, o.want_name) === selectedPair);
+const pairTrades = () =>
+  state.trades.filter(t => pairKey(t.lock_name, t.want_name) === selectedPair);
+
+// ---- wallet ----------------------------------------------------------------
+
+function renderWallet(w) {
+  if (!w) return;
+  const parts = [`<div class="balance-pill"><div class="k">L-BTC</div>
+    <div class="v">${fmt(units(w.lbtc_sats))}</div></div>`];
+  for (const name of state.assets) {
+    parts.push(`<div class="balance-pill"><div class="k">${esc(name)}</div>
+      <div class="v">${fmt(units(w.assets[name]))}</div></div>`);
+  }
+  $('u-bals').innerHTML = parts.join('');
+  $('u-addr').textContent = w.address;
+}
+
+// ---- order book ------------------------------------------------------------
+
+function renderBook() {
+  const box = $('book');
+  if (!box) return;
+  const rows = pairOffers().map(o => ({ o, p: project(o) }));
+  $('book-meta').textContent = selectedPair ? selectedPair + ' covenants' : 'no pair';
+  if (!rows.length) {
+    box.innerHTML = '<div class="empty">No open offers for this pair.</div>';
+    return;
+  }
+  const asks = rows.filter(r => r.p.side === 'ask').sort((a, b) => b.p.price - a.p.price);
+  const bids = rows.filter(r => r.p.side === 'bid').sort((a, b) => b.p.price - a.p.price);
+  const maxSize = Math.max(...rows.map(r => r.p.size), 1e-12);
+  const [base, quote] = (selectedPair || '/').split('/');
+
+  const line = r => `
+    <div class="book-row ${r.p.side}" data-take="${r.o.index}"
+      style="--w:${Math.round(r.p.size / maxSize * 100)}%"
+      title="Take this offer">
+      <span class="price">${fmt(r.p.price)}</span>
+      <span>${fmt(r.p.size)} ${esc(base)}</span>
+    </div>`;
+
+  const bestAsk = asks.length ? asks[asks.length - 1].p.price : null;
+  const bestBid = bids.length ? bids[0].p.price : null;
+  let spread = '<small>no two-sided market</small>';
+  if (bestAsk != null && bestBid != null) {
+    const d = bestAsk - bestBid;
+    spread = fmt(d) + '<small>spread · ' + quote + ' per ' + base + '</small>';
+  } else if (bestAsk != null) {
+    spread = fmt(bestAsk) + '<small>best ask · ' + quote + ' per ' + base + '</small>';
+  } else if (bestBid != null) {
+    spread = fmt(bestBid) + '<small>best bid · ' + quote + ' per ' + base + '</small>';
+  }
+
+  box.innerHTML =
+    `<div class="book-head"><span>Price ${esc(quote)}</span><span>Size ${esc(base)}</span></div>` +
+    asks.map(line).join('') +
+    `<div class="spread">${spread}</div>` +
+    bids.map(line).join('');
+  box.querySelectorAll('.book-row[data-take]').forEach(r => {
+    r.onclick = () => takeOffer(Number(r.dataset.take));
+  });
+}
+
+// ---- liquidity / depth -----------------------------------------------------
+
+function renderDepth() {
+  const box = $('depth');
+  if (!box) return;
+  const rows = pairOffers().map(o => ({ o, p: project(o) }));
+  $('depth-meta').textContent = selectedPair || 'no pair';
+  if (!rows.length) {
+    box.innerHTML = '<div class="empty">No liquidity for this pair.</div>';
+    return;
+  }
+  const [base] = (selectedPair || '/').split('/');
+  const bidSize = rows.filter(r => r.p.side === 'bid').reduce((s, r) => s + r.p.size, 0);
+  const askSize = rows.filter(r => r.p.side === 'ask').reduce((s, r) => s + r.p.size, 0);
+  const total = bidSize + askSize || 1;
+
+  // liquidity by maker
+  const byMaker = {};
+  for (const r of rows) {
+    const m = r.o.maker_name;
+    (byMaker[m] = byMaker[m] || { n: 0, size: 0 });
+    byMaker[m].n++;
+    byMaker[m].size += r.p.size;
+  }
+  const makers = Object.entries(byMaker).sort((a, b) => b[1].size - a[1].size);
+
+  box.innerHTML = `
+    <div class="depth-bar">
+      <div class="b" style="width:${bidSize / total * 100}%"></div>
+      <div class="a" style="width:${askSize / total * 100}%"></div>
+    </div>
+    <div class="depth-legend">
+      <span class="b">Bids ${fmt(bidSize)} ${esc(base)}</span>
+      <span class="a">${fmt(askSize)} ${esc(base)} Asks</span>
+    </div>
+    <div class="maker-rows">
+      ${makers.map(([m, v]) => `
+        <div class="maker-row">
+          <span class="n">${esc(m)}</span>
+          <span class="s">${v.n} offer${v.n > 1 ? 's' : ''} · ${fmt(v.size)} ${esc(base)}</span>
+        </div>`).join('')}
+    </div>`;
+}
+
+// ---- settlement chart ------------------------------------------------------
+
+function renderChart() {
+  const box = $('chart');
+  if (!box) return;
+  const trades = [...pairTrades()].reverse(); // oldest -> newest
+  $('chart-meta').textContent = selectedPair ? selectedPair + ' · on-chain' : 'no pair';
+  if (!trades.length) {
+    box.innerHTML = `<div class="empty" style="padding:46px">
+      No covenant settlements for this pair yet.<br>
+      Take an offer to plot a real on-chain trade.</div>`;
+    return;
+  }
+  const prices = trades.map(t => project(t).price);
+  const min = Math.min(...prices), max = Math.max(...prices);
+  const span = (max - min) || Math.max(Math.abs(max), 1);
+  const W = 780, H = 280, pad = 26;
+  const pts = prices.map((r, i) => {
+    const x = pad + (prices.length === 1
+      ? (W - 2 * pad) / 2
+      : i / (prices.length - 1) * (W - 2 * pad));
+    const y = H - pad - (r - min) / span * (H - 2 * pad);
+    return [x, y];
+  });
+  const dots = pts.map(p => `<circle cx="${p[0]}" cy="${p[1]}" r="4" fill="#00d09c"/>`).join('');
+  box.innerHTML = `
+    <svg viewBox="0 0 ${W} ${H}" class="chart-svg" preserveAspectRatio="none">
+      <g stroke="#263346" stroke-width="1">
+        <line x1="0" y1="70" x2="${W}" y2="70"/><line x1="0" y1="140" x2="${W}" y2="140"/>
+        <line x1="0" y1="210" x2="${W}" y2="210"/>
+      </g>
+      <polyline points="${pts.map(p => p.join(',')).join(' ')}"
+        fill="none" stroke="#00d09c" stroke-width="2.5"/>
+      ${dots}
+    </svg>
+    <div style="padding:8px 4px;font-size:12.5px;color:var(--muted)">
+      ${prices.length} settlement${prices.length > 1 ? 's' : ''} ·
+      last price <b style="color:var(--ink)">${fmt(prices[prices.length - 1])}</b></div>`;
+}
+
+// ---- trade tape ------------------------------------------------------------
+
+function renderTrades() {
+  const box = $('trades');
+  if (!box) return;
+  const head = `<div class="market-row header">
+    <span>Price</span><span>Size</span><span>Maker</span></div>`;
+  const trades = pairTrades();
+  if (!trades.length) {
+    box.innerHTML = head +
+      `<div class="empty" style="padding:20px">No settlements for this pair yet.</div>`;
+    return;
+  }
+  box.innerHTML = head + trades.slice(0, 16).map(t => {
+    const p = project(t);
+    return `<div class="market-row">
+       <span class="${p.side === 'ask' ? 'down' : 'up'}">${fmt(p.price)}</span>
+       <span>${fmt(p.size)} ${esc(p.base)}</span>
+       <span>${esc(t.maker_name || '—')}</span>
+     </div>`;
+  }).join('');
+}
+
+// ---- ticker ----------------------------------------------------------------
+
+function renderTicker() {
+  const offers = pairOffers().map(o => project(o));
+  const asks = offers.filter(o => o.side === 'ask').map(o => o.price);
+  const bids = offers.filter(o => o.side === 'bid').map(o => o.price);
+  const trades = pairTrades();
+  $('tk-pair').textContent = selectedPair || '—';
+  $('tk-offers').textContent = offers.length;
+  $('tk-bid').textContent = bids.length ? fmt(Math.max(...bids)) : '—';
+  $('tk-ask').textContent = asks.length ? fmt(Math.min(...asks)) : '—';
+  $('tk-last').textContent = trades.length ? fmt(project(trades[0]).price) : '—';
+  $('tk-nostr').textContent = 'kind 30050 · ' + state.offers.length + ' events';
+}
+
+// ---- open orders -----------------------------------------------------------
+
+function renderOffers() {
+  const box = $('offers');
+  const offers = pairOffers();
+  $('offers-meta').textContent = selectedPair
+    ? offers.length + ' on ' + selectedPair : 'covenant offer book';
+  if (!offers.length) {
+    box.innerHTML = '<div class="empty">No open orders for this pair. '
+      + 'Post the first covenant offer with the ticket.</div>';
+    return;
+  }
+  box.innerHTML = `<div class="offers-list">${offers.map(o => {
+    const p = project(o);
+    const n = o.nostr || {};
+    return `
+      <div class="offer-card ${o.is_own ? 'own' : ''}">
+        <div class="offer-main">
+          <div>
+            <div class="offer-top">
+              <span class="side-tag ${p.side}">${p.side === 'ask' ? 'SELL' : 'BUY'} ${esc(p.base)}</span>
+              <span class="maker-tag ${o.is_own ? 'own' : ''}">${esc(o.maker_name)}</span>
+              <span class="nostr-badge" title="Nostr event ${esc(n.event_id || '')}">
+                ${esc(short(n.event_id, 12))}</span>
+            </div>
+            <div class="trade">
+              <span class="a">${fmtAmt(o.amount_a, esc(o.lock_name))}</span>
+              &nbsp;-&gt;&nbsp;
+              <span class="b">${fmtAmt(o.amount_b, esc(o.want_name))}</span>
+            </div>
+            <div class="offer-meta">
+              <span>price</span><code>${fmt(p.price)} ${esc(p.quote)}/${esc(p.base)}</code>
+              <span>covenant</span><code>${esc(o.covenant_address)}</code>
+              <span>utxo</span><code>${esc(o.outpoint)}</code>
+              <span>maker paid</span><code>${esc(o.maker_address)}</code>
+              <span>refund</span><code>height ${o.timeout}</code>
+            </div>
+          </div>
+          <div class="offer-actions">
+            <button data-take="${o.index}">Take offer</button>
+            <button class="maker" data-reclaim="${o.index}"
+              ${state.block_count >= o.timeout ? '' : 'disabled'}
+              title="${state.block_count >= o.timeout
+                ? 'Reclaim via the keyless REFUND path'
+                : 'REFUND unlocks at height ' + o.timeout}">Reclaim</button>
+            <button class="ghost" data-contract="${o.index}">Covenant + Nostr</button>
+          </div>
+        </div>
+        <div class="cheats">
+          <span class="lbl">Attack tests</span>
+          <button class="bad" data-cheat="underpay" data-idx="${o.index}">Underpay maker</button>
+          <button class="bad" data-cheat="wrong_recipient" data-idx="${o.index}">Pay wrong address</button>
+          <button class="bad" data-cheat="wrong_index" data-idx="${o.index}">Hide maker output</button>
+        </div>
+        <div class="contract" id="contract-${o.index}"></div>
+      </div>`;
+  }).join('')}</div>`;
+  box.querySelectorAll('button[data-take]').forEach(b => {
+    b.onclick = () => takeOffer(Number(b.dataset.take), b);
+  });
+  box.querySelectorAll('button[data-reclaim]').forEach(b => {
+    b.onclick = () => reclaimOffer(Number(b.dataset.reclaim), b);
+  });
+  box.querySelectorAll('button[data-contract]').forEach(b => {
+    b.onclick = () => viewContract(Number(b.dataset.contract));
+  });
+  box.querySelectorAll('button[data-cheat]').forEach(b => {
+    b.onclick = () => cheatOffer(Number(b.dataset.idx), b.dataset.cheat, b);
+  });
+}
+
+// ---- ticket ----------------------------------------------------------------
+
+// Reflect the selected pair + side into the make-offer form.
+function syncTicket() {
+  if (!selectedPair) return;
+  const [base, quote] = selectedPair.split('/');
+  const lock = offerSide === 'sell' ? base : quote;
+  const want = offerSide === 'sell' ? quote : base;
+  fillSelect($('lockAsset'), lock);
+  fillSelect($('wantAsset'), want);
+  $('unitA').textContent = lock;
+  $('unitB').textContent = want;
+}
+
+function setSide(side) {
+  offerSide = side;
+  $('sideSell').classList.toggle('active', side === 'sell');
+  $('sideBuy').classList.toggle('active', side === 'buy');
+  syncTicket();
+}
+
+// ---- render all ------------------------------------------------------------
+
+function renderAll() {
+  syncPairFilter();
+  renderWallet(state.user);
+  renderBook();
+  renderDepth();
+  renderChart();
+  renderTrades();
+  renderTicker();
+  renderOffers();
+}
+
+async function refresh() {
+  try {
+    const s = await api('/api/state');
+    const firstLoad = !state.assets.length;
+    state.assets = s.assets;
+    state.offers = s.offers;
+    state.trades = s.trades || [];
+    state.block_count = s.block_count;
+    state.user = s.user;
+    state.relay = s.relay || '';
+    $('height').textContent = s.block_count;
+    renderAll();
+    if (firstLoad) syncTicket();
+  } catch (e) {
+    toast('Cannot reach the node: ' + e.message, 'err');
+  }
+}
+
+async function action(btn, path, body, okMsg) {
+  btn.disabled = true;
+  try { const r = await api(path, body); toast(okMsg(r), 'ok'); }
+  catch (e) { toast(e.message, 'err'); }
+  btn.disabled = false;
+  await refresh();
+}
+
+$('pairFilter').onchange = e => { selectedPair = e.target.value; syncTicket(); renderAll(); };
+$('sideSell').onclick = () => setSide('sell');
+$('sideBuy').onclick = () => setSide('buy');
+
+$('fundUser').onclick = e =>
+  action(e.target, '/api/fund', { wallet: 'user' }, r => r.funded);
+
+$('makeOffer').onclick = e => {
+  const lock = $('lockAsset').value === 'L-BTC' ? 'BTC' : $('lockAsset').value;
+  const want = $('wantAsset').value === 'L-BTC' ? 'BTC' : $('wantAsset').value;
+  if (lock === want) { toast('Lock and want assets must differ', 'err'); return; }
+  action(e.target, '/api/make-offer', {
+    maker: 'user',
+    lock, want,
+    amount_a: Math.round(Number($('amountA').value) * 1e8),
+    amount_b: Math.round(Number($('wantAmount').value) * 1e8),
+    timeout: Number($('timeout').value),
+  }, r => 'Offer #' + r.index + ' funded · covenant <code>' + r.outpoint
+       + '</code> · Nostr <code>' + short(r.event_id, 16) + '</code>');
+};
+
+async function takeOffer(index, btn) {
+  let was;
+  if (btn) { was = btn.textContent; btn.disabled = true; btn.textContent = 'Settling...'; }
+  try {
+    const r = await api('/api/take-offer', { index });
+    toast('Settled - the node executed the covenant. tx <code>' + r.txid + '</code>', 'ok');
+  } catch (e) { toast(e.message, 'err'); }
+  if (btn) { btn.disabled = false; btn.textContent = was; }
+  refresh();
+}
+
+async function reclaimOffer(index, btn) {
+  const was = btn.textContent;
+  btn.disabled = true; btn.textContent = 'Reclaiming...';
+  try {
+    const r = await api('/api/reclaim', { index });
+    toast('Reclaimed via the covenant REFUND path. tx <code>' + r.txid + '</code>', 'ok');
+  } catch (e) { toast(e.message, 'err'); }
+  btn.disabled = false;
+  btn.textContent = was;
+  refresh();
+}
+
+async function cheatOffer(index, cheat, btn) {
+  btn.disabled = true;
+  const was = btn.textContent;
+  btn.textContent = 'Attacking...';
+  try {
+    const r = await api('/api/take-offer', { index, cheat });
+    if (r.covenant_bug) {
+      toast('COVENANT BUG - a fraudulent fill was accepted. tx <code>'
+        + r.txid + '</code>', 'err');
+    } else if (r.rejected) {
+      toast('Covenant rejected the attack - ' + esc(r.reason), 'ok');
+    } else {
+      toast('Unexpected: ' + JSON.stringify(r), 'err');
+    }
+  } catch (e) { toast(e.message, 'err'); }
+  btn.disabled = false;
+  btn.textContent = was;
+  refresh();
+}
+
+async function viewContract(index) {
+  const box = $('contract-' + index);
+  if (box.classList.contains('show')) { box.classList.remove('show'); return; }
+  try {
+    const c = await api('/api/contract', { index });
+    const n = c.nostr || {};
+    box.innerHTML = `
+      <div><b>Compiled covenant.</b> CMR <code>${esc(c.cmr)}</code></div>
+      <div class="path"><b>SETTLE</b> - ${esc(c.settle)}</div>
+      <div class="path refund"><b>REFUND</b> - ${esc(c.refund)}</div>
+      <div class="nostr-box">
+        <div class="hd">Nostr orderbook event</div>
+        <div class="kv">
+          <span>kind</span><code>${esc(n.kind)} (addressable offer)</code>
+          <span>event id</span><code>${esc(n.event_id)}</code>
+          <span>maker key</span><code>${esc(n.pubkey)}</code>
+          <span>order id</span><code>${esc(n.order_id)}</code>
+          <span>relay</span><code>${esc(n.relay)}</code>
+        </div>
+      </div>
+      <div style="margin-top:10px">SimplicityHL source:</div>
+      <pre>${esc(c.source)}</pre>`;
+    box.classList.add('show');
+  } catch (e) { toast(e.message, 'err'); }
+}
+
+refresh();
+setInterval(refresh, 12000);
+</script>
+</body>
+</html>

@@ -1,0 +1,6 @@
+{
+  "PATH": {
+    "value": "Left(0)",
+    "type": "Either<u32, Signature>"
+  }
+}

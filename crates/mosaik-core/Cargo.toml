@@ -1,0 +1,18 @@
+[package]
+name = "mosaik-core"
+description = "Mosaik: offers, Liquid PSET construction and key plumbing"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+hex.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+ureq.workspace = true
+base64 = "0.22"
+sha2 = "0.10"
+tessera = { path = "../tessera" }
