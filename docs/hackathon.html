@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>covenant-swap — Simplicity Hackathon Plan</title>
+<style>
+  :root {
+    --bg: #0c0e14;
+    --panel: #151823;
+    --panel-2: #1c2030;
+    --ink: #e8eaf2;
+    --muted: #9aa0b4;
+    --line: #2a2f42;
+    --accent: #6ad6c8;
+    --accent-2: #c8a8ff;
+    --warn: #ffcf6a;
+    --a: #6ad6c8;
+    --b: #7fb4ff;
+    --c: #f0a6c8;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font: 15px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  }
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 48px 28px 80px; }
+  header {
+    border-bottom: 1px solid var(--line); padding-bottom: 28px; margin-bottom: 36px;
+  }
+  .eyebrow {
+    text-transform: uppercase; letter-spacing: .18em; font-size: 12px;
+    color: var(--accent); font-weight: 700;
+  }
+  h1 {
+    font-size: 40px; margin: 10px 0 6px; letter-spacing: -.02em;
+    background: linear-gradient(100deg, var(--accent), var(--accent-2));
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  .sub { color: var(--muted); font-size: 16px; }
+  .meta { margin-top: 16px; display: flex; flex-wrap: wrap; gap: 10px; }
+  .chip {
+    background: var(--panel-2); border: 1px solid var(--line); border-radius: 999px;
+    padding: 5px 13px; font-size: 12.5px; color: var(--muted);
+  }
+  h2 {
+    font-size: 13px; text-transform: uppercase; letter-spacing: .14em;
+    color: var(--accent); margin: 44px 0 16px; font-weight: 700;
+  }
+  h3 { margin: 0 0 4px; font-size: 16px; }
+  p { color: #cdd1e0; }
+  .lead { font-size: 16.5px; color: var(--ink); }
+  code {
+    background: var(--panel-2); border: 1px solid var(--line); border-radius: 5px;
+    padding: 1px 6px; font-size: 13px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    color: var(--accent);
+  }
+  .panel {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 14px;
+    padding: 22px 24px; margin-bottom: 16px;
+  }
+  .grid3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .dev {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 14px;
+    padding: 0; overflow: hidden;
+  }
+  .dev .top { padding: 18px 20px 14px; border-top: 3px solid; }
+  .dev.A .top { border-color: var(--a); }
+  .dev.B .top { border-color: var(--b); }
+  .dev.C .top { border-color: var(--c); }
+  .dev .role { font-size: 12px; text-transform: uppercase; letter-spacing: .12em; color: var(--muted); }
+  .dev .who { font-size: 18px; font-weight: 700; margin: 2px 0 2px; }
+  .dev.A .who { color: var(--a); }
+  .dev.B .who { color: var(--b); }
+  .dev.C .who { color: var(--c); }
+  .dev .owns { font-size: 12.5px; color: var(--muted); }
+  .dev ul { margin: 12px 0 0; padding: 14px 20px 18px; border-top: 1px solid var(--line); list-style: none; }
+  .dev li { padding-left: 18px; position: relative; margin-bottom: 8px; font-size: 13.5px; color: #cdd1e0; }
+  .dev li:before { content: "▸"; position: absolute; left: 0; color: var(--muted); }
+  .dev li.stretch { color: var(--muted); }
+  .dev li.stretch:before { content: "✦"; color: var(--warn); }
+  table { width: 100%; border-collapse: collapse; margin-top: 4px; }
+  th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--line); font-size: 13.5px; }
+  th { color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: .08em; font-size: 11px; }
+  td.t { color: var(--accent); font-family: ui-monospace, monospace; white-space: nowrap; }
+  .tl-day { font-weight: 700; color: var(--accent-2); margin: 18px 0 8px; font-size: 14px; }
+  .ms {
+    display: flex; gap: 12px; align-items: flex-start; padding: 12px 0;
+    border-bottom: 1px solid var(--line);
+  }
+  .ms:last-child { border-bottom: none; }
+  .ms .dot {
+    margin-top: 4px; width: 11px; height: 11px; border-radius: 50%;
+    background: var(--accent); flex-shrink: 0;
+  }
+  .ms .when { color: var(--muted); font-size: 12px; width: 110px; flex-shrink: 0; }
+  .pill { font-size: 11px; padding: 2px 8px; border-radius: 6px; font-weight: 700; }
+  .pill.A { background: rgba(106,214,200,.15); color: var(--a); }
+  .pill.B { background: rgba(127,180,255,.15); color: var(--b); }
+  .pill.C { background: rgba(240,166,200,.15); color: var(--c); }
+  .pill.all { background: rgba(200,168,255,.15); color: var(--accent-2); }
+  .iface { font-family: ui-monospace, monospace; font-size: 12.5px; }
+  a { color: var(--accent); }
+  .muted { color: var(--muted); }
+  .flow {
+    font-family: ui-monospace, monospace; font-size: 12.5px; color: #cdd1e0;
+    white-space: pre; overflow-x: auto; line-height: 1.5;
+  }
+  @media (max-width: 820px) {
+    .grid3, .grid2 { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <div class="eyebrow">Blockstream Simplicity Bootcamp &amp; Hackathon · Blox Space, Turin</div>
+  <h1>covenant-swap</h1>
+  <div class="sub">A swap offer that lives inside a coin — trustless asset swaps on Liquid, enforced by a Simplicity covenant. <span class="muted">Proposed brand: Tessera.</span></div>
+  <div class="meta">
+    <span class="chip">📅 16–17 May 2026 · 10:00–18:00</span>
+    <span class="chip">👥 3 developers</span>
+    <span class="chip">🦀 Rust workspace + SimplicityHL</span>
+    <span class="chip">🌊 Liquid / Elements regtest</span>
+  </div>
+</header>
+
+<h2>The pitch</h2>
+<p class="lead">
+  A maker locks asset A into a single Liquid UTXO controlled by a Simplicity
+  covenant. The covenant inspects any transaction that tries to spend the coin
+  and permits it <strong>only if the maker is paid exactly the agreed amount of
+  asset B</strong>. That one UTXO <em>is</em> the offer:
+  <strong>permissionless</strong> to fill, <strong>uncheatable</strong>,
+  <strong>atomic</strong> — no order book, no maker server, no counterparty trust.
+</p>
+<div class="panel">
+  <strong>Why it needs Simplicity.</strong> The construction rests on
+  <em>transaction introspection</em> — a coin reading the outputs of the
+  transaction spending it. Bitcoin Script cannot do this. LiquiDEX-style swaps
+  get atomicity from a <code>SIGHASH</code> trick; adaptor-signature PTLCs work
+  on plain Taproot. A covenant that <em>enforces the counter-payment</em> is the
+  thing that genuinely requires Simplicity.
+</div>
+
+<h2>How it works</h2>
+<div class="panel">
+<div class="flow">  Covenant UTXO  (holds amount_A of asset A)
+  ├─ SETTLE  spendable by ANYONE iff the spending tx pays
+  │          exactly amount_B of asset B to the MAKER
+  └─ REFUND  after TIMEOUT, spendable by the MAKER's signature
+
+  maker ──1. lock asset A in the covenant UTXO──▶ publish outpoint
+  taker ──2. build tx: covenant UTXO + own coins in;
+             amount_B → maker, amount_A → taker, + fee──▶ broadcast
+        ──3. covenant verifies the maker's output, or the tx is invalid</div>
+</div>
+<p class="muted">Offer terms (asset B, amount B, maker script, timeout, maker key)
+are committed into the Taproot tapleaf — immutable once the offer exists.
+Full spec in <code>docs/DESIGN.md</code>.</p>
+
+<h2>Team — three tracks, one workspace</h2>
+<p>Each dev owns one crate. The crate boundaries that already exist in the
+repo <em>are</em> the integration contracts, so the three tracks run in
+parallel from hour one.</p>
+
+<div class="grid3">
+  <div class="dev A">
+    <div class="top">
+      <div class="role">Track A · Simplicity</div>
+      <div class="who">Dev A</div>
+      <div class="owns">owns <code>crates/covenant</code> + <code>swap.simf</code></div>
+    </div>
+    <ul>
+      <li>Get <code>swap.simf</code> compiling in the Simplicity codespace</li>
+      <li>Confirm every jet name/signature (introspection + sig + timelock)</li>
+      <li>Implement &amp; test the SETTLE path (output asset/amount/script)</li>
+      <li>Implement &amp; test the REFUND path (timelock + BIP-340 verify)</li>
+      <li>Wire <code>SwapTerms::compile()</code> → program bytes + CMR</li>
+      <li>Define the witness layout (PATH, settle index, refund sig)</li>
+      <li class="stretch">Prove: covenant releases funds only via SETTLE or REFUND</li>
+      <li class="stretch">Dutch-auction variant: amount_B decays with height</li>
+    </ul>
+  </div>
+  <div class="dev B">
+    <div class="top">
+      <div class="role">Track B · Liquid plumbing</div>
+      <div class="who">Dev B</div>
+      <div class="owns">owns <code>crates/swap-core</code></div>
+    </div>
+    <ul>
+      <li>Elements regtest up; funded wallets via <code>scripts/regtest.sh</code></li>
+      <li>Build the covenant Taproot address from Dev A's CMR</li>
+      <li><code>make_offer</code>: fund the covenant UTXO, return the Offer</li>
+      <li><code>take_offer</code>: build the settlement tx + Simplicity witness</li>
+      <li><code>reclaim</code>: build the REFUND tx (nLockTime + maker sig)</li>
+      <li>PSET construction — LWK or rust-elements; sign &amp; broadcast</li>
+      <li>Chain scanning: detect when an offer UTXO is spent</li>
+      <li class="stretch">Confidential counter-payment output variant</li>
+    </ul>
+  </div>
+  <div class="dev C">
+    <div class="top">
+      <div class="role">Track C · CLI · demo · pitch</div>
+      <div class="who">Dev C</div>
+      <div class="owns">owns <code>crates/swap-cli</code> + demo + slides</div>
+    </div>
+    <ul>
+      <li>Wire CLI commands to the swap-core traits</li>
+      <li>Offer wire format (JSON) — make/take/reclaim exchange it</li>
+      <li>End-to-end demo script over regtest; record a clean run</li>
+      <li>Integration testing across Track A + B as pieces land</li>
+      <li>README polish; the 3-minute pitch + slides</li>
+      <li>Test vectors &amp; fixtures so A and B can work offline</li>
+      <li class="stretch">Oracle-settled variant demo</li>
+      <li class="stretch">Sketch kaleidoswap-maker <code>pset</code>-venue hook</li>
+    </ul>
+  </div>
+</div>
+
+<h2>Integration contracts (work in parallel against these)</h2>
+<table>
+  <tr><th>Boundary</th><th>Interface</th><th>Producer → Consumer</th></tr>
+  <tr>
+    <td>Covenant → address</td>
+    <td class="iface">SwapTerms::compile() → CompiledCovenant { program, cmr }</td>
+    <td><span class="pill A">A</span> → <span class="pill B">B</span></td>
+  </tr>
+  <tr>
+    <td>Witness layout</td>
+    <td class="iface">PATH ∈ {Settle(vout), Refund(sig)}</td>
+    <td><span class="pill A">A</span> → <span class="pill B">B</span></td>
+  </tr>
+  <tr>
+    <td>Offer operations</td>
+    <td class="iface">MakeOffer / TakeOffer / ReclaimOffer traits</td>
+    <td><span class="pill B">B</span> → <span class="pill C">C</span></td>
+  </tr>
+  <tr>
+    <td>Offer wire format</td>
+    <td class="iface">Offer { outpoint, asset_a, amount_a, terms }</td>
+    <td><span class="pill C">C</span> ↔ <span class="pill all">all</span></td>
+  </tr>
+</table>
+
+<h2>Two-day timeline</h2>
+
+<div class="tl-day">Day 1 — Tue 16 May · build the pieces</div>
+<div class="ms"><div class="dot"></div><div class="when">10:00–11:00</div><div><strong>Kickoff &amp; setup.</strong> <span class="pill all">all</span> — clone repo, codespace open, regtest running, agree witness layout &amp; Offer JSON.</div></div>
+<div class="ms"><div class="dot"></div><div class="when">11:00–13:00</div><div><span class="pill A">A</span> swap.simf compiles · <span class="pill B">B</span> regtest funding + wallets · <span class="pill C">C</span> CLI skeleton + Offer (de)serialisation.</div></div>
+<div class="ms"><div class="dot"></div><div class="when">14:00–16:30</div><div><span class="pill A">A</span> SETTLE path verified in codespace · <span class="pill B">B</span> covenant address from CMR + <code>make_offer</code> · <span class="pill C">C</span> test vectors, demo harness.</div></div>
+<div class="ms"><div class="dot"></div><div class="when">16:30–18:00</div><div><strong>🏁 Day-1 milestone:</strong> covenant compiles; an offer UTXO is funded on regtest and visible. <span class="pill all">all</span> sync on the take_offer interface.</div></div>
+
+<div class="tl-day">Day 2 — Wed 17 May · integrate &amp; demo</div>
+<div class="ms"><div class="dot"></div><div class="when">10:00–12:30</div><div><span class="pill B">B</span>+<span class="pill A">A</span> the hard part — <code>take_offer</code> settlement tx with the Simplicity witness · <span class="pill C">C</span> wires it through the CLI live.</div></div>
+<div class="ms"><div class="dot"></div><div class="when">12:30–13:30</div><div><strong>🏁 Core milestone:</strong> end-to-end SETTLE swap confirmed on regtest.</div></div>
+<div class="ms"><div class="dot"></div><div class="when">14:00–16:00</div><div><span class="pill A">A</span> REFUND path · <span class="pill B">B</span> <code>reclaim</code> + scanning · <span class="pill C">C</span> stretch demo (Dutch auction / oracle) + slides.</div></div>
+<div class="ms"><div class="dot"></div><div class="when">16:00–17:00</div><div>Freeze. Rehearse the demo end to end twice. <span class="pill all">all</span></div></div>
+<div class="ms"><div class="dot"></div><div class="when">17:00–18:00</div><div><strong>🎤 Presentations.</strong> 3-min pitch: the problem, a live regtest swap, the one formal property proved.</div></div>
+
+<h2>Definition of done</h2>
+<div class="grid2">
+  <div class="panel">
+    <h3>Must have</h3>
+    <p class="muted">covenant-swap SETTLE works end-to-end on Elements regtest via the CLI: maker funds an offer, taker fills it, one transaction settles both legs. REFUND path verified. One formal property checked.</p>
+  </div>
+  <div class="panel">
+    <h3>Stretch</h3>
+    <p class="muted">A second covenant flavour (Dutch-auction or oracle-settled). A sketch of the <code>pset</code>-venue hook into kaleidoswap-maker. A recorded clean demo run.</p>
+  </div>
+</div>
+
+<h2>References</h2>
+<p class="muted">
+  Simplicity — <a href="https://docs.simplicity-lang.org">docs.simplicity-lang.org</a> ·
+  Liquid — <a href="https://docs.liquid.net">docs.liquid.net</a> ·
+  Elements — <a href="https://github.com/ElementsProject/elements">github.com/ElementsProject/elements</a> ·
+  Codespace — <a href="https://github.com/Blockstream/simplicity-codespace">Blockstream/simplicity-codespace</a> ·
+  LWK walk-through — <a href="https://www.youtube.com/watch?v=C2p4jzplg4c">youtube</a> ·
+  Dev TG — @simplicity_community
+</p>
+
+</div>
+</body>
+</html>
