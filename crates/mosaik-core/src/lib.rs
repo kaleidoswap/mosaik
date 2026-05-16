@@ -10,6 +10,8 @@ use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use tessera::Tessera;
 
+pub mod rpc;
+
 /// A published offer: a funded covenant UTXO plus the terms needed to fill it.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Offer {

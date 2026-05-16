@@ -19,6 +19,7 @@ clap = { version = "4", features = ["derive"] }
 hex = "0.4"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+ureq = { version = "2", features = ["json"] }
 
 # Liquid / Simplicity crates — added during the hackathon as each milestone
 # lands, so the workspace builds cleanly from day 0:
