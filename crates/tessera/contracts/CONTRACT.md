@@ -2,12 +2,12 @@
 
 Companion to [`tessera.simf`](tessera.simf).
 
-**Status: the covenant compiles.** It builds with the `simplicityhl` compiler
-(crate `simplicityhl 0.6.0-rc.0`) and yields a Commitment Merkle Root. The
-`tessera` crate's `covenant_compiles_and_yields_a_cmr` test enforces this on
-every `cargo test`, and `mosaik compile-tessera …` prints the CMR. What remains
-for Track A is *execution* testing — satisfying the covenant with witness data
-and running it against a transaction environment (see §3).
+**Status: the covenant compiles and both spend paths execute.** It builds with
+the `simplicityhl` compiler (crate `simplicityhl 0.6.0-rc.0`), yields a
+Commitment Merkle Root, and runs correctly in `simplicity::BitMachine` against a
+transaction environment for SETTLE and REFUND alike (see §3). `cargo test`
+enforces compilation and all six execution tests; `mosaik compile-tessera …`
+prints the CMR.
 
 ## 1. What the program does
 
@@ -51,26 +51,24 @@ maker's counter-payment output must be unblinded.
 
 Compilation proves the program is well-typed and every jet exists. *Execution*
 proves the spend logic is correct. `crates/tessera/tests/execution.rs` does this
-for **SETTLE** and it passes:
+for **both paths** — 6 tests, all passing. Each compiles the covenant, satisfies
+it with witness data, and runs it in `simplicity::BitMachine` against a crafted
+`dummy_env` transaction.
 
-- compiles the covenant, satisfies it with `PATH = Left(0)`,
-- builds a transaction whose output 0 explicitly pays the maker,
-- runs the covenant in `simplicity::BitMachine` against
-  `dummy_env::dummy_with_tx`,
-- asserts SETTLE **accepts** a correct payment and **rejects** both an
-  underpayment and a payment to the wrong scriptPubKey.
+**SETTLE** (`PATH = Left(0)`, output 0 explicitly pays the maker):
+- ✅ accepts a correct payment,
+- ✅ rejects an underpayment,
+- ✅ rejects payment to the wrong scriptPubKey.
 
-So the introspection logic — asset, amount and destination checks — is verified
+**REFUND** (`PATH = Right(sig)`): the sighash to sign is
+`env.c_tx_env().sighash_all()` — the exact value the covenant's
+`jet::sig_all_hash` sees — Schnorr-signed with the maker key.
+- ✅ accepts the maker's signature once the timeout height is reached,
+- ✅ rejects before the timeout,
+- ✅ rejects a non-maker signature.
+
+So the introspection logic and the timelock+signature logic are both verified
 end to end.
-
-**Still open — REFUND execution.** REFUND needs a real BIP-340 signature over
-the Simplicity spend sighash. Compute it with
-`simplicity::policy::sighash::SighashCache::simplicity_spend_signature_hash`
-(input index 0, the prevouts, the covenant CMR as `script_cmr`, the control
-block from `dummy_with_tx`, an all-zero genesis hash), then Schnorr-sign that
-hash with the maker key and pass it as `PATH = Right(0x…)`. The upstream
-`htlc.simf` example proves this timelock-plus-signature pattern executes, so
-this is plumbing, not a design risk.
 
 **Cross-check the CMR** — `mosaik compile-tessera` should yield the same CMR as
 the `simc` toolchain in the Simplicity codespace for identical terms.
