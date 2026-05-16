@@ -148,6 +148,26 @@ impl ElementsRpc {
     pub fn balances(&self) -> Result<Value> {
         self.call("getbalance", json!([]))
     }
+
+    /// The network's L-BTC (policy) asset id, in RPC display order.
+    pub fn policy_asset(&self) -> Result<String> {
+        Ok(self
+            .call("dumpassetlabels", json!([]))?
+            .get("bitcoin")
+            .and_then(Value::as_str)
+            .ok_or_else(|| anyhow!("no bitcoin asset label"))?
+            .to_string())
+    }
+
+    /// The scriptPubKey (hex) of an address.
+    pub fn address_script_pubkey(&self, address: &str) -> Result<String> {
+        Ok(self
+            .call("getaddressinfo", json!([address]))?
+            .get("scriptPubKey")
+            .and_then(Value::as_str)
+            .ok_or_else(|| anyhow!("no scriptPubKey for {address}"))?
+            .to_string())
+    }
 }
 
 fn basic_auth(user: &str, pass: &str) -> String {

@@ -197,15 +197,19 @@ impl TakeOffer for MosaikTaker {
         let final_hex = elements::encode::serialize_hex(&tx);
         let settlement_txid = tx.txid().to_string();
 
-        // Mine the settlement directly. The covenant leaf version (0xbe) is
-        // unknown to stock elementsd, so the spend is non-standard for the
-        // mempool — but it is consensus-valid, and `generateblock` includes it
-        // by consensus rules. (A Simplicity-capable node enforces the covenant
-        // and would also accept it via the mempool.)
-        let miner = self.rpc.new_address()?;
-        self.rpc
-            .call("generateblock", serde_json::json!([miner, [final_hex]]))?;
-        Ok(settlement_txid)
+        // Broadcast. Try the mempool first; if the node rejects the covenant
+        // leaf (0xbe) as non-standard, mine the settlement directly with
+        // `generateblock` (consensus-valid). See docs/DESIGN.md on covenant
+        // enforcement and the `hal-simplicity` PSET path.
+        match self.rpc.send_raw_transaction(&final_hex) {
+            Ok(txid) => Ok(txid),
+            Err(_) => {
+                let miner = self.rpc.new_address()?;
+                self.rpc
+                    .call("generateblock", serde_json::json!([miner, [final_hex]]))?;
+                Ok(settlement_txid)
+            }
+        }
     }
 }
 

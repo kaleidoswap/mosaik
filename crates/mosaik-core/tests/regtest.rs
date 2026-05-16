@@ -10,13 +10,36 @@
 use mosaik_core::rpc::ElementsRpc;
 use mosaik_core::{MakeOffer, MosaikMaker, MosaikTaker, TakeOffer, Tessera};
 use serde_json::json;
+use sha2::{Digest, Sha256};
 
-/// A sample Tessera for the given maker-payment amount.
+/// A sample Tessera for the given maker-payment amount (arbitrary terms —
+/// fine for funding tests, which never run the covenant).
 fn sample_tessera(amount_b: u64) -> Tessera {
     Tessera {
         asset_b: [0xab; 32],
         amount_b,
         maker_spk_hash: [0xcd; 32],
+        timeout: 500,
+        maker_pk: [0x11; 32],
+    }
+}
+
+/// A Tessera whose terms exactly match an L-BTC payment of `amount_b` to
+/// `maker_addr` — so the covenant accepts the settlement.
+fn matching_tessera(rpc: &ElementsRpc, maker_addr: &str, amount_b: u64) -> Tessera {
+    // maker_spk_hash = SHA-256 of the maker scriptPubKey
+    let spk = hex::decode(rpc.address_script_pubkey(maker_addr).unwrap()).unwrap();
+    let maker_spk_hash: [u8; 32] = Sha256::digest(&spk).into();
+
+    // asset_b = L-BTC asset id in tx/jet (internal) order — the RPC display
+    // order is byte-reversed.
+    let mut asset_b = hex::decode(rpc.policy_asset().unwrap()).unwrap();
+    asset_b.reverse();
+
+    Tessera {
+        asset_b: asset_b.try_into().unwrap(),
+        amount_b,
+        maker_spk_hash,
         timeout: 500,
         maker_pk: [0x11; 32],
     }
@@ -94,12 +117,14 @@ fn make_offer_funds_a_real_covenant_utxo() {
 }
 
 #[test]
-fn take_offer_spends_the_covenant_and_pays_the_maker() {
+fn take_offer_settles_and_pays_the_maker() {
     let Some(rpc) = regtest() else { return };
 
     // Maker publishes an offer: locks 1,000,000 sats, wants 600,000 paid back.
+    // The covenant terms match the settlement output exactly.
     let maker_addr = rpc.new_unconfidential_address().expect("maker address");
-    let tessera = sample_tessera(600_000);
+    let amount_b = 600_000;
+    let tessera = matching_tessera(&rpc, &maker_addr, amount_b);
     let offer = MosaikMaker::regtest()
         .make_offer("BTC", 1_000_000, &tessera, &maker_addr)
         .expect("make_offer");
