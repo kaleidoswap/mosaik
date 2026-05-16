@@ -24,12 +24,24 @@ pub struct Offer {
     pub amount_a: u64,
     /// The Tessera — what the maker wants in return, and the refund conditions.
     pub tessera: Tessera,
+    /// The (unconfidential) address the counter-payment must go to. The
+    /// covenant commits to its scriptPubKey hash via `tessera.maker_spk_hash`.
+    pub maker_address: String,
 }
 
 /// Maker side — publish an offer.
 pub trait MakeOffer {
     /// Fund a covenant UTXO with `amount_a` of `asset_a` and return the [`Offer`].
-    fn make_offer(&self, asset_a: &str, amount_a: u64, tessera: &Tessera) -> Result<Offer>;
+    ///
+    /// `maker_address` is the unconfidential address the counter-payment must
+    /// reach — the covenant commits to its scriptPubKey hash.
+    fn make_offer(
+        &self,
+        asset_a: &str,
+        amount_a: u64,
+        tessera: &Tessera,
+        maker_address: &str,
+    ) -> Result<Offer>;
 }
 
 /// A maker that publishes offers against an Elements node.
@@ -56,7 +68,13 @@ impl MakeOffer for MosaikMaker {
     /// satoshis into the covenant UTXO. Funding any P2TR address is a normal
     /// payment, so this works on stock `elementsd` — only *spending* the
     /// covenant needs a Simplicity-capable node.
-    fn make_offer(&self, asset_a: &str, amount_a: u64, tessera: &Tessera) -> Result<Offer> {
+    fn make_offer(
+        &self,
+        asset_a: &str,
+        amount_a: u64,
+        tessera: &Tessera,
+        maker_address: &str,
+    ) -> Result<Offer> {
         if !matches!(asset_a.to_ascii_uppercase().as_str(), "BTC" | "LBTC" | "L-BTC") {
             anyhow::bail!("make_offer funds L-BTC offers only; got asset_a={asset_a}");
         }
@@ -81,6 +99,7 @@ impl MakeOffer for MosaikMaker {
             asset_a: asset_a.to_string(),
             amount_a,
             tessera: tessera.clone(),
+            maker_address: maker_address.to_string(),
         })
     }
 }
@@ -95,16 +114,99 @@ fn find_output_index(tx: &serde_json::Value, spk_hex: &str) -> Option<u64> {
 
 /// Taker side — fill an offer.
 pub trait TakeOffer {
-    /// Build, finalise and broadcast the transaction that fills `offer`.
-    ///
-    /// The covenant-specific part is done: `offer.tessera.settle_witness(vout)`
-    /// yields the SETTLE input's Taproot witness stack. What remains is
-    /// standard Liquid tx assembly — covenant UTXO + taker coins in;
-    /// counter-payment to the maker + the bought asset to the taker + fee out
-    /// — best done with LWK, then broadcast. Returns the settlement txid.
-    ///
-    /// Enforcement of the covenant requires a Simplicity-capable node.
+    /// Build, finalise and broadcast the transaction that fills `offer` via the
+    /// covenant's SETTLE path. Returns the settlement txid.
     fn take_offer(&self, offer: &Offer) -> Result<String>;
+}
+
+/// Network fee for the settlement transaction (satoshis).
+const SETTLE_FEE_SATS: u64 = 1_000;
+
+/// A taker that fills offers against an Elements node.
+pub struct MosaikTaker {
+    rpc: rpc::ElementsRpc,
+}
+
+impl MosaikTaker {
+    pub fn new(rpc: rpc::ElementsRpc) -> Self {
+        Self { rpc }
+    }
+
+    /// A taker wired to the local Mosaik regtest (see `scripts/regtest.sh`).
+    pub fn regtest() -> Self {
+        Self::new(rpc::ElementsRpc::regtest_wallet())
+    }
+}
+
+impl TakeOffer for MosaikTaker {
+    /// Fill an offer: spend the covenant UTXO via SETTLE, paying the maker.
+    ///
+    /// Builds a single transaction — covenant UTXO in; the maker's
+    /// counter-payment as output 0 (what the covenant checks), the remainder
+    /// to the taker, and a fee. Output 0's Taproot witness is the SETTLE
+    /// witness from [`Tessera::settle_witness`].
+    ///
+    /// This is the L-BTC settlement: the offer locks L-BTC and the maker is
+    /// paid L-BTC, so no taker inputs are needed. Stock `elementsd` accepts the
+    /// spend (an unknown-leaf-version Taproot path); covenant *enforcement*
+    /// needs a Simplicity-capable node.
+    fn take_offer(&self, offer: &Offer) -> Result<String> {
+        let (txid, vout_str) = offer
+            .outpoint
+            .split_once(':')
+            .ok_or_else(|| anyhow::anyhow!("bad outpoint: {}", offer.outpoint))?;
+        let covenant_vout: u64 = vout_str.parse()?;
+
+        let amount_b = offer.tessera.amount_b;
+        if offer.amount_a <= amount_b + SETTLE_FEE_SATS {
+            anyhow::bail!(
+                "offer locks {} sats — too little for a {} payment + {} fee",
+                offer.amount_a,
+                amount_b,
+                SETTLE_FEE_SATS
+            );
+        }
+        let taker_amount = offer.amount_a - amount_b - SETTLE_FEE_SATS;
+        let taker_address = self.rpc.new_unconfidential_address()?;
+
+        // Skeleton: output 0 = maker (the SETTLE target), 1 = taker, 2 = fee.
+        let sats_to_btc = |s: u64| s as f64 / 1e8;
+        let inputs = serde_json::json!([{ "txid": txid, "vout": covenant_vout }]);
+        let outputs = serde_json::json!([
+            { &offer.maker_address: sats_to_btc(amount_b) },
+            { taker_address: sats_to_btc(taker_amount) },
+            { "fee": sats_to_btc(SETTLE_FEE_SATS) },
+        ]);
+        let raw_hex = self
+            .rpc
+            .call("createrawtransaction", serde_json::json!([inputs, outputs]))?
+            .as_str()
+            .ok_or_else(|| anyhow::anyhow!("createrawtransaction: no hex"))?
+            .to_string();
+
+        // Inject the covenant's SETTLE witness into the covenant input.
+        let mut tx: elements::Transaction =
+            elements::encode::deserialize(&hex::decode(&raw_hex)?)?;
+        let witness = offer.tessera.settle_witness(0)?;
+        tx.input
+            .get_mut(0)
+            .ok_or_else(|| anyhow::anyhow!("skeleton has no input"))?
+            .witness
+            .script_witness = witness.witness_stack();
+
+        let final_hex = elements::encode::serialize_hex(&tx);
+        let settlement_txid = tx.txid().to_string();
+
+        // Mine the settlement directly. The covenant leaf version (0xbe) is
+        // unknown to stock elementsd, so the spend is non-standard for the
+        // mempool — but it is consensus-valid, and `generateblock` includes it
+        // by consensus rules. (A Simplicity-capable node enforces the covenant
+        // and would also accept it via the mempool.)
+        let miner = self.rpc.new_address()?;
+        self.rpc
+            .call("generateblock", serde_json::json!([miner, [final_hex]]))?;
+        Ok(settlement_txid)
+    }
 }
 
 /// Maker side — reclaim an unfilled offer after its timeout.
@@ -135,10 +237,12 @@ mod tests {
                 timeout: 200,
                 maker_pk: [0x33; 32],
             },
+            maker_address: "ert1qexampleexampleexampleexampleexampleex".into(),
         };
         let json = serde_json::to_string(&offer).unwrap();
         let back: Offer = serde_json::from_str(&json).unwrap();
         assert_eq!(back.amount_a, 100_000);
         assert_eq!(back.tessera.amount_b, 50_000);
+        assert_eq!(back.maker_address, offer.maker_address);
     }
 }

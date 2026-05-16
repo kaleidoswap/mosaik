@@ -100,6 +100,18 @@ impl ElementsRpc {
             .to_string())
     }
 
+    /// A fresh address in unconfidential form — paying it produces an explicit
+    /// (unblinded) output, which the Tessera covenant requires.
+    pub fn new_unconfidential_address(&self) -> Result<String> {
+        let addr = self.new_address()?;
+        let info = self.call("getaddressinfo", json!([addr]))?;
+        Ok(info
+            .get("unconfidential")
+            .and_then(Value::as_str)
+            .unwrap_or(&addr)
+            .to_string())
+    }
+
     /// Mine `n` blocks to a fresh wallet address; returns the block hashes.
     pub fn generate(&self, n: u64) -> Result<Vec<String>> {
         let addr = self.new_address()?;

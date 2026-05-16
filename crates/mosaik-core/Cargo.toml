@@ -13,4 +13,5 @@ hex.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 ureq.workspace = true
+elements = "0.25"
 tessera = { path = "../tessera" }

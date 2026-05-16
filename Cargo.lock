@@ -337,6 +337,7 @@ dependencies = [
  "bech32",
  "bitcoin",
  "secp256k1-zkp",
+ "serde_json",
 ]
 
 [[package]]
@@ -664,6 +665,7 @@ name = "mosaik-core"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "elements",
  "hex",
  "serde",
  "serde_json",
