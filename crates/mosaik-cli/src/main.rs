@@ -1,21 +1,21 @@
-//! covenant-swap demo CLI.
+//! Mosaik demo CLI.
 //!
 //! Three commands map onto the protocol in `docs/DESIGN.md` §5:
 //!
-//!   covenant-swap make-offer ...   maker funds a covenant UTXO
-//!   covenant-swap take-offer ...   taker fills it (SETTLE path)
-//!   covenant-swap reclaim    ...   maker reclaims it (REFUND path)
+//!   mosaik make-offer ...   maker funds a covenant UTXO (a Tessera)
+//!   mosaik take-offer ...   taker fills it (SETTLE path)
+//!   mosaik reclaim    ...   maker reclaims it (REFUND path)
 //!
 //! The Liquid side (PSET build/sign/broadcast) is wired during the hackathon —
-//! see the `TODO(hackathon)` markers in `swap-core`.
+//! see the `TODO(hackathon)` markers in `mosaik-core`.
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
-use covenant::SwapTerms;
+use tessera::Tessera;
 
 #[derive(Parser)]
-#[command(name = "covenant-swap")]
-#[command(about = "A swap offer that lives inside a coin — Simplicity covenant swaps on Liquid")]
+#[command(name = "mosaik")]
+#[command(about = "Mosaik — a DEX on Liquid where every order is a Tessera, a self-enforcing Simplicity covenant")]
 struct Cli {
     #[command(subcommand)]
     command: Command,
@@ -59,8 +59,8 @@ enum Command {
         #[arg(long)]
         offer: String,
     },
-    /// Print the parameterised SimplicityHL covenant for a set of terms.
-    ShowCovenant {
+    /// Print the parameterised SimplicityHL covenant for a Tessera.
+    ShowTessera {
         #[arg(long)]
         asset_b: String,
         #[arg(long)]
@@ -82,14 +82,14 @@ fn parse_32(label: &str, s: &str) -> Result<[u8; 32]> {
     Ok(arr)
 }
 
-fn build_terms(
+fn build_tessera(
     asset_b: &str,
     amount_b: u64,
     maker_pk: &str,
     maker_spk_hash: &str,
     timeout: u32,
-) -> Result<SwapTerms> {
-    Ok(SwapTerms {
+) -> Result<Tessera> {
+    Ok(Tessera {
         asset_b: parse_32("asset_b", asset_b)?,
         amount_b,
         maker_spk_hash: parse_32("maker_spk_hash", maker_spk_hash)?,
@@ -111,32 +111,32 @@ fn main() -> Result<()> {
             maker_spk_hash,
             timeout,
         } => {
-            let terms = build_terms(&asset_b, amount_b, &maker_pk, &maker_spk_hash, timeout)?;
-            println!("Covenant terms: {}", serde_json::to_string_pretty(&terms)?);
+            let tessera = build_tessera(&asset_b, amount_b, &maker_pk, &maker_spk_hash, timeout)?;
+            println!("Tessera: {}", serde_json::to_string_pretty(&tessera)?);
             println!("Selling {amount_a} of {asset_a}");
-            // TODO(hackathon): swap_core::MakeOffer::make_offer — derive the
+            // TODO(hackathon): mosaik_core::MakeOffer::make_offer — derive the
             // covenant address, fund it, broadcast, print the offer JSON.
-            anyhow::bail!("make-offer: Liquid funding not wired yet (see swap-core)");
+            anyhow::bail!("make-offer: Liquid funding not wired yet (see mosaik-core)");
         }
         Command::TakeOffer { offer } => {
             println!("Taking offer from {offer}");
-            // TODO(hackathon): swap_core::TakeOffer::take_offer.
-            anyhow::bail!("take-offer: settlement tx not wired yet (see swap-core)");
+            // TODO(hackathon): mosaik_core::TakeOffer::take_offer.
+            anyhow::bail!("take-offer: settlement tx not wired yet (see mosaik-core)");
         }
         Command::Reclaim { offer } => {
             println!("Reclaiming offer from {offer}");
-            // TODO(hackathon): swap_core::ReclaimOffer::reclaim.
-            anyhow::bail!("reclaim: refund tx not wired yet (see swap-core)");
+            // TODO(hackathon): mosaik_core::ReclaimOffer::reclaim.
+            anyhow::bail!("reclaim: refund tx not wired yet (see mosaik-core)");
         }
-        Command::ShowCovenant {
+        Command::ShowTessera {
             asset_b,
             amount_b,
             maker_pk,
             maker_spk_hash,
             timeout,
         } => {
-            let terms = build_terms(&asset_b, amount_b, &maker_pk, &maker_spk_hash, timeout)?;
-            println!("{}", terms.render());
+            let tessera = build_tessera(&asset_b, amount_b, &maker_pk, &maker_spk_hash, timeout)?;
+            println!("{}", tessera.render());
             Ok(())
         }
     }

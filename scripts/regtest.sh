@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# covenant-swap — local Elements regtest harness.
+# Mosaik — local Elements regtest harness.
 #
-# Spins up a single-node Elements regtest for developing the covenant swap.
+# Spins up a single-node Elements regtest for developing the Tessera covenant.
 # Requires elementsd on PATH or via $ELEMENTSD_EXEC.
 #   download: https://github.com/ElementsProject/elements/releases
 #
@@ -34,7 +34,7 @@ EOF
     "$ELEMENTSD" -datadir="$DATADIR" -daemon
     echo "elementsd starting (datadir: $DATADIR)"
     sleep 2
-    cli createwallet covenant-swap >/dev/null 2>&1 || cli loadwallet covenant-swap >/dev/null 2>&1 || true
+    cli createwallet mosaik >/dev/null 2>&1 || cli loadwallet mosaik >/dev/null 2>&1 || true
     echo "regtest up — try: ./scripts/regtest.sh mine 101"
     ;;
   mine)

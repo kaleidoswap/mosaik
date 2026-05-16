@@ -1,9 +1,9 @@
 [workspace]
 resolver = "2"
 members = [
-    "crates/covenant",
-    "crates/swap-core",
-    "crates/swap-cli",
+    "crates/tessera",
+    "crates/mosaik-core",
+    "crates/mosaik-cli",
 ]
 
 [workspace.package]
@@ -11,7 +11,7 @@ version = "0.1.0"
 edition = "2021"
 license = "MIT"
 authors = ["KaleidoSwap"]
-repository = "https://github.com/kaleidoswap/covenant-swap"
+repository = "https://github.com/kaleidoswap/mosaik"
 
 [workspace.dependencies]
 anyhow = "1"

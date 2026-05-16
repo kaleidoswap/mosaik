@@ -1,13 +1,18 @@
-# covenant-swap
+# Mosaik
 
-**A swap offer that lives inside a coin.**
+**A DEX on Liquid where every order is a Tessera — a self-enforcing covenant.**
 
-A trustless, permissionless asset swap on the [Liquid Network](https://docs.liquid.net),
-where the trade terms are enforced by a [Simplicity](https://docs.simplicity-lang.org)
-covenant — not by an order book, a maker server, or a counterparty's good behaviour.
+Mosaik is a trustless, permissionless asset exchange on the
+[Liquid Network](https://docs.liquid.net). It has no order book, no matching
+engine, and no maker server. Each offer is a **Tessera**: a single Liquid coin
+whose [Simplicity](https://docs.simplicity-lang.org) covenant enforces the trade
+terms. A market is a mosaic of these tesserae.
 
-Built for the **Blockstream Simplicity Bootcamp & Hackathon** — Blox Space, Turin,
-16–17 May 2026.
+> On Mosaik, an order isn't a promise a market maker might break —
+> it's a covenant the coin itself keeps.
+
+Built for the **Blockstream Simplicity Bootcamp & Hackathon** — Blox Space,
+Turin, 16–17 May 2026.
 
 ---
 
@@ -15,10 +20,10 @@ Built for the **Blockstream Simplicity Bootcamp & Hackathon** — Blox Space, Tu
 
 A maker wants to sell `amount_A` of asset **A** for `amount_B` of asset **B**.
 
-Instead of posting an order to an exchange, the maker locks asset A into a single
-Liquid UTXO controlled by a **Simplicity covenant**. That covenant inspects any
-transaction trying to spend the coin and allows it **only if** the transaction
-pays the maker exactly `amount_B` of asset B.
+Instead of posting an order to an exchange, the maker locks asset A into a
+single Liquid UTXO controlled by a **Tessera** — a Simplicity covenant. That
+covenant inspects any transaction trying to spend the coin and allows it
+**only if** the transaction pays the maker exactly `amount_B` of asset B.
 
 That one UTXO _is_ the offer:
 
@@ -40,13 +45,21 @@ LiquiDEX-style swaps get atomicity from a `SIGHASH` trick; adaptor-signature
 PTLCs work on plain Taproot. A covenant that _enforces the counter-payment_ is
 the thing that genuinely requires Simplicity.
 
+### Mosaik & Tessera
+
+- A **Tessera** is one offer — one covenant, one tile.
+- **Mosaik** is the market they form — the mosaic.
+
+(A kaleidoscope shows a mosaic — the names sit naturally inside the KaleidoSwap
+family.)
+
 ---
 
 ## How it works
 
 ```
         ┌─────────────────────────────────────────────┐
-        │  Covenant UTXO  (holds amount_A of asset A)   │
+        │  Tessera UTXO  (holds amount_A of asset A)    │
         │                                               │
         │  SETTLE path:  spendable by ANYONE iff the    │
         │     spending tx has an output paying          │
@@ -57,19 +70,19 @@ the thing that genuinely requires Simplicity.
         └─────────────────────────────────────────────┘
 
   maker                                              taker
-    │  1. lock asset A in the covenant UTXO            │
+    │  1. lock asset A in the Tessera UTXO             │
     │     (terms baked into the tapleaf)               │
     │ ───────────── publish offer (outpoint) ────────► │
     │                                                  │
     │            2. build a tx:                        │
-    │               input  = covenant UTXO + own coins │
+    │               input  = Tessera UTXO + own coins  │
     │               output = amount_B asset B → maker  │
     │               output = amount_A asset A → taker  │
     │               + fee                              │
     │ ◄──────── 3. covenant verifies & tx confirms ─── │
 ```
 
-The covenant's parameters (asset B id, amount B, maker script, timeout, maker
+The Tessera's parameters (asset B id, amount B, maker script, timeout, maker
 pubkey) are committed into the Taproot tapleaf, so they cannot be altered after
 the offer is published.
 
@@ -78,34 +91,35 @@ the offer is published.
 ## Repository layout
 
 ```
-covenant-swap/
+mosaik/
 ├── crates/
-│   ├── covenant/             # the Simplicity covenant
-│   │   ├── contracts/        #   SimplicityHL (.simf) source
+│   ├── tessera/              # the Tessera Simplicity covenant
+│   │   ├── contracts/        #   SimplicityHL (tessera.simf) source
 │   │   └── src/              #   Rust: parameterise + compile the covenant
-│   ├── swap-core/            # PSET construction, keys, Liquid plumbing (LWK / rust-elements)
-│   └── swap-cli/             # demo CLI: make-offer / take-offer / reclaim
+│   ├── mosaik-core/          # PSET construction, keys, Liquid plumbing (LWK / rust-elements)
+│   └── mosaik-cli/           # demo CLI `mosaik`: make-offer / take-offer / reclaim
 ├── docs/DESIGN.md            # full protocol + covenant spec
+├── docs/hackathon.html       # hackathon plan + 3-dev work division
 └── scripts/regtest.sh        # local Elements regtest harness
 ```
 
 ## Roadmap (hackathon)
 
-- [ ] **Day 1** — covenant draft compiles in the Simplicity codespace; offer
+- [ ] **Day 1** — Tessera covenant compiles in the Simplicity codespace; offer
       UTXO funded and the SETTLE path spent on Elements regtest.
 - [ ] **Day 1** — REFUND path verified after timeout.
-- [ ] **Day 2** — `swap-cli` end-to-end demo: make-offer → take-offer → confirmed.
-- [ ] **Stretch** — PTLC variant: point-lock the SETTLE path with an adaptor
-      signature so two swap legs are unlinkable.
-- [ ] **Stretch** — wire into [kaleidoswap-maker](../kaleidoswap-maker) as a
-      `pset`-venue settlement path alongside LWK LiquiDEX.
+- [ ] **Day 2** — `mosaik` CLI end-to-end demo: make-offer → take-offer → confirmed.
+- [ ] **Stretch** — Tessera flavours: Dutch-auction (price decays with height)
+      and oracle-settled offers, from the same covenant codebase.
+- [ ] **Stretch** — wire Mosaik into [kaleidoswap-maker](../kaleidoswap-maker)
+      as a `pset`-venue settlement path alongside LWK LiquiDEX.
 
 ## Getting started
 
 The Simplicity contract is developed in
 **[Blockstream/simplicity-codespace](https://github.com/Blockstream/simplicity-codespace)**
 (SimplicityHL compiler + tooling preinstalled — run it in-browser or in VS Code).
-See [`crates/covenant/contracts/swap.simf`](crates/covenant/contracts/swap.simf).
+See [`crates/tessera/contracts/tessera.simf`](crates/tessera/contracts/tessera.simf).
 
 For the Liquid side you need an Elements node:
 
@@ -113,7 +127,7 @@ For the Liquid side you need an Elements node:
 # download elementsd from https://github.com/ElementsProject/elements/releases
 export ELEMENTSD_EXEC=/path/to/elementsd
 ./scripts/regtest.sh up        # start a local Elements regtest
-cargo run -p swap-cli -- --help
+cargo run -p mosaik-cli -- --help
 ```
 
 ## References

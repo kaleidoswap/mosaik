@@ -1,14 +1,14 @@
-//! covenant-swap core: offers, and the Liquid PSET / key plumbing.
+//! Mosaik core: offers, and the Liquid PSET / key plumbing.
 //!
-//! This crate turns [`covenant::SwapTerms`] into a live offer (a funded
-//! covenant UTXO) and builds the transactions that fill or reclaim it.
+//! This crate turns a [`tessera::Tessera`] into a live offer (a funded covenant
+//! UTXO) and builds the transactions that fill or reclaim it.
 //!
 //! The Elements/LWK calls are TODOs at this stage — the types and the flow are
 //! defined so the hackathon work is pure fill-in. See `docs/DESIGN.md` §5.
 
 use anyhow::Result;
-use covenant::SwapTerms;
 use serde::{Deserialize, Serialize};
+use tessera::Tessera;
 
 /// A published offer: a funded covenant UTXO plus the terms needed to fill it.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -19,8 +19,8 @@ pub struct Offer {
     pub asset_a: String,
     /// Amount of `asset_a` locked.
     pub amount_a: u64,
-    /// What the maker wants in return, and the refund conditions.
-    pub terms: SwapTerms,
+    /// The Tessera — what the maker wants in return, and the refund conditions.
+    pub tessera: Tessera,
 }
 
 /// Maker side — publish an offer.
@@ -28,9 +28,9 @@ pub trait MakeOffer {
     /// Fund a covenant UTXO with `amount_a` of `asset_a` and return the [`Offer`].
     ///
     /// TODO(hackathon): derive the covenant address from
-    /// [`SwapTerms::compile`], build + sign a funding PSET with LWK, broadcast,
+    /// [`Tessera::compile`], build + sign a funding PSET with LWK, broadcast,
     /// and return the resulting outpoint.
-    fn make_offer(&self, asset_a: &str, amount_a: u64, terms: &SwapTerms) -> Result<Offer>;
+    fn make_offer(&self, asset_a: &str, amount_a: u64, tessera: &Tessera) -> Result<Offer>;
 }
 
 /// Taker side — fill an offer.
@@ -51,7 +51,7 @@ pub trait ReclaimOffer {
     ///
     /// TODO(hackathon): build a tx spending the covenant UTXO, set the
     /// Simplicity witness to the REFUND path with the maker's BIP-340
-    /// signature, set `nLockTime = terms.timeout`, broadcast.
+    /// signature, set `nLockTime = tessera.timeout`, broadcast.
     fn reclaim(&self, offer: &Offer) -> Result<String>;
 }
 
@@ -66,7 +66,7 @@ mod tests {
                 .into(),
             asset_a: "aa".repeat(32),
             amount_a: 100_000,
-            terms: SwapTerms {
+            tessera: Tessera {
                 asset_b: [0x11; 32],
                 amount_b: 50_000,
                 maker_spk_hash: [0x22; 32],
@@ -77,6 +77,6 @@ mod tests {
         let json = serde_json::to_string(&offer).unwrap();
         let back: Offer = serde_json::from_str(&json).unwrap();
         assert_eq!(back.amount_a, 100_000);
-        assert_eq!(back.terms.amount_b, 50_000);
+        assert_eq!(back.tessera.amount_b, 50_000);
     }
 }

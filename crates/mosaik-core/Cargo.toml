@@ -1,6 +1,6 @@
 [package]
-name = "swap-core"
-description = "covenant-swap: offers, Liquid PSET construction and key plumbing"
+name = "mosaik-core"
+description = "Mosaik: offers, Liquid PSET construction and key plumbing"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -12,4 +12,4 @@ anyhow.workspace = true
 hex.workspace = true
 serde.workspace = true
 serde_json.workspace = true
-covenant = { path = "../covenant" }
+tessera = { path = "../tessera" }

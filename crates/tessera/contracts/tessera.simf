@@ -1,7 +1,8 @@
 /*
- * covenant-swap — the swap covenant
- * ---------------------------------
- * A Liquid UTXO that holds asset A and can be spent two ways:
+ * Mosaik — the Tessera covenant
+ * -----------------------------
+ * A Tessera is one Mosaik swap offer: a Liquid UTXO that holds asset A and can
+ * be spent two ways:
  *
  *   SETTLE  — by anyone, but ONLY if the spending transaction pays the maker
  *             exactly `AMOUNT_B` of `ASSET_B` to `MAKER_SPK`.
@@ -22,7 +23,7 @@
  */
 
 // ---------------------------------------------------------------------------
-// Offer terms — substituted at compile time (see crates/covenant/src/lib.rs).
+// Offer terms — substituted at compile time (see crates/tessera/src/lib.rs).
 // ---------------------------------------------------------------------------
 const ASSET_B: ExplicitAsset      = param::ASSET_B;       // 32-byte asset id
 const AMOUNT_B: ExplicitAmount    = param::AMOUNT_B;      // exact units wanted

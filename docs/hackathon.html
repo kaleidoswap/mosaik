@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>covenant-swap — Simplicity Hackathon Plan</title>
+<title>Mosaik — Simplicity Hackathon Plan</title>
 <style>
   :root {
     --bg: #0c0e14;
@@ -117,8 +117,8 @@
 
 <header>
   <div class="eyebrow">Blockstream Simplicity Bootcamp &amp; Hackathon · Blox Space, Turin</div>
-  <h1>covenant-swap</h1>
-  <div class="sub">A swap offer that lives inside a coin — trustless asset swaps on Liquid, enforced by a Simplicity covenant. <span class="muted">Proposed brand: Tessera.</span></div>
+  <h1>Mosaik</h1>
+  <div class="sub">A DEX on Liquid where every order is a <strong>Tessera</strong> — a self-enforcing Simplicity covenant. A market is a mosaic of tesserae.</div>
   <div class="meta">
     <span class="chip">📅 16–17 May 2026 · 10:00–18:00</span>
     <span class="chip">👥 3 developers</span>
@@ -171,14 +171,14 @@ parallel from hour one.</p>
     <div class="top">
       <div class="role">Track A · Simplicity</div>
       <div class="who">Dev A</div>
-      <div class="owns">owns <code>crates/covenant</code> + <code>swap.simf</code></div>
+      <div class="owns">owns <code>crates/tessera</code> + <code>tessera.simf</code></div>
     </div>
     <ul>
-      <li>Get <code>swap.simf</code> compiling in the Simplicity codespace</li>
+      <li>Get <code>tessera.simf</code> compiling in the Simplicity codespace</li>
       <li>Confirm every jet name/signature (introspection + sig + timelock)</li>
       <li>Implement &amp; test the SETTLE path (output asset/amount/script)</li>
       <li>Implement &amp; test the REFUND path (timelock + BIP-340 verify)</li>
-      <li>Wire <code>SwapTerms::compile()</code> → program bytes + CMR</li>
+      <li>Wire <code>Tessera::compile()</code> → program bytes + CMR</li>
       <li>Define the witness layout (PATH, settle index, refund sig)</li>
       <li class="stretch">Prove: covenant releases funds only via SETTLE or REFUND</li>
       <li class="stretch">Dutch-auction variant: amount_B decays with height</li>
@@ -188,7 +188,7 @@ parallel from hour one.</p>
     <div class="top">
       <div class="role">Track B · Liquid plumbing</div>
       <div class="who">Dev B</div>
-      <div class="owns">owns <code>crates/swap-core</code></div>
+      <div class="owns">owns <code>crates/mosaik-core</code></div>
     </div>
     <ul>
       <li>Elements regtest up; funded wallets via <code>scripts/regtest.sh</code></li>
@@ -205,10 +205,10 @@ parallel from hour one.</p>
     <div class="top">
       <div class="role">Track C · CLI · demo · pitch</div>
       <div class="who">Dev C</div>
-      <div class="owns">owns <code>crates/swap-cli</code> + demo + slides</div>
+      <div class="owns">owns <code>crates/mosaik-cli</code> + demo + slides</div>
     </div>
     <ul>
-      <li>Wire CLI commands to the swap-core traits</li>
+      <li>Wire CLI commands to the mosaik-core traits</li>
       <li>Offer wire format (JSON) — make/take/reclaim exchange it</li>
       <li>End-to-end demo script over regtest; record a clean run</li>
       <li>Integration testing across Track A + B as pieces land</li>
@@ -225,7 +225,7 @@ parallel from hour one.</p>
   <tr><th>Boundary</th><th>Interface</th><th>Producer → Consumer</th></tr>
   <tr>
     <td>Covenant → address</td>
-    <td class="iface">SwapTerms::compile() → CompiledCovenant { program, cmr }</td>
+    <td class="iface">Tessera::compile() → CompiledTessera { program, cmr }</td>
     <td><span class="pill A">A</span> → <span class="pill B">B</span></td>
   </tr>
   <tr>
@@ -249,7 +249,7 @@ parallel from hour one.</p>
 
 <div class="tl-day">Day 1 — Tue 16 May · build the pieces</div>
 <div class="ms"><div class="dot"></div><div class="when">10:00–11:00</div><div><strong>Kickoff &amp; setup.</strong> <span class="pill all">all</span> — clone repo, codespace open, regtest running, agree witness layout &amp; Offer JSON.</div></div>
-<div class="ms"><div class="dot"></div><div class="when">11:00–13:00</div><div><span class="pill A">A</span> swap.simf compiles · <span class="pill B">B</span> regtest funding + wallets · <span class="pill C">C</span> CLI skeleton + Offer (de)serialisation.</div></div>
+<div class="ms"><div class="dot"></div><div class="when">11:00–13:00</div><div><span class="pill A">A</span> tessera.simf compiles · <span class="pill B">B</span> regtest funding + wallets · <span class="pill C">C</span> CLI skeleton + Offer (de)serialisation.</div></div>
 <div class="ms"><div class="dot"></div><div class="when">14:00–16:30</div><div><span class="pill A">A</span> SETTLE path verified in codespace · <span class="pill B">B</span> covenant address from CMR + <code>make_offer</code> · <span class="pill C">C</span> test vectors, demo harness.</div></div>
 <div class="ms"><div class="dot"></div><div class="when">16:30–18:00</div><div><strong>🏁 Day-1 milestone:</strong> covenant compiles; an offer UTXO is funded on regtest and visible. <span class="pill all">all</span> sync on the take_offer interface.</div></div>
 
@@ -264,7 +264,7 @@ parallel from hour one.</p>
 <div class="grid2">
   <div class="panel">
     <h3>Must have</h3>
-    <p class="muted">covenant-swap SETTLE works end-to-end on Elements regtest via the CLI: maker funds an offer, taker fills it, one transaction settles both legs. REFUND path verified. One formal property checked.</p>
+    <p class="muted">Mosaik SETTLE works end-to-end on Elements regtest via the <code>mosaik</code> CLI: maker funds a Tessera offer, taker fills it, one transaction settles both legs. REFUND path verified. One formal property checked.</p>
   </div>
   <div class="panel">
     <h3>Stretch</h3>

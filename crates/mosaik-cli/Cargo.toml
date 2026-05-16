@@ -1,6 +1,6 @@
 [package]
-name = "swap-cli"
-description = "covenant-swap demo CLI: make-offer / take-offer / reclaim"
+name = "mosaik-cli"
+description = "Mosaik demo CLI: make-offer / take-offer / reclaim"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -8,7 +8,7 @@ authors.workspace = true
 repository.workspace = true
 
 [[bin]]
-name = "covenant-swap"
+name = "mosaik"
 path = "src/main.rs"
 
 [dependencies]
@@ -16,5 +16,5 @@ anyhow.workspace = true
 clap.workspace = true
 hex.workspace = true
 serde_json.workspace = true
-covenant = { path = "../covenant" }
-swap-core = { path = "../swap-core" }
+tessera = { path = "../tessera" }
+mosaik-core = { path = "../mosaik-core" }

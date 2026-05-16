@@ -1,24 +1,28 @@
-//! The covenant-swap Simplicity covenant.
+//! Tessera — the Mosaik Simplicity covenant.
 //!
-//! This crate owns the [`SwapTerms`] of an offer and turns them into a concrete
-//! Simplicity program: it substitutes the terms into the [`swap.simf`] template
-//! and (once wired to the SimplicityHL compiler) produces the program whose
+//! A **Tessera** is one swap offer expressed as a covenant: a single Liquid
+//! coin whose Simplicity program enforces the trade terms. This crate owns the
+//! [`Tessera`] terms of an offer and turns them into a concrete Simplicity
+//! program — it substitutes the terms into the [`tessera.simf`] template and
+//! (once wired to the SimplicityHL compiler) produces the program whose
 //! commitment goes into the Taproot tapleaf.
 //!
-//! [`swap.simf`]: ../contracts/swap.simf
+//! A **Mosaik** market is a mosaic of these tesserae.
+//!
+//! [`tessera.simf`]: ../contracts/tessera.simf
 
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 
-/// The SimplicityHL source for the swap covenant. DRAFT — see the file header.
-pub const SWAP_SIMF: &str = include_str!("../contracts/swap.simf");
+/// The SimplicityHL source for the Tessera covenant. DRAFT — see the file header.
+pub const TESSERA_SIMF: &str = include_str!("../contracts/tessera.simf");
 
-/// Immutable terms of a covenant-swap offer.
+/// A Tessera — the immutable terms of one Mosaik swap offer.
 ///
 /// Every field is committed into the covenant tapleaf, so the terms cannot
 /// change once the offer UTXO exists. See `docs/DESIGN.md` §2.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct SwapTerms {
+pub struct Tessera {
     /// Asset id (32 bytes, hex) the maker wants to receive.
     pub asset_b: [u8; 32],
     /// Exact amount of `asset_b` the maker must be paid.
@@ -31,7 +35,7 @@ pub struct SwapTerms {
     pub maker_pk: [u8; 32],
 }
 
-impl SwapTerms {
+impl Tessera {
     /// Render the SimplicityHL source with these terms substituted in.
     ///
     /// The template declares the terms as `param::*` constants; this emits a
@@ -40,7 +44,7 @@ impl SwapTerms {
     /// (see `compile`).
     pub fn render(&self) -> String {
         format!(
-            "// auto-generated parameter block — covenant-swap\n\
+            "// auto-generated parameter block — Mosaik / Tessera\n\
              // ASSET_B  = 0x{}\n\
              // AMOUNT_B = {}\n\
              // MAKER_SPK = 0x{}\n\
@@ -51,7 +55,7 @@ impl SwapTerms {
             hex::encode(self.maker_spk_hash),
             self.timeout,
             hex::encode(self.maker_pk),
-            SWAP_SIMF,
+            TESSERA_SIMF,
         )
     }
 
@@ -61,18 +65,18 @@ impl SwapTerms {
     /// `simplicityhl` crate from the codespace) on [`render`](Self::render)
     /// and return the program bytes + its commitment Merkle root. The root is
     /// what the Taproot tapleaf commits to.
-    pub fn compile(&self) -> Result<CompiledCovenant> {
+    pub fn compile(&self) -> Result<CompiledTessera> {
         anyhow::bail!(
             "SimplicityHL compilation not wired yet — compile {} in the \
              Simplicity codespace and feed the result back here",
-            "contracts/swap.simf"
+            "contracts/tessera.simf"
         )
     }
 }
 
-/// A compiled Simplicity covenant ready to embed in a Taproot leaf.
+/// A compiled Tessera covenant ready to embed in a Taproot leaf.
 #[derive(Debug, Clone)]
-pub struct CompiledCovenant {
+pub struct CompiledTessera {
     /// Encoded Simplicity program.
     pub program: Vec<u8>,
     /// Commitment Merkle root — the value the tapleaf commits to.
@@ -83,8 +87,8 @@ pub struct CompiledCovenant {
 mod tests {
     use super::*;
 
-    fn sample_terms() -> SwapTerms {
-        SwapTerms {
+    fn sample_tessera() -> Tessera {
+        Tessera {
             asset_b: [0x11; 32],
             amount_b: 50_000,
             maker_spk_hash: [0x22; 32],
@@ -95,24 +99,24 @@ mod tests {
 
     #[test]
     fn simf_template_is_embedded() {
-        assert!(SWAP_SIMF.contains("fn settle"));
-        assert!(SWAP_SIMF.contains("fn refund"));
-        assert!(SWAP_SIMF.contains("fn main"));
+        assert!(TESSERA_SIMF.contains("fn settle"));
+        assert!(TESSERA_SIMF.contains("fn refund"));
+        assert!(TESSERA_SIMF.contains("fn main"));
     }
 
     #[test]
     fn render_includes_terms_and_template() {
-        let rendered = sample_terms().render();
+        let rendered = sample_tessera().render();
         assert!(rendered.contains("AMOUNT_B = 50000"));
         assert!(rendered.contains(&hex::encode([0x11u8; 32])));
         assert!(rendered.contains("fn main"));
     }
 
     #[test]
-    fn terms_roundtrip_json() {
-        let terms = sample_terms();
+    fn tessera_roundtrips_json() {
+        let terms = sample_tessera();
         let json = serde_json::to_string(&terms).unwrap();
-        let back: SwapTerms = serde_json::from_str(&json).unwrap();
+        let back: Tessera = serde_json::from_str(&json).unwrap();
         assert_eq!(terms, back);
     }
 }

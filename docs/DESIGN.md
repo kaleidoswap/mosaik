@@ -1,4 +1,7 @@
-# covenant-swap — Design
+# Mosaik — Design
+
+A DEX on Liquid where every order is a **Tessera**: a single UTXO whose
+Simplicity covenant enforces the trade terms. A market is a mosaic of tesserae.
 
 ## 1. Goal
 
@@ -29,7 +32,7 @@ published:
 The maker builds a Taproot output on Liquid:
 
 - **Internal key** — a NUMS point (no key-path spend), so spends must use a leaf.
-- **Tapleaf** — a Simplicity program (`swap.simf`) parameterised with the terms
+- **Tapleaf** — a Simplicity program (`tessera.simf`) parameterised with the terms
   above. Because the terms are part of the leaf, they are part of the address;
   changing any term changes the UTXO.
 
@@ -64,7 +67,7 @@ Lets the maker reclaim an unfilled offer.
 
 ## 4. Simplicity program shape
 
-`swap.simf` (SimplicityHL) — see `crates/covenant/contracts/swap.simf`.
+`tessera.simf` (SimplicityHL) — see `crates/tessera/contracts/tessera.simf`.
 Pseudocode:
 
 ```

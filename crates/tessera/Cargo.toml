@@ -1,6 +1,6 @@
 [package]
-name = "covenant"
-description = "The covenant-swap Simplicity covenant: terms, parameterisation, compilation"
+name = "tessera"
+description = "The Tessera Simplicity covenant: terms, parameterisation, compilation"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
