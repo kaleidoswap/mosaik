@@ -122,7 +122,11 @@ impl Tessera {
         let satisfied = compiled
             .satisfy(witness_values)
             .map_err(|e| anyhow::anyhow!("satisfy: {e}"))?;
-        let (program, witness) = satisfied.redeem().to_vec_with_witness();
+        // The program is the standalone commitment encoding; the witness is the
+        // separate satisfaction data. (Splitting the redeem node instead yields
+        // a program that does not decode on its own.)
+        let program = compiled.commit().to_vec_without_witness();
+        let (_, witness) = satisfied.redeem().to_vec_with_witness();
 
         // Taproot control block for the covenant leaf.
         let cmr_hex = compiled.commit().cmr().to_string();

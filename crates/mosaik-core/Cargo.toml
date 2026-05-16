@@ -13,7 +13,7 @@ hex.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 ureq.workspace = true
-elements = "0.25"
+base64 = "0.22"
 tessera = { path = "../tessera" }
 
 [dev-dependencies]

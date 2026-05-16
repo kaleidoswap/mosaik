@@ -138,18 +138,21 @@ impl MosaikTaker {
     }
 }
 
+/// The BIP-341 NUMS internal key the Tessera covenant uses (no key-path spend).
+const NUMS_INTERNAL_KEY: &str =
+    "50929b74c1a04954b78b4b6035e97a5e078a5a0f28ec96d547bfee9ace803ac0";
+
 impl TakeOffer for MosaikTaker {
     /// Fill an offer: spend the covenant UTXO via SETTLE, paying the maker.
     ///
     /// Builds a single transaction — covenant UTXO in; the maker's
     /// counter-payment as output 0 (what the covenant checks), the remainder
-    /// to the taker, and a fee. Output 0's Taproot witness is the SETTLE
-    /// witness from [`Tessera::settle_witness`].
+    /// to the taker, and a fee. The covenant input's Simplicity witness is
+    /// assembled with `hal-simplicity` (the PSET tool): the node executes the
+    /// covenant and the spend is only accepted if the maker is paid exactly.
     ///
-    /// This is the L-BTC settlement: the offer locks L-BTC and the maker is
-    /// paid L-BTC, so no taker inputs are needed. Stock `elementsd` accepts the
-    /// spend (an unknown-leaf-version Taproot path); covenant *enforcement*
-    /// needs a Simplicity-capable node.
+    /// This is the L-BTC settlement — the offer locks L-BTC and the maker is
+    /// paid L-BTC, so no taker inputs are needed.
     fn take_offer(&self, offer: &Offer) -> Result<String> {
         let (txid, vout_str) = offer
             .outpoint
@@ -168,14 +171,15 @@ impl TakeOffer for MosaikTaker {
         }
         let taker_amount = offer.amount_a - amount_b - SETTLE_FEE_SATS;
         let taker_address = self.rpc.new_unconfidential_address()?;
+        let btc = |s: u64| format!("{:.8}", s as f64 / 1e8);
 
-        // Skeleton: output 0 = maker (the SETTLE target), 1 = taker, 2 = fee.
-        let sats_to_btc = |s: u64| s as f64 / 1e8;
+        // 1. Skeleton transaction: output 0 = maker (the SETTLE target),
+        //    1 = taker, 2 = fee. The node handles asset ids and the fee output.
         let inputs = serde_json::json!([{ "txid": txid, "vout": covenant_vout }]);
         let outputs = serde_json::json!([
-            { &offer.maker_address: sats_to_btc(amount_b) },
-            { taker_address: sats_to_btc(taker_amount) },
-            { "fee": sats_to_btc(SETTLE_FEE_SATS) },
+            { &offer.maker_address: btc(amount_b).parse::<f64>().unwrap() },
+            { taker_address: btc(taker_amount).parse::<f64>().unwrap() },
+            { "fee": btc(SETTLE_FEE_SATS).parse::<f64>().unwrap() },
         ]);
         let raw_hex = self
             .rpc
@@ -184,33 +188,73 @@ impl TakeOffer for MosaikTaker {
             .ok_or_else(|| anyhow::anyhow!("createrawtransaction: no hex"))?
             .to_string();
 
-        // Inject the covenant's SETTLE witness into the covenant input.
-        let mut tx: elements::Transaction =
-            elements::encode::deserialize(&hex::decode(&raw_hex)?)?;
-        let witness = offer.tessera.settle_witness(0)?;
-        tx.input
-            .get_mut(0)
-            .ok_or_else(|| anyhow::anyhow!("skeleton has no input"))?
-            .witness
-            .script_witness = witness.witness_stack();
+        // 2. Convert to a PSET.
+        let pset = self
+            .rpc
+            .call("converttopsbt", serde_json::json!([raw_hex]))?
+            .as_str()
+            .ok_or_else(|| anyhow::anyhow!("converttopsbt: no pset"))?
+            .to_string();
 
-        let final_hex = elements::encode::serialize_hex(&tx);
-        let settlement_txid = tx.txid().to_string();
+        // 3. Covenant data for the input.
+        let compiled = offer.tessera.compile()?;
+        let covenant_spk = hex::encode(compiled.address()?.script_pubkey().as_bytes());
+        let lbtc = self.rpc.policy_asset()?;
+        let input_utxo = format!("{covenant_spk}:{lbtc}:{}", btc(offer.amount_a));
 
-        // Broadcast. Try the mempool first; if the node rejects the covenant
-        // leaf (0xbe) as non-standard, mine the settlement directly with
-        // `generateblock` (consensus-valid). See docs/DESIGN.md on covenant
-        // enforcement and the `hal-simplicity` PSET path.
-        match self.rpc.send_raw_transaction(&final_hex) {
-            Ok(txid) => Ok(txid),
-            Err(_) => {
-                let miner = self.rpc.new_address()?;
-                self.rpc
-                    .call("generateblock", serde_json::json!([miner, [final_hex]]))?;
-                Ok(settlement_txid)
-            }
-        }
+        // 4. Attach the covenant UTXO data to PSET input 0.
+        let pset = hal_pset(&[
+            "simplicity", "pset", "update-input", "-r", &pset, "0",
+            "-i", &input_utxo, "-c", &compiled.cmr_hex(), "-p", NUMS_INTERNAL_KEY,
+        ])?;
+
+        // 5. Attach the Simplicity program + SETTLE witness, then extract the tx.
+        //    Both are standard base64, matching what `simc --json` emits.
+        let w = offer.tessera.settle_witness(0)?;
+        let b64 = |bytes: &[u8]| {
+            base64::engine::Engine::encode(&base64::engine::general_purpose::STANDARD, bytes)
+        };
+        let pset = hal_pset(&[
+            "simplicity", "pset", "finalize", "-r", &pset, "0",
+            &b64(&w.program), &b64(&w.witness),
+        ])?;
+        let raw_tx = hal_run(&["simplicity", "pset", "extract", "-r", &pset])?;
+        let raw_tx = raw_tx.trim().trim_matches('"').to_string();
+
+        // 6. Broadcast — the node executes and enforces the covenant.
+        self.rpc.send_raw_transaction(&raw_tx)
     }
+}
+
+/// Run `hal-simplicity` with `args`, returning trimmed stdout.
+fn hal_run(args: &[&str]) -> Result<String> {
+    let bin = std::env::var("HAL_SIMPLICITY").unwrap_or_else(|_| "hal-simplicity".into());
+    let out = std::process::Command::new(&bin)
+        .args(args)
+        .output()
+        .map_err(|e| anyhow::anyhow!("running {bin}: {e}"))?;
+    if !out.status.success() {
+        anyhow::bail!(
+            "hal-simplicity {:?} failed: {}",
+            args,
+            String::from_utf8_lossy(&out.stderr).trim()
+        );
+    }
+    Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
+}
+
+/// Run a `hal-simplicity` PSET command and return the `pset` field of its JSON.
+fn hal_pset(args: &[&str]) -> Result<String> {
+    let output = hal_run(args)?;
+    let v: serde_json::Value = serde_json::from_str(&output)
+        .map_err(|e| anyhow::anyhow!("hal-simplicity output not JSON: {e}\n{output}"))?;
+    if let Some(err) = v.get("error").filter(|e| !e.is_null()) {
+        anyhow::bail!("hal-simplicity error: {err}");
+    }
+    Ok(v.get("pset")
+        .and_then(serde_json::Value::as_str)
+        .ok_or_else(|| anyhow::anyhow!("hal-simplicity: no pset in output"))?
+        .to_string())
 }
 
 /// Maker side — reclaim an unfilled offer after its timeout.

@@ -152,6 +152,26 @@ fn take_offer_settles_and_pays_the_maker() {
 }
 
 #[test]
+fn take_offer_rejected_when_covenant_terms_mismatch() {
+    let Some(rpc) = regtest() else { return };
+
+    // The covenant's terms (arbitrary) do NOT match an L-BTC payment to the
+    // maker, so the node executes the covenant and rejects the settlement.
+    let maker_addr = rpc.new_unconfidential_address().expect("maker address");
+    let tessera = sample_tessera(600_000);
+    let offer = MosaikMaker::regtest()
+        .make_offer("BTC", 1_000_000, &tessera, &maker_addr)
+        .expect("make_offer");
+
+    let result = MosaikTaker::regtest().take_offer(&offer);
+    assert!(
+        result.is_err(),
+        "the covenant must reject a settlement that does not match its terms, \
+         got {result:?}"
+    );
+}
+
+#[test]
 fn can_issue_a_liquid_asset() {
     let Some(rpc) = regtest() else { return };
 
