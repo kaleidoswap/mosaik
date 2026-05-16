@@ -15,3 +15,5 @@ simplicityhl.workspace = true
 
 [dev-dependencies]
 serde_json.workspace = true
+simplicity-lang = "0.7"
+sha2 = "0.10"

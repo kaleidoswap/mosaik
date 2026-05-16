@@ -47,26 +47,33 @@ or a bare `u64` for the amount), the `Left` arm is blinded. The covenant takes
 the `Right` arm and `panic!`s on `Left`, which enforces the v1 rule that the
 maker's counter-payment output must be unblinded.
 
-## 3. Remaining Track-A work — execution testing
+## 3. Execution testing
 
-Compilation proves the program is well-typed and every jet exists. It does
-**not** prove the spend logic behaves correctly at spend time. To finish:
+Compilation proves the program is well-typed and every jet exists. *Execution*
+proves the spend logic is correct. `crates/tessera/tests/execution.rs` does this
+for **SETTLE** and it passes:
 
-1. **Satisfy the covenant with witness data.** Use `CompiledProgram::satisfy`
-   with a `WitnessValues` map setting `PATH` to `Left(vout)` (settle) or
-   `Right(sig)` (refund). A successful `satisfy` confirms the witness layout.
+- compiles the covenant, satisfies it with `PATH = Left(0)`,
+- builds a transaction whose output 0 explicitly pays the maker,
+- runs the covenant in `simplicity::BitMachine` against
+  `dummy_env::dummy_with_tx`,
+- asserts SETTLE **accepts** a correct payment and **rejects** both an
+  underpayment and a payment to the wrong scriptPubKey.
 
-2. **Run against a transaction environment.** Use `satisfy_with_env` /
-   `simplicityhl::dummy_env`, or the `test_utils::TestCase` helper
-   (`program_text` → `with_witness_values` → `with_lock_time` →
-   `assert_run_success`). Craft an environment whose output 0 carries
-   `ASSET_B` / `AMOUNT_B` / `MAKER_SPK` and assert SETTLE succeeds; mutate it
-   and assert it fails. For REFUND, set the lock height past `TIMEOUT` and
-   supply a valid maker signature.
+So the introspection logic — asset, amount and destination checks — is verified
+end to end.
 
-3. **Cross-check the CMR with the codespace.** `mosaik compile-tessera` should
-   yield the same CMR as the `simc` toolchain in the Simplicity codespace for
-   identical terms.
+**Still open — REFUND execution.** REFUND needs a real BIP-340 signature over
+the Simplicity spend sighash. Compute it with
+`simplicity::policy::sighash::SighashCache::simplicity_spend_signature_hash`
+(input index 0, the prevouts, the covenant CMR as `script_cmr`, the control
+block from `dummy_with_tx`, an all-zero genesis hash), then Schnorr-sign that
+hash with the maker key and pass it as `PATH = Right(0x…)`. The upstream
+`htlc.simf` example proves this timelock-plus-signature pattern executes, so
+this is plumbing, not a design risk.
+
+**Cross-check the CMR** — `mosaik compile-tessera` should yield the same CMR as
+the `simc` toolchain in the Simplicity codespace for identical terms.
 
 A note that did *not* hold up: bare `match` statements are rejected by the
 grammar — `match` must be an expression (a function body, or `let`-bound). The
