@@ -97,11 +97,13 @@ fn find_output_index(tx: &serde_json::Value, spk_hex: &str) -> Option<u64> {
 pub trait TakeOffer {
     /// Build, finalise and broadcast the transaction that fills `offer`.
     ///
-    /// TODO(hackathon): construct the Elements tx (covenant UTXO + taker coins
-    /// in; counter-payment to the maker + the bought asset to the taker + fee
-    /// out), set the Simplicity witness to the SETTLE path with the
-    /// counter-payment output index, sign the taker inputs, broadcast. Returns
-    /// the settlement txid.
+    /// The covenant-specific part is done: `offer.tessera.settle_witness(vout)`
+    /// yields the SETTLE input's Taproot witness stack. What remains is
+    /// standard Liquid tx assembly — covenant UTXO + taker coins in;
+    /// counter-payment to the maker + the bought asset to the taker + fee out
+    /// — best done with LWK, then broadcast. Returns the settlement txid.
+    ///
+    /// Enforcement of the covenant requires a Simplicity-capable node.
     fn take_offer(&self, offer: &Offer) -> Result<String>;
 }
 

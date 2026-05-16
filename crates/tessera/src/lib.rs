@@ -100,6 +100,48 @@ impl Tessera {
 
         Ok(CompiledTessera { cmr: cmr_bytes })
     }
+
+    /// Build the Taproot witness for spending this covenant via SETTLE.
+    ///
+    /// SETTLE carries no signature — the witness is fully determined by the
+    /// covenant and `settle_vout` (the index of the output that pays the
+    /// maker). The returned [`TesseraWitness`] is the input's witness stack;
+    /// drop it into a transaction whose output `settle_vout` pays the maker.
+    pub fn settle_witness(&self, settle_vout: u32) -> Result<TesseraWitness> {
+        use simplicityhl::{Arguments, CompiledProgram, WitnessValues};
+
+        let compiled = CompiledProgram::new(self.render(), Arguments::default(), false)
+            .map_err(|e| anyhow::anyhow!("compile: {e}"))?;
+
+        // SETTLE: PATH = Left(settle_vout). No signature needed.
+        let wit_json = format!(
+            r#"{{ "PATH": {{ "value": "Left({settle_vout})", "type": "Either<u32, Signature>" }} }}"#
+        );
+        let witness_values: WitnessValues =
+            serde_json::from_str(&wit_json).map_err(|e| anyhow::anyhow!("witness: {e}"))?;
+        let satisfied = compiled
+            .satisfy(witness_values)
+            .map_err(|e| anyhow::anyhow!("satisfy: {e}"))?;
+        let (program, witness) = satisfied.redeem().to_vec_with_witness();
+
+        // Taproot control block for the covenant leaf.
+        let cmr_hex = compiled.commit().cmr().to_string();
+        let cmr: [u8; 32] = hex::decode(&cmr_hex)
+            .ok()
+            .and_then(|b| <[u8; 32]>::try_from(b).ok())
+            .ok_or_else(|| anyhow::anyhow!("unexpected CMR encoding: {cmr_hex}"))?;
+        let (spend_info, leaf_script) = taproot_spend_info(&cmr)?;
+        let control_block = spend_info
+            .control_block(&(leaf_script.clone(), simplicity::leaf_version()))
+            .ok_or_else(|| anyhow::anyhow!("no control block for the covenant leaf"))?;
+
+        Ok(TesseraWitness {
+            program,
+            witness,
+            leaf_script: leaf_script.into_bytes(),
+            control_block: control_block.serialize(),
+        })
+    }
 }
 
 /// A compiled Tessera covenant.
@@ -122,34 +164,77 @@ impl CompiledTessera {
     /// is no key-path spend, so the internal key is the BIP-341 NUMS point.
     /// Funding this address creates the offer's covenant UTXO.
     pub fn address(&self) -> Result<simplicityhl::elements::Address> {
-        use simplicityhl::elements::{
-            secp256k1_zkp::{Secp256k1, XOnlyPublicKey},
-            taproot::TaprootBuilder,
-            Address, AddressParams, Script,
-        };
-
-        // BIP-341 NUMS point — provably has no known discrete log, so the
-        // covenant can only be spent through the script path.
-        const NUMS_X_ONLY: &str =
-            "50929b74c1a04954b78b4b6035e97a5e078a5a0f28ec96d547bfee9ace803ac0";
-        let nums = hex::decode(NUMS_X_ONLY).expect("valid NUMS hex");
-        let internal_key = XOnlyPublicKey::from_slice(&nums)
-            .map_err(|e| anyhow::anyhow!("NUMS key: {e}"))?;
-
-        // The Simplicity tapleaf script is the program's CMR.
-        let leaf_script = Script::from(self.cmr.to_vec());
-        let secp = Secp256k1::verification_only();
-        let spend_info = TaprootBuilder::new()
-            .add_leaf_with_ver(0, leaf_script, simplicity::leaf_version())
-            .map_err(|e| anyhow::anyhow!("taproot leaf: {e:?}"))?
-            .finalize(&secp, internal_key)
-            .map_err(|e| anyhow::anyhow!("taproot finalize: {e:?}"))?;
-
+        use simplicityhl::elements::{Address, AddressParams};
+        let (spend_info, _) = taproot_spend_info(&self.cmr)?;
         Ok(Address::p2tr_tweaked(
             spend_info.output_key(),
             None,
             &AddressParams::ELEMENTS,
         ))
+    }
+}
+
+/// Build the single-leaf Taproot for a covenant with the given CMR.
+///
+/// The leaf script is the 32-byte CMR, the leaf version is the Simplicity
+/// version (`0xbe`), and the internal key is the BIP-341 NUMS point — provably
+/// no known discrete log, so the covenant can only be spent through the leaf.
+/// Returns the spend info and the leaf script.
+fn taproot_spend_info(
+    cmr: &[u8; 32],
+) -> Result<(
+    simplicityhl::elements::taproot::TaprootSpendInfo,
+    simplicityhl::elements::Script,
+)> {
+    use simplicityhl::elements::{
+        secp256k1_zkp::{Secp256k1, XOnlyPublicKey},
+        taproot::TaprootBuilder,
+        Script,
+    };
+
+    const NUMS_X_ONLY: &str =
+        "50929b74c1a04954b78b4b6035e97a5e078a5a0f28ec96d547bfee9ace803ac0";
+    let nums = hex::decode(NUMS_X_ONLY).expect("valid NUMS hex");
+    let internal_key =
+        XOnlyPublicKey::from_slice(&nums).map_err(|e| anyhow::anyhow!("NUMS key: {e}"))?;
+
+    let leaf_script = Script::from(cmr.to_vec());
+    let secp = Secp256k1::verification_only();
+    let spend_info = TaprootBuilder::new()
+        .add_leaf_with_ver(0, leaf_script.clone(), simplicity::leaf_version())
+        .map_err(|e| anyhow::anyhow!("taproot leaf: {e:?}"))?
+        .finalize(&secp, internal_key)
+        .map_err(|e| anyhow::anyhow!("taproot finalize: {e:?}"))?;
+
+    Ok((spend_info, leaf_script))
+}
+
+/// The Taproot script-path witness for spending a Tessera covenant.
+///
+/// The four parts form the input's witness stack (bottom to top). On a
+/// Simplicity-capable node all four are consumed; the program is executed
+/// against the spending transaction.
+#[derive(Debug, Clone)]
+pub struct TesseraWitness {
+    /// The encoded Simplicity program.
+    pub program: Vec<u8>,
+    /// The encoded Simplicity witness (the satisfied `PATH`).
+    pub witness: Vec<u8>,
+    /// The tapleaf script — the 32-byte CMR.
+    pub leaf_script: Vec<u8>,
+    /// The Taproot control block proving the leaf is in the tree.
+    pub control_block: Vec<u8>,
+}
+
+impl TesseraWitness {
+    /// The full Taproot script-path witness stack, bottom to top.
+    pub fn witness_stack(&self) -> Vec<Vec<u8>> {
+        vec![
+            self.program.clone(),
+            self.witness.clone(),
+            self.leaf_script.clone(),
+            self.control_block.clone(),
+        ]
     }
 }
 
@@ -209,6 +294,21 @@ mod tests {
             addr.to_string().starts_with("ert1p"),
             "expected an elementsregtest P2TR address, got {addr}"
         );
+    }
+
+    #[test]
+    fn settle_witness_is_well_formed() {
+        let tessera = sample_tessera();
+        let wit = tessera.settle_witness(0).expect("build settle witness");
+
+        assert!(!wit.program.is_empty(), "program must be non-empty");
+        assert!(!wit.witness.is_empty(), "witness must be non-empty");
+        // the tapleaf script is exactly the 32-byte CMR
+        assert_eq!(wit.leaf_script.len(), 32);
+        assert_eq!(wit.leaf_script, tessera.compile().unwrap().cmr);
+        // a single-leaf Taproot control block is 33 bytes
+        assert_eq!(wit.control_block.len(), 33);
+        assert_eq!(wit.witness_stack().len(), 4);
     }
 
     #[test]

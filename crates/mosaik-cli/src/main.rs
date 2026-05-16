@@ -85,6 +85,22 @@ enum Command {
         #[arg(long)]
         timeout: u32,
     },
+    /// Build the Taproot SETTLE witness for spending a Tessera covenant.
+    SettleWitness {
+        #[arg(long)]
+        asset_b: String,
+        #[arg(long)]
+        amount_b: u64,
+        #[arg(long)]
+        maker_pk: String,
+        #[arg(long)]
+        maker_spk_hash: String,
+        #[arg(long)]
+        timeout: u32,
+        /// Index of the output that pays the maker.
+        #[arg(long, default_value_t = 0)]
+        settle_vout: u32,
+    },
 }
 
 fn parse_32(label: &str, s: &str) -> Result<[u8; 32]> {
@@ -165,6 +181,23 @@ fn main() -> Result<()> {
             println!("  CMR:     {}", compiled.cmr_hex());
             println!("  Address: {}", compiled.address()?);
             println!("Fund the address to create this offer's covenant UTXO.");
+            Ok(())
+        }
+        Command::SettleWitness {
+            asset_b,
+            amount_b,
+            maker_pk,
+            maker_spk_hash,
+            timeout,
+            settle_vout,
+        } => {
+            let tessera = build_tessera(&asset_b, amount_b, &maker_pk, &maker_spk_hash, timeout)?;
+            let wit = tessera.settle_witness(settle_vout)?;
+            println!("Tessera SETTLE witness (Taproot script-path, bottom to top):");
+            println!("  program:       {}", hex::encode(&wit.program));
+            println!("  witness:       {}", hex::encode(&wit.witness));
+            println!("  leaf_script:   {}", hex::encode(&wit.leaf_script));
+            println!("  control_block: {}", hex::encode(&wit.control_block));
             Ok(())
         }
     }
