@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Mosaik — the covenant orderbook</title>
+<style>
+  :root{
+    --bg:#0c0e14; --panel:#151823; --panel2:#1c2030; --ink:#e8eaf2;
+    --muted:#9aa0b4; --line:#2a2f42; --accent:#6ad6c8; --accent2:#c8a8ff;
+    --ok:#6ad6c8; --warn:#ffcf6a; --bad:#f0a6c8;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font:15px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;}
+  .wrap{max-width:940px;margin:0 auto;padding:40px 24px 80px;}
+  header{border-bottom:1px solid var(--line);padding-bottom:22px;margin-bottom:24px;}
+  .eyebrow{text-transform:uppercase;letter-spacing:.18em;font-size:11px;
+    color:var(--accent);font-weight:700;}
+  h1{font-size:34px;margin:8px 0 4px;letter-spacing:-.02em;
+    background:linear-gradient(100deg,var(--accent),var(--accent2));
+    -webkit-background-clip:text;background-clip:text;color:transparent;}
+  .sub{color:var(--muted);font-size:15px;}
+  .bar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:18px 0;}
+  input,textarea{background:var(--panel2);border:1px solid var(--line);
+    border-radius:8px;color:var(--ink);padding:9px 12px;font-size:13.5px;
+    font-family:inherit;}
+  input:focus,textarea:focus{outline:1px solid var(--accent);}
+  .relay-in{flex:1;min-width:220px;font-family:ui-monospace,Menlo,monospace;}
+  button{background:var(--accent);color:#0c0e14;border:0;border-radius:8px;
+    padding:9px 16px;font-size:13.5px;font-weight:700;cursor:pointer;}
+  button:hover{filter:brightness(1.08);}
+  .dot{width:9px;height:9px;border-radius:50%;background:var(--bad);
+    display:inline-block;}
+  .dot.on{background:var(--ok);}
+  .status{font-size:12.5px;color:var(--muted);display:flex;align-items:center;gap:7px;}
+  h2{font-size:12px;text-transform:uppercase;letter-spacing:.14em;
+    color:var(--accent);margin:34px 0 14px;font-weight:700;}
+  .offer{background:var(--panel);border:1px solid var(--line);border-radius:12px;
+    padding:16px 18px;margin-bottom:12px;border-left:3px solid var(--accent);}
+  .offer.cancelled,.offer.expired{border-left-color:var(--bad);opacity:.7;}
+  .offer .trade{font-size:17px;font-weight:700;}
+  .offer .trade .a{color:var(--accent2);} .offer .trade .b{color:var(--accent);}
+  .offer .meta{margin-top:8px;display:grid;grid-template-columns:auto 1fr;
+    gap:3px 14px;font-size:12.5px;color:var(--muted);}
+  .offer .meta code{font-family:ui-monospace,Menlo,monospace;color:#cdd1e0;
+    word-break:break-all;}
+  .badge{font-size:10.5px;font-weight:700;padding:2px 8px;border-radius:6px;
+    text-transform:uppercase;letter-spacing:.06em;}
+  .badge.active{background:rgba(106,214,200,.16);color:var(--ok);}
+  .badge.cancelled,.badge.expired{background:rgba(240,166,200,.16);color:var(--bad);}
+  .row{display:flex;justify-content:space-between;align-items:center;gap:12px;}
+  .empty{color:var(--muted);text-align:center;padding:40px;border:1px dashed var(--line);
+    border-radius:12px;}
+  details{background:var(--panel);border:1px solid var(--line);border-radius:12px;
+    padding:14px 18px;margin-top:8px;}
+  summary{cursor:pointer;font-weight:700;font-size:13.5px;color:var(--accent);}
+  textarea{width:100%;min-height:120px;margin-top:12px;
+    font-family:ui-monospace,Menlo,monospace;font-size:12px;}
+  .pubrow{display:flex;gap:10px;margin-top:10px;flex-wrap:wrap;align-items:center;}
+  .pubrow input{width:160px;}
+  .note{font-size:12px;color:var(--muted);margin-top:8px;}
+  .muted{color:var(--muted);}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <div class="eyebrow">Mosaik</div>
+  <h1>The covenant orderbook</h1>
+  <div class="sub">Tessera offers on Liquid, discovered over Nostr. No server, no account.</div>
+</header>
+
+<div class="bar">
+  <input id="relay" class="relay-in" value="ws://127.0.0.1:7777" spellcheck="false">
+  <button id="connect">Connect</button>
+  <span class="status"><span id="dot" class="dot"></span><span id="statusText">disconnected</span></span>
+</div>
+
+<h2>Live offers</h2>
+<div id="offers"></div>
+
+<details>
+  <summary>Publish an offer</summary>
+  <div class="note">Paste an offer JSON (as printed by <code>mosaik make-offer</code>). It is
+    signed in-browser with an ephemeral Nostr key and published to the relay.</div>
+  <textarea id="offerJson" spellcheck="false" placeholder='{ "outpoint": "...:0", "asset_a": "BTC", "amount_a": 1000000, "tessera": { ... }, "maker_address": "ert1q..." }'></textarea>
+  <div class="pubrow">
+    <input id="orderId" placeholder="order id" value="mosaik-offer">
+    <input id="ttl" type="number" placeholder="ttl (s)" value="3600">
+    <button id="publish">Publish to Nostr</button>
+    <span id="pubResult" class="note"></span>
+  </div>
+</details>
+
+<p class="note" style="margin-top:26px">
+  Offers are <strong>discovery hints</strong>. The chain is the truth: to fill one,
+  a taker re-derives the covenant address and verifies the on-chain UTXO, then
+  runs <code>mosaik take-offer</code>, where the Liquid node executes and enforces
+  the Simplicity covenant.
+</p>
+
+<script type="module">
+import { SimplePool, generateSecretKey, finalizeEvent }
+  from 'https://esm.sh/nostr-tools@2';
+
+const KIND = 30050;
+const pool = new SimplePool();
+let sub = null;
+const offers = new Map();         // order_id -> { created_at, parsed }
+
+const $ = id => document.getElementById(id);
+
+// Escape every value drawn from an (untrusted) Nostr event before it reaches
+// innerHTML. Numbers are coerced; arrays are hex-encoded defensively.
+const esc = s => String(s).replace(/[&<>"']/g,
+  c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
+const num = n => Number.isFinite(Number(n)) ? Number(n) : 0;
+const hex = a => Array.isArray(a)
+  ? a.map(b => (num(b) & 255).toString(16).padStart(2, '0')).join('') : '';
+
+function setStatus(on, text) {
+  $('dot').classList.toggle('on', on);
+  $('statusText').textContent = text;
+}
+
+function render() {
+  const box = $('offers');
+  const list = [...offers.values()].sort((a, b) => b.created_at - a.created_at);
+  if (!list.length) {
+    box.innerHTML = '<div class="empty">No offers yet. Connect to a relay, or publish one below.</div>';
+    return;
+  }
+  box.innerHTML = list.map(o => {
+    const t = o.parsed, of = t.offer || {}, te = of.tessera || {};
+    const expired = Date.now() / 1000 >= num(t.expiry);
+    const state = t.status === 'cancelled' ? 'cancelled' : (expired ? 'expired' : 'active');
+    const expiryTxt = num(t.expiry)
+      ? new Date(num(t.expiry) * 1000).toLocaleString() : 'n/a';
+    return `
+      <div class="offer ${state}">
+        <div class="row">
+          <div class="trade">
+            <span class="a">${num(of.amount_a).toLocaleString()}</span> ${esc(of.asset_a || '?')}
+            &nbsp;-&gt;&nbsp; wants
+            <span class="b">${num(te.amount_b).toLocaleString()}</span> of ${esc(hex(te.asset_b).slice(0,12))}...
+          </div>
+          <span class="badge ${state}">${state}</span>
+        </div>
+        <div class="meta">
+          <span>order</span><code>${esc(t.order_id)}</code>
+          <span>covenant UTXO</span><code>${esc(of.outpoint || '?')}</code>
+          <span>maker pays to</span><code>${esc(of.maker_address || '?')}</code>
+          <span>refund height</span><code>${num(te.timeout)}</code>
+          <span>expiry</span><code>${esc(expiryTxt)}</code>
+        </div>
+      </div>`;
+  }).join('');
+}
+
+function ingest(ev) {
+  try {
+    const parsed = JSON.parse(ev.content);
+    if (!parsed.order_id || !parsed.offer) return;
+    const prev = offers.get(parsed.order_id);
+    if (prev && prev.created_at > ev.created_at) return;   // keep the newest
+    offers.set(parsed.order_id, { created_at: ev.created_at, parsed });
+    render();
+  } catch (_) { /* not a Mosaik offer */ }
+}
+
+$('connect').onclick = () => {
+  const relay = $('relay').value.trim();
+  if (sub) sub.close();
+  offers.clear();
+  render();
+  setStatus(false, 'connecting...');
+  try {
+    sub = pool.subscribeMany([relay], [{ kinds: [KIND] }], {
+      onevent: ingest,
+      oneose: () => setStatus(true, 'connected - ' + relay),
+    });
+    setStatus(true, 'connected - ' + relay);
+  } catch (e) {
+    setStatus(false, 'error: ' + e.message);
+  }
+};
+
+$('publish').onclick = async () => {
+  const relay = $('relay').value.trim();
+  const out = $('pubResult');
+  let offer;
+  try {
+    offer = JSON.parse($('offerJson').value);
+  } catch (e) {
+    out.textContent = 'invalid offer JSON';
+    return;
+  }
+  const tesseraOffer = {
+    order_id: $('orderId').value.trim() || 'mosaik-offer',
+    offer,
+    expiry: Math.floor(Date.now() / 1000) + (parseInt($('ttl').value) || 3600),
+    status: 'active',
+  };
+  const sk = generateSecretKey();
+  const ev = finalizeEvent({
+    kind: KIND,
+    created_at: Math.floor(Date.now() / 1000),
+    tags: [
+      ['d', tesseraOffer.order_id],
+      ['status', 'active'],
+      ['asset_from', offer.asset_a || ''],
+      ['asset_to', offer.tessera ? hex(offer.tessera.asset_b) : ''],
+      ['covenant_utxo', offer.outpoint || ''],
+    ],
+    content: JSON.stringify(tesseraOffer),
+  }, sk);
+  try {
+    await Promise.any(pool.publish([relay], ev));
+    out.textContent = 'published - event ' + ev.id.slice(0, 16) + '...';
+  } catch (e) {
+    out.textContent = 'publish failed: ' + e.message;
+  }
+};
+
+render();
+</script>
+</div>
+</body>
+</html>
