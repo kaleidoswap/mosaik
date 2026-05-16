@@ -1,7 +1,13 @@
 # Tessera covenant — contract notes
 
-Companion to [`tessera.simf`](tessera.simf). Everything Track A needs to take
-the covenant from draft to compiling-and-tested on Day 1.
+Companion to [`tessera.simf`](tessera.simf).
+
+**Status: the covenant compiles.** It builds with the `simplicityhl` compiler
+(crate `simplicityhl 0.6.0-rc.0`) and yields a Commitment Merkle Root. The
+`tessera` crate's `covenant_compiles_and_yields_a_cmr` test enforces this on
+every `cargo test`, and `mosaik compile-tessera …` prints the CMR. What remains
+for Track A is *execution* testing — satisfying the covenant with witness data
+and running it against a transaction environment (see §3).
 
 ## 1. What the program does
 
@@ -19,58 +25,53 @@ cheat.
 
 ## 2. Jet reference
 
-Every jet the covenant uses. ✅ = seen in an upstream SimplicityHL example
-(`htlc`, `ctv`, `escrow_with_delay`, `non_interactive_fee_bump`); ⚠️ = name/
-signature plausible but **confirm in the codespace**.
+Every jet the covenant uses — all confirmed to compile against
+`simplicityhl 0.6.0-rc.0`.
 
-| Jet | Signature | Used for | |
-|---|---|---|---|
-| `sig_all_hash` | `() -> u256` | the sighash for `checksig` | ✅ |
-| `bip_0340_verify` | `((Pubkey, u256), Signature) -> ()` | verify the maker signature | ✅ |
-| `check_lock_height` | `(Height) -> ()` | REFUND timelock (absolute height) | ✅ |
-| `eq_256` | `(u256, u256) -> bool` | compare asset / script / pubkey | ✅ |
-| `output_amount` | `(u32) -> Option<(Asset1, Amount1)>` | read settle output asset+amount | ⚠️ |
-| `output_script_hash` | `(u32) -> Option<u256>` | read settle output scriptPubKey hash | ⚠️ |
-| `eq_64` | `(u64, u64) -> bool` | compare the amount | ⚠️ |
+| Jet | Signature | Used for |
+|---|---|---|
+| `sig_all_hash` | `() -> u256` | the sighash for `checksig` |
+| `bip_0340_verify` | `((Pubkey, u256), Signature) -> ()` | verify the maker signature |
+| `check_lock_height` | `(Height) -> ()` | REFUND timelock (absolute height) |
+| `eq_256` | `(u256, u256) -> bool` | compare asset / script / pubkey |
+| `eq_64` | `(u64, u64) -> bool` | compare the amount |
+| `output_amount` | `(u32) -> Option<(Asset1, Amount1)>` | settle output asset+amount |
+| `output_script_hash` | `(u32) -> Option<u256>` | settle output scriptPubKey hash |
 
-Note: `check_lock_height` is **absolute** (CLTV-like). `check_lock_distance`
-in `escrow_with_delay.simf` is *relative* (CSV-like) — Tessera wants absolute,
-so `check_lock_height` is correct.
+`check_lock_height` is **absolute** (CLTV-like); `check_lock_distance` would be
+relative (CSV-like) — Tessera wants absolute, so `check_lock_height` is correct.
 
-## 3. Day-1 verification checklist
+The confidential-or-explicit output types are `Asset1` / `Amount1` — each an
+`Either<Confidential1, Explicit>`: the `Right` arm is explicit (`ExplicitAsset`,
+or a bare `u64` for the amount), the `Left` arm is blinded. The covenant takes
+the `Right` arm and `panic!`s on `Left`, which enforces the v1 rule that the
+maker's counter-payment output must be unblinded.
 
-Resolve these against the SimplicityHL compiler in
-[`Blockstream/simplicity-codespace`](https://github.com/Blockstream/simplicity-codespace).
-Listed worst-unknown first.
+## 3. Remaining Track-A work — execution testing
 
-1. **Confidential-or-explicit unwrap (the one real unknown).**
-   `output_amount` returns `Option<(Asset1, Amount1)>`. An Elements output's
-   asset and amount can be *blinded*. Confirm:
-   - the exact type names — is it `Asset1` / `Amount1`? `ExplicitAsset` is real
-     (it appears in `non_interactive_fee_bump.simf`).
-   - the explicit arm — is it `Right(explicit)` and is the explicit amount a
-     bare `u64`?
-   - the blinded arm's type (the draft calls it `Confidential1`).
+Compilation proves the program is well-typed and every jet exists. It does
+**not** prove the spend logic behaves correctly at spend time. To finish:
 
-   The draft isolates this in the two `match out_asset` / `match out_amount`
-   blocks in `settle`. Fixing those is milestone 1.
+1. **Satisfy the covenant with witness data.** Use `CompiledProgram::satisfy`
+   with a `WitnessValues` map setting `PATH` to `Left(vout)` (settle) or
+   `Right(sig)` (refund). A successful `satisfy` confirms the witness layout.
 
-   *Fallback if the unwrap is awkward:* commit to the maker output by hash
-   instead — `match jet::output_hash(settle_vout) { Some(h) => eq_256(h, EXPECTED), .. }`
-   (the `ctv.simf` pattern). One comparison, no confidential/explicit handling;
-   `EXPECTED` is computed off-chain by the `tessera` crate.
+2. **Run against a transaction environment.** Use `satisfy_with_env` /
+   `simplicityhl::dummy_env`, or the `test_utils::TestCase` helper
+   (`program_text` → `with_witness_values` → `with_lock_time` →
+   `assert_run_success`). Craft an environment whose output 0 carries
+   `ASSET_B` / `AMOUNT_B` / `MAKER_SPK` and assert SETTLE succeeds; mutate it
+   and assert it fails. For REFUND, set the lock height past `TIMEOUT` and
+   supply a valid maker signature.
 
-2. **`eq_64`** — confirm the 64-bit equality jet name (`eq_8`/`eq_256` are
-   confirmed; `eq_64` should exist by analogy).
+3. **Cross-check the CMR with the codespace.** `mosaik compile-tessera` should
+   yield the same CMR as the `simc` toolchain in the Simplicity codespace for
+   identical terms.
 
-3. **`match` as a statement.** The draft uses `match` blocks whose arms return
-   `()` as statements. Upstream examples mostly use `match` as an *expression*.
-   If the statement form is rejected, bind it: `let _: () = match ... ;`.
-
-4. **Module-scope constants.** SimplicityHL examples hardcode literals *inside*
-   functions; the draft follows that (terms are inline, tagged
-   `TESSERA_PARAM:*`). If module-scope `const` is supported, hoisting the five
-   terms to the top is cleaner — but not required.
+A note that did *not* hold up: bare `match` statements are rejected by the
+grammar — `match` must be an expression (a function body, or `let`-bound). The
+covenant therefore puts each output check in its own helper function whose body
+*is* the `match`.
 
 ## 4. The five terms
 

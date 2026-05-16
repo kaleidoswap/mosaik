@@ -77,28 +77,43 @@ impl Tessera {
         }
     }
 
-    /// Compile the parameterised covenant to a Simplicity program.
+    /// Compile the parameterised covenant with the SimplicityHL compiler.
     ///
-    /// TODO(hackathon): invoke the SimplicityHL compiler (`simc` / the
-    /// `simplicityhl` crate from the codespace) on [`render`](Self::render)
-    /// and return the program bytes + its commitment Merkle root. The root is
-    /// what the Taproot tapleaf commits to.
+    /// Renders the terms into concrete source, compiles it to Simplicity, and
+    /// returns the program's Commitment Merkle Root — the 32-byte value the
+    /// Taproot tapleaf commits to, and what `mosaik-core` needs to derive the
+    /// offer's address.
     pub fn compile(&self) -> Result<CompiledTessera> {
-        anyhow::bail!(
-            "SimplicityHL compilation not wired yet — compile {} in the \
-             Simplicity codespace and feed the result back here",
-            "contracts/tessera.simf"
-        )
+        use simplicityhl::{Arguments, CompiledProgram};
+
+        let source = self.render();
+        // The covenant takes no SimplicityHL `param`s — every term is already
+        // substituted as an inline literal by `render`, so `Arguments` is empty.
+        let compiled = CompiledProgram::new(source, Arguments::default(), false)
+            .map_err(|e| anyhow::anyhow!("SimplicityHL compilation failed:\n{e}"))?;
+
+        let cmr_hex = compiled.commit().cmr().to_string();
+        let cmr_bytes = hex::decode(&cmr_hex)
+            .ok()
+            .and_then(|b| <[u8; 32]>::try_from(b).ok())
+            .ok_or_else(|| anyhow::anyhow!("unexpected CMR encoding: {cmr_hex}"))?;
+
+        Ok(CompiledTessera { cmr: cmr_bytes })
     }
 }
 
-/// A compiled Tessera covenant ready to embed in a Taproot leaf.
-#[derive(Debug, Clone)]
+/// A compiled Tessera covenant.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CompiledTessera {
-    /// Encoded Simplicity program.
-    pub program: Vec<u8>,
-    /// Commitment Merkle root — the value the tapleaf commits to.
+    /// Commitment Merkle Root — the value the Taproot tapleaf commits to.
     pub cmr: [u8; 32],
+}
+
+impl CompiledTessera {
+    /// The CMR as a 64-character hex string.
+    pub fn cmr_hex(&self) -> String {
+        hex::encode(self.cmr)
+    }
 }
 
 #[cfg(test)]
@@ -137,6 +152,15 @@ mod tests {
         // the program body is intact
         assert!(rendered.contains("fn main"));
         assert!(rendered.contains("fn settle"));
+    }
+
+    #[test]
+    fn covenant_compiles_and_yields_a_cmr() {
+        let compiled = sample_tessera()
+            .compile()
+            .expect("the Tessera covenant must compile");
+        assert_ne!(compiled.cmr, [0u8; 32], "CMR must not be all-zero");
+        assert_eq!(compiled.cmr_hex().len(), 64);
     }
 
     #[test]

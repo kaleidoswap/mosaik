@@ -72,6 +72,19 @@ enum Command {
         #[arg(long)]
         timeout: u32,
     },
+    /// Compile a Tessera covenant and print its Commitment Merkle Root.
+    CompileTessera {
+        #[arg(long)]
+        asset_b: String,
+        #[arg(long)]
+        amount_b: u64,
+        #[arg(long)]
+        maker_pk: String,
+        #[arg(long)]
+        maker_spk_hash: String,
+        #[arg(long)]
+        timeout: u32,
+    },
 }
 
 fn parse_32(label: &str, s: &str) -> Result<[u8; 32]> {
@@ -137,6 +150,20 @@ fn main() -> Result<()> {
         } => {
             let tessera = build_tessera(&asset_b, amount_b, &maker_pk, &maker_spk_hash, timeout)?;
             println!("{}", tessera.render());
+            Ok(())
+        }
+        Command::CompileTessera {
+            asset_b,
+            amount_b,
+            maker_pk,
+            maker_spk_hash,
+            timeout,
+        } => {
+            let tessera = build_tessera(&asset_b, amount_b, &maker_pk, &maker_spk_hash, timeout)?;
+            let compiled = tessera.compile()?;
+            println!("Tessera covenant compiled.");
+            println!("  CMR: {}", compiled.cmr_hex());
+            println!("This 32-byte root is what the Taproot tapleaf commits to.");
             Ok(())
         }
     }
