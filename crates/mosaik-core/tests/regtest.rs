@@ -8,6 +8,8 @@
 //! so `cargo test` stays green in environments without one.
 
 use mosaik_core::rpc::ElementsRpc;
+use mosaik_core::{MakeOffer, MosaikMaker, Tessera};
+use serde_json::json;
 
 /// Returns the regtest RPC handle, or `None` (test skips) if no node answers.
 fn regtest() -> Option<ElementsRpc> {
@@ -49,6 +51,41 @@ fn can_generate_addresses_and_fund_them() {
     rpc.generate(1).expect("confirm funding tx");
     let tx = rpc.raw_transaction(&txid).expect("fetch funding tx");
     assert_eq!(tx.get("txid").and_then(|v| v.as_str()), Some(txid.as_str()));
+}
+
+#[test]
+fn make_offer_funds_a_real_covenant_utxo() {
+    let Some(rpc) = regtest() else { return };
+
+    // A sample offer: sell L-BTC, want some Liquid asset back.
+    let tessera = Tessera {
+        asset_b: [0xab; 32],
+        amount_b: 100_000,
+        maker_spk_hash: [0xcd; 32],
+        timeout: 500,
+        maker_pk: [0x11; 32],
+    };
+    let locked: u64 = 200_000; // sats of L-BTC locked in the covenant
+
+    let offer = MosaikMaker::regtest()
+        .make_offer("BTC", locked, &tessera)
+        .expect("make_offer should fund the covenant");
+
+    // The offer references an on-chain outpoint "txid:vout".
+    let (txid, vout) = offer.outpoint.split_once(':').expect("outpoint txid:vout");
+    assert_eq!(txid.len(), 64);
+
+    // The covenant UTXO must exist and hold the locked amount.
+    let txout = rpc
+        .call("gettxout", json!([txid, vout.parse::<u64>().unwrap()]))
+        .expect("gettxout");
+    assert!(!txout.is_null(), "covenant UTXO must be present in the UTXO set");
+
+    let value_btc = txout.get("value").and_then(|v| v.as_f64()).unwrap_or(0.0);
+    assert!(
+        (value_btc - locked as f64 / 1e8).abs() < 1e-8,
+        "covenant UTXO should hold {locked} sats, got {value_btc} BTC"
+    );
 }
 
 #[test]

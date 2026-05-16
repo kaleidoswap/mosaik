@@ -12,9 +12,9 @@ anyhow.workspace = true
 hex.workspace = true
 serde.workspace = true
 simplicityhl.workspace = true
+simplicity-lang = "0.7"
 
 [dev-dependencies]
 serde_json.workspace = true
-simplicity-lang = "0.7"
 sha2 = "0.10"
 secp256k1 = "0.29"

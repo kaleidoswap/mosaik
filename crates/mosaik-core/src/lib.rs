@@ -8,9 +8,10 @@
 
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
-use tessera::Tessera;
 
 pub mod rpc;
+
+pub use tessera::Tessera;
 
 /// A published offer: a funded covenant UTXO plus the terms needed to fill it.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -28,11 +29,68 @@ pub struct Offer {
 /// Maker side — publish an offer.
 pub trait MakeOffer {
     /// Fund a covenant UTXO with `amount_a` of `asset_a` and return the [`Offer`].
-    ///
-    /// TODO(hackathon): derive the covenant address from
-    /// [`Tessera::compile`], build + sign a funding PSET with LWK, broadcast,
-    /// and return the resulting outpoint.
     fn make_offer(&self, asset_a: &str, amount_a: u64, tessera: &Tessera) -> Result<Offer>;
+}
+
+/// A maker that publishes offers against an Elements node.
+pub struct MosaikMaker {
+    rpc: rpc::ElementsRpc,
+}
+
+impl MosaikMaker {
+    pub fn new(rpc: rpc::ElementsRpc) -> Self {
+        Self { rpc }
+    }
+
+    /// A maker wired to the local Mosaik regtest (see `scripts/regtest.sh`).
+    pub fn regtest() -> Self {
+        Self::new(rpc::ElementsRpc::regtest_wallet())
+    }
+}
+
+impl MakeOffer for MosaikMaker {
+    /// Compile the Tessera, derive its covenant address, fund it on-chain, and
+    /// return the published [`Offer`].
+    ///
+    /// Funds L-BTC offers (`asset_a` = "BTC"); the maker locks `amount_a`
+    /// satoshis into the covenant UTXO. Funding any P2TR address is a normal
+    /// payment, so this works on stock `elementsd` — only *spending* the
+    /// covenant needs a Simplicity-capable node.
+    fn make_offer(&self, asset_a: &str, amount_a: u64, tessera: &Tessera) -> Result<Offer> {
+        if !matches!(asset_a.to_ascii_uppercase().as_str(), "BTC" | "LBTC" | "L-BTC") {
+            anyhow::bail!("make_offer funds L-BTC offers only; got asset_a={asset_a}");
+        }
+
+        // Compile the covenant and derive its Taproot address.
+        let compiled = tessera.compile()?;
+        let address = compiled.address()?;
+        let spk_hex = hex::encode(address.script_pubkey().as_bytes());
+
+        // Fund the covenant UTXO and confirm it.
+        let amount_btc = amount_a as f64 / 1e8;
+        let txid = self.rpc.send_to_address(&address.to_string(), amount_btc)?;
+        self.rpc.generate(1)?;
+
+        // Locate the funding output among the transaction's vouts.
+        let tx = self.rpc.raw_transaction(&txid)?;
+        let vout = find_output_index(&tx, &spk_hex)
+            .ok_or_else(|| anyhow::anyhow!("funding output for {txid} not found"))?;
+
+        Ok(Offer {
+            outpoint: format!("{txid}:{vout}"),
+            asset_a: asset_a.to_string(),
+            amount_a,
+            tessera: tessera.clone(),
+        })
+    }
+}
+
+/// Find the index of the output whose scriptPubKey hex matches `spk_hex`.
+fn find_output_index(tx: &serde_json::Value, spk_hex: &str) -> Option<u64> {
+    tx.get("vout")?.as_array()?.iter().find_map(|out| {
+        let hex = out.get("scriptPubKey")?.get("hex")?.as_str()?;
+        (hex == spk_hex).then(|| out.get("n")?.as_u64()).flatten()
+    })
 }
 
 /// Taker side — fill an offer.

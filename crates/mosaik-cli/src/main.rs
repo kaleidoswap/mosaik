@@ -162,8 +162,9 @@ fn main() -> Result<()> {
             let tessera = build_tessera(&asset_b, amount_b, &maker_pk, &maker_spk_hash, timeout)?;
             let compiled = tessera.compile()?;
             println!("Tessera covenant compiled.");
-            println!("  CMR: {}", compiled.cmr_hex());
-            println!("This 32-byte root is what the Taproot tapleaf commits to.");
+            println!("  CMR:     {}", compiled.cmr_hex());
+            println!("  Address: {}", compiled.address()?);
+            println!("Fund the address to create this offer's covenant UTXO.");
             Ok(())
         }
     }

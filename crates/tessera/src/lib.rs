@@ -114,6 +114,43 @@ impl CompiledTessera {
     pub fn cmr_hex(&self) -> String {
         hex::encode(self.cmr)
     }
+
+    /// Derive the covenant's Liquid Taproot address (elementsregtest params).
+    ///
+    /// The covenant lives in a single Taproot leaf: the leaf script is the
+    /// 32-byte CMR, the leaf version is the Simplicity version (`0xbe`). There
+    /// is no key-path spend, so the internal key is the BIP-341 NUMS point.
+    /// Funding this address creates the offer's covenant UTXO.
+    pub fn address(&self) -> Result<simplicityhl::elements::Address> {
+        use simplicityhl::elements::{
+            secp256k1_zkp::{Secp256k1, XOnlyPublicKey},
+            taproot::TaprootBuilder,
+            Address, AddressParams, Script,
+        };
+
+        // BIP-341 NUMS point — provably has no known discrete log, so the
+        // covenant can only be spent through the script path.
+        const NUMS_X_ONLY: &str =
+            "50929b74c1a04954b78b4b6035e97a5e078a5a0f28ec96d547bfee9ace803ac0";
+        let nums = hex::decode(NUMS_X_ONLY).expect("valid NUMS hex");
+        let internal_key = XOnlyPublicKey::from_slice(&nums)
+            .map_err(|e| anyhow::anyhow!("NUMS key: {e}"))?;
+
+        // The Simplicity tapleaf script is the program's CMR.
+        let leaf_script = Script::from(self.cmr.to_vec());
+        let secp = Secp256k1::verification_only();
+        let spend_info = TaprootBuilder::new()
+            .add_leaf_with_ver(0, leaf_script, simplicity::leaf_version())
+            .map_err(|e| anyhow::anyhow!("taproot leaf: {e:?}"))?
+            .finalize(&secp, internal_key)
+            .map_err(|e| anyhow::anyhow!("taproot finalize: {e:?}"))?;
+
+        Ok(Address::p2tr_tweaked(
+            spend_info.output_key(),
+            None,
+            &AddressParams::ELEMENTS,
+        ))
+    }
 }
 
 #[cfg(test)]
@@ -161,6 +198,17 @@ mod tests {
             .expect("the Tessera covenant must compile");
         assert_ne!(compiled.cmr, [0u8; 32], "CMR must not be all-zero");
         assert_eq!(compiled.cmr_hex().len(), 64);
+    }
+
+    #[test]
+    fn covenant_yields_a_taproot_address() {
+        let compiled = sample_tessera().compile().expect("compile");
+        let addr = compiled.address().expect("derive address");
+        // elementsregtest Taproot (bech32m) addresses start with `ert1p`.
+        assert!(
+            addr.to_string().starts_with("ert1p"),
+            "expected an elementsregtest P2TR address, got {addr}"
+        );
     }
 
     #[test]

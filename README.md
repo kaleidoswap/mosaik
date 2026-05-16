@@ -126,9 +126,18 @@ For the Liquid side you need an Elements node:
 ```sh
 # download elementsd from https://github.com/ElementsProject/elements/releases
 export ELEMENTSD_EXEC=/path/to/elementsd
-./scripts/regtest.sh up        # start a local Elements regtest
+./scripts/regtest.sh up        # start a local Elements regtest, funded
 cargo run -p mosaik-cli -- --help
 ```
+
+Two notes on `elementsd`:
+
+- **macOS:** a freshly downloaded `elementsd` is unsigned and gets SIGKILL-ed.
+  Ad-hoc sign it once: `codesign -s - /path/to/elementsd`.
+- **Simplicity:** stock Elements has no Simplicity consensus rules, so it can
+  *fund* a covenant address (a normal Taproot payment) but cannot *validate a
+  covenant spend*. Spending a Tessera needs the Simplicity-capable `elementsd`
+  from the [Simplicity codespace](https://github.com/Blockstream/simplicity-codespace).
 
 ## References
 

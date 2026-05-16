@@ -58,7 +58,14 @@ fund_wallet() {
         "[{\"$unconf\":20999999.999},{\"fee\":0.001}]")
     cli sendrawtransaction "$raw" >/dev/null
     cli generatetoaddress 1 "$(cli getnewaddress)" >/dev/null
-    echo "wallet funded with ~21M L-BTC"
+
+    # Split into several confirmed UTXOs so parallel `cargo test` runs don't
+    # contend over a single coin (whose change would still be unconfirmed).
+    for _ in $(seq 1 8); do
+        cli sendtoaddress "$(cli getnewaddress)" 100000 >/dev/null
+    done
+    cli generatetoaddress 1 "$(cli getnewaddress)" >/dev/null
+    echo "wallet funded with ~21M L-BTC (split into spendable UTXOs)"
 }
 
 case "${1:-}" in
