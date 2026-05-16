@@ -3,6 +3,7 @@ resolver = "2"
 members = [
     "crates/tessera",
     "crates/mosaik-core",
+    "crates/mosaik-relay",
     "crates/mosaik-cli",
 ]
 
