@@ -44,6 +44,33 @@ pub trait MakeOffer {
     ) -> Result<Offer>;
 }
 
+/// Build a Tessera whose terms match an L-BTC payment of `amount_b` to
+/// `maker_address`, so a Simplicity node accepts the settlement.
+///
+/// `maker_spk_hash` is the SHA-256 of the maker scriptPubKey; `asset_b` is the
+/// L-BTC asset id in tx / jet (internal) byte order, the reverse of the RPC
+/// display order.
+pub fn lbtc_tessera(
+    rpc: &rpc::ElementsRpc,
+    maker_address: &str,
+    amount_b: u64,
+    timeout: u32,
+    maker_pk: [u8; 32],
+) -> Result<Tessera> {
+    use sha2::{Digest, Sha256};
+
+    let spk = hex::decode(rpc.address_script_pubkey(maker_address)?)?;
+    let maker_spk_hash: [u8; 32] = Sha256::digest(&spk).into();
+
+    let mut asset_b = hex::decode(rpc.policy_asset()?)?;
+    asset_b.reverse();
+    let asset_b: [u8; 32] = asset_b
+        .try_into()
+        .map_err(|_| anyhow::anyhow!("policy asset id is not 32 bytes"))?;
+
+    Ok(Tessera { asset_b, amount_b, maker_spk_hash, timeout, maker_pk })
+}
+
 /// A maker that publishes offers against an Elements node.
 pub struct MosaikMaker {
     rpc: rpc::ElementsRpc,

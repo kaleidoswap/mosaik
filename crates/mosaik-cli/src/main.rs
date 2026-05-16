@@ -23,31 +23,19 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
-    /// Maker: fund a covenant UTXO and print the offer.
+    /// Maker: fund a covenant UTXO on the regtest and print the offer JSON.
     MakeOffer {
-        /// Asset id (hex) the maker sells.
-        #[arg(long)]
-        asset_a: String,
-        /// Amount of asset A to lock in the offer.
+        /// Sats of L-BTC the maker locks in the covenant.
         #[arg(long)]
         amount_a: u64,
-        /// Asset id (hex) the maker wants in return.
-        #[arg(long)]
-        asset_b: String,
-        /// Exact amount of asset B the maker must be paid.
+        /// Sats of L-BTC the covenant requires the taker to pay the maker.
         #[arg(long)]
         amount_b: u64,
-        /// Maker x-only pubkey (hex) for the refund path.
-        #[arg(long)]
-        maker_pk: String,
-        /// SHA-256 of the maker scriptPubKey (hex) the counter-payment goes to.
-        #[arg(long)]
-        maker_spk_hash: String,
-        /// Block height after which the maker may reclaim.
-        #[arg(long)]
+        /// Block height after which the maker may reclaim (REFUND).
+        #[arg(long, default_value_t = 500)]
         timeout: u32,
     },
-    /// Taker: fill a published offer (SETTLE path).
+    /// Taker: fill a published offer — the node executes the covenant (SETTLE).
     TakeOffer {
         /// Path to the offer JSON produced by `make-offer`.
         #[arg(long)]
@@ -158,30 +146,15 @@ fn main() -> Result<()> {
 
     match cli.command {
         Command::MakeOffer {
-            asset_a,
             amount_a,
-            asset_b,
             amount_b,
-            maker_pk,
-            maker_spk_hash,
             timeout,
-        } => {
-            let tessera = build_tessera(&asset_b, amount_b, &maker_pk, &maker_spk_hash, timeout)?;
-            println!("Tessera: {}", serde_json::to_string_pretty(&tessera)?);
-            println!("Selling {amount_a} of {asset_a}");
-            // TODO(hackathon): mosaik_core::MakeOffer::make_offer — derive the
-            // covenant address, fund it, broadcast, print the offer JSON.
-            anyhow::bail!("make-offer: Liquid funding not wired yet (see mosaik-core)");
-        }
-        Command::TakeOffer { offer } => {
-            println!("Taking offer from {offer}");
-            // TODO(hackathon): mosaik_core::TakeOffer::take_offer.
-            anyhow::bail!("take-offer: settlement tx not wired yet (see mosaik-core)");
-        }
+        } => make_offer(amount_a, amount_b, timeout),
+        Command::TakeOffer { offer } => take_offer(&offer),
         Command::Reclaim { offer } => {
             println!("Reclaiming offer from {offer}");
-            // TODO(hackathon): mosaik_core::ReclaimOffer::reclaim.
-            anyhow::bail!("reclaim: refund tx not wired yet (see mosaik-core)");
+            // REFUND on-chain reclaim — see crates/tessera/contracts/CONTRACT.md.
+            anyhow::bail!("reclaim: REFUND on-chain path not wired yet");
         }
         Command::ShowTessera {
             asset_b,
@@ -237,6 +210,41 @@ fn main() -> Result<()> {
             block_on(mosaik_relay::run_local_relay(port))
         }
     }
+}
+
+/// Maker: fund a covenant UTXO on the regtest, print the offer JSON to stdout.
+fn make_offer(amount_a: u64, amount_b: u64, timeout: u32) -> Result<()> {
+    use mosaik_core::{lbtc_tessera, rpc::ElementsRpc, MakeOffer, MosaikMaker};
+
+    let rpc = ElementsRpc::regtest_wallet();
+    let maker_address = rpc.new_unconfidential_address()?;
+    let tessera = lbtc_tessera(&rpc, &maker_address, amount_b, timeout, [0x11; 32])?;
+    let offer = MosaikMaker::regtest().make_offer("BTC", amount_a, &tessera, &maker_address)?;
+
+    // Human-readable summary to stderr; the offer JSON to stdout (pipe it).
+    eprintln!("Funded a covenant offer:");
+    eprintln!("  covenant UTXO : {}", offer.outpoint);
+    eprintln!("  locked        : {} sats L-BTC", offer.amount_a);
+    eprintln!(
+        "  maker wants   : {} sats paid to {}",
+        offer.tessera.amount_b, offer.maker_address
+    );
+    println!("{}", serde_json::to_string(&offer)?);
+    Ok(())
+}
+
+/// Taker: fill an offer — the Liquid node executes and enforces the covenant.
+fn take_offer(offer_path: &str) -> Result<()> {
+    use mosaik_core::{MosaikTaker, Offer, TakeOffer};
+
+    let offer_json = std::fs::read_to_string(offer_path)
+        .map_err(|e| anyhow::anyhow!("reading {offer_path}: {e}"))?;
+    let offer: Offer = serde_json::from_str(&offer_json)?;
+
+    let txid = MosaikTaker::regtest().take_offer(&offer)?;
+    println!("Settled. The Liquid node executed the Tessera covenant and accepted the spend.");
+    println!("  settlement txid: {txid}");
+    Ok(())
 }
 
 /// Run a future on a fresh Tokio runtime (the Nostr client is async).

@@ -14,7 +14,5 @@ serde.workspace = true
 serde_json.workspace = true
 ureq.workspace = true
 base64 = "0.22"
-tessera = { path = "../tessera" }
-
-[dev-dependencies]
 sha2 = "0.10"
+tessera = { path = "../tessera" }
