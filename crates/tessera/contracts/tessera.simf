@@ -1,77 +1,104 @@
 /*
  * Mosaik — the Tessera covenant
- * -----------------------------
- * A Tessera is one Mosaik swap offer: a Liquid UTXO that holds asset A and can
- * be spent two ways:
+ * =============================
+ * A Tessera is one Mosaik swap offer: a Liquid UTXO holding asset A, spendable
+ * two ways.
  *
- *   SETTLE  — by anyone, but ONLY if the spending transaction pays the maker
- *             exactly `AMOUNT_B` of `ASSET_B` to `MAKER_SPK`.
- *   REFUND  — by the maker, after block height `TIMEOUT`.
+ *   SETTLE  — by ANYONE, but only if the spending transaction has an output
+ *             paying exactly AMOUNT_B of ASSET_B to the maker (MAKER_SPK).
+ *   REFUND  — by the MAKER, after block height TIMEOUT.
  *
- * The terms (ASSET_B, AMOUNT_B, MAKER_SPK, TIMEOUT, MAKER_PK) are compile-time
- * parameters: they are baked into this program, hence into the tapleaf, hence
- * into the UTXO's address. They cannot be changed after the offer is published.
+ * Written in SimplicityHL (github.com/BlockstreamResearch/SimplicityHL).
  *
- * STATUS: DRAFT. Written for SimplicityHL. Jet names/signatures and the
- * introspection API must be confirmed against the compiler in
- * github.com/Blockstream/simplicity-codespace before relying on this. The
- * structure — two paths, introspect the settle output, verify a sig+timelock —
- * is the design; the exact jet surface is what to validate on day 1.
+ * ─────────────────────────────────────────────────────────────────────────
+ * STATUS: DRAFT for the Simplicity Bootcamp. The structure is the design and
+ * is solid. Two things must be confirmed against the SimplicityHL compiler in
+ * the codespace (see contracts/CONTRACT.md — "Day-1 verification checklist"):
  *
- * v1 assumes the counter-payment output is EXPLICIT (unblinded) so the covenant
- * can read its asset and amount directly. See docs/DESIGN.md §4.
+ *   1. The confidential-or-explicit unwrap of an output's asset and amount —
+ *      the `Asset1` / `Amount1` types and the Left/Right arm order. This is
+ *      the one genuine unknown; it is isolated in `explicit_*` below.
+ *   2. Exact jet names: eq_64, output_amount, output_script_hash.
+ * ─────────────────────────────────────────────────────────────────────────
+ *
+ * The five offer terms are inline literals tagged `TESSERA_PARAM:<NAME>`. The
+ * `tessera` Rust crate substitutes them per offer (see src/lib.rs `render`);
+ * because they live in the program, they live in the tapleaf, hence in the
+ * UTXO's address — immutable once the offer is funded.
+ *
+ * v1 requires the maker's counter-payment output to be EXPLICIT (unblinded),
+ * so the covenant can read its asset and amount. A confidential variant is a
+ * follow-up. See docs/DESIGN.md §4.
  */
 
-// ---------------------------------------------------------------------------
-// Offer terms — substituted at compile time (see crates/tessera/src/lib.rs).
-// ---------------------------------------------------------------------------
-const ASSET_B: ExplicitAsset      = param::ASSET_B;       // 32-byte asset id
-const AMOUNT_B: ExplicitAmount    = param::AMOUNT_B;      // exact units wanted
-const MAKER_SPK: u256             = param::MAKER_SPK;     // SHA256 of maker scriptPubKey
-const TIMEOUT: Height             = param::TIMEOUT;       // refund unlock height
-const MAKER_PK: Pubkey            = param::MAKER_PK;      // maker BIP-340 key
+// ── helpers ────────────────────────────────────────────────────────────────
 
-// ---------------------------------------------------------------------------
-// SETTLE — permissionless fill.
-//
-// The witness supplies the index of the output that pays the maker. The
-// covenant still re-checks asset, amount and script at that index, so a wrong
-// index just fails the asserts — the witness is a hint, not a trust point.
-// ---------------------------------------------------------------------------
-fn settle(settle_vout: u32) {
-    // The maker must receive ASSET_B at this output.
-    let out_asset: ExplicitAsset = jet::output_asset(settle_vout);
-    assert!(jet::eq_explicit_asset(out_asset, ASSET_B));
-
-    // ...exactly AMOUNT_B of it.
-    let out_amount: ExplicitAmount = jet::output_amount(settle_vout);
-    assert!(jet::eq_explicit_amount(out_amount, AMOUNT_B));
-
-    // ...to the maker's script.
-    let out_spk: u256 = jet::output_script_hash(settle_vout);
-    assert!(jet::eq_256(out_spk, MAKER_SPK));
-
-    // No signature required: the covenant itself authorises the spend.
-}
-
-// ---------------------------------------------------------------------------
-// REFUND — maker reclaims an unfilled offer after the timeout.
-// ---------------------------------------------------------------------------
-fn refund(sig: Signature) {
-    // Timelock: the spending tx must be at or past TIMEOUT.
-    jet::check_lock_height(TIMEOUT);
-
-    // Maker authorises with a BIP-340 signature over the standard sighash.
+// Verify a BIP-340 Schnorr signature over the standard "sig_all" sighash.
+// (Same pattern as the SimplicityHL htlc.simf example.)
+fn checksig(pk: Pubkey, sig: Signature) {
     let msg: u256 = jet::sig_all_hash();
-    jet::bip_0340_verify((MAKER_PK, msg), sig);
+    jet::bip_0340_verify((pk, msg), sig);
 }
 
-// ---------------------------------------------------------------------------
-// Entry point — the witness selects the path.
-// ---------------------------------------------------------------------------
+// ── SETTLE path ─────────────────────────────────────────────────────────────
+//
+// Permissionless fill. `settle_vout` (from the witness) points at the output
+// that pays the maker; the covenant re-verifies asset, amount and script at
+// that index, so a wrong index simply fails the asserts — the hint cannot be
+// abused.
+fn settle(settle_vout: u32) {
+    // (1) asset + amount of the proposed maker output.
+    //     output_amount : u32 -> Option<(Asset1, Amount1)>   [confidential-or-explicit]
+    let asset_and_amount: (Asset1, Amount1) = match jet::output_amount(settle_vout) {
+        Some(pair: (Asset1, Amount1)) => pair,
+        None => panic!(), // no output at settle_vout
+    };
+    let (out_asset, out_amount): (Asset1, Amount1) = asset_and_amount;
+
+    // (2) the asset must be EXPLICIT and equal to ASSET_B.
+    //     VERIFY IN CODESPACE: Asset1's explicit arm name + Left/Right order.
+    let asset_b: ExplicitAsset = 0x0000000000000000000000000000000000000000000000000000000000000000; // TESSERA_PARAM:ASSET_B
+    match out_asset {
+        Right(explicit_asset: ExplicitAsset) => assert!(jet::eq_256(explicit_asset, asset_b)),
+        Left(_blinded: Confidential1) => panic!(), // blinded — v1 needs explicit
+    }
+
+    // (3) the amount must be EXPLICIT and equal to AMOUNT_B.
+    let amount_b: u64 = 0; // TESSERA_PARAM:AMOUNT_B
+    match out_amount {
+        Right(explicit_amount: u64) => assert!(jet::eq_64(explicit_amount, amount_b)),
+        Left(_blinded: Confidential1) => panic!(),
+    }
+
+    // (4) the output must pay the maker's script.
+    //     scriptPubKey is always unblinded, even on confidential outputs.
+    let maker_spk: u256 = 0x0000000000000000000000000000000000000000000000000000000000000000; // TESSERA_PARAM:MAKER_SPK
+    match jet::output_script_hash(settle_vout) {
+        Some(out_spk: u256) => assert!(jet::eq_256(out_spk, maker_spk)),
+        None => panic!(),
+    }
+}
+
+// ── REFUND path ─────────────────────────────────────────────────────────────
+//
+// The maker reclaims an unfilled offer once the timeout height is reached.
+fn refund(sig: Signature) {
+    // The spending tx's lock-height must be >= TIMEOUT.
+    let timeout: Height = 0; // TESSERA_PARAM:TIMEOUT
+    jet::check_lock_height(timeout);
+
+    // ...and the maker must authorise the spend.
+    let maker_pk: Pubkey = 0x0000000000000000000000000000000000000000000000000000000000000000; // TESSERA_PARAM:MAKER_PK
+    checksig(maker_pk, sig);
+}
+
+// ── entry point ─────────────────────────────────────────────────────────────
+//
+// The witness selects the path. `PATH` is an Either: Left = settle (carrying
+// the maker-output index), Right = refund (carrying the maker's signature).
 fn main() {
     match witness::PATH {
-        Left(settle_vout: u32)  => settle(settle_vout),
-        Right(sig: Signature)   => refund(sig),
+        Left(settle_vout: u32) => settle(settle_vout),
+        Right(maker_sig: Signature) => refund(maker_sig),
     }
 }

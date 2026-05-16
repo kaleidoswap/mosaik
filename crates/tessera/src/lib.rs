@@ -36,27 +36,45 @@ pub struct Tessera {
 }
 
 impl Tessera {
-    /// Render the SimplicityHL source with these terms substituted in.
+    /// Render concrete SimplicityHL source with these terms substituted in.
     ///
-    /// The template declares the terms as `param::*` constants; this emits a
-    /// matching parameter block so the program is fully concrete. The exact
-    /// parameter-passing form is finalised against the SimplicityHL compiler
-    /// (see `compile`).
+    /// The template carries the five terms as inline literals, each on a line
+    /// tagged `// TESSERA_PARAM:<NAME>`. This rewrites the literal on each
+    /// tagged line so the program is fully concrete and ready to compile.
     pub fn render(&self) -> String {
-        format!(
-            "// auto-generated parameter block — Mosaik / Tessera\n\
-             // ASSET_B  = 0x{}\n\
-             // AMOUNT_B = {}\n\
-             // MAKER_SPK = 0x{}\n\
-             // TIMEOUT  = {}\n\
-             // MAKER_PK = 0x{}\n\n{}",
-            hex::encode(self.asset_b),
-            self.amount_b,
-            hex::encode(self.maker_spk_hash),
-            self.timeout,
-            hex::encode(self.maker_pk),
-            TESSERA_SIMF,
-        )
+        const TAG: &str = "// TESSERA_PARAM:";
+        let mut out = String::with_capacity(TESSERA_SIMF.len() + 256);
+
+        for line in TESSERA_SIMF.lines() {
+            match line.find(TAG) {
+                // A tagged parameter line: replace the literal between `= `
+                // and `;` with this offer's value.
+                Some(tag_at) => {
+                    let name = line[tag_at + TAG.len()..].trim();
+                    let value = self.param_literal(name);
+                    let eq = line.find("= ").expect("param line must contain '= '");
+                    out.push_str(&line[..eq + 2]);
+                    out.push_str(&value);
+                    out.push_str("; ");
+                    out.push_str(&line[tag_at..]);
+                }
+                None => out.push_str(line),
+            }
+            out.push('\n');
+        }
+        out
+    }
+
+    /// The SimplicityHL literal for a `TESSERA_PARAM` name.
+    fn param_literal(&self, name: &str) -> String {
+        match name {
+            "ASSET_B" => format!("0x{}", hex::encode(self.asset_b)),
+            "AMOUNT_B" => self.amount_b.to_string(),
+            "MAKER_SPK" => format!("0x{}", hex::encode(self.maker_spk_hash)),
+            "TIMEOUT" => self.timeout.to_string(),
+            "MAKER_PK" => format!("0x{}", hex::encode(self.maker_pk)),
+            other => panic!("unknown TESSERA_PARAM:{other} in tessera.simf"),
+        }
     }
 
     /// Compile the parameterised covenant to a Simplicity program.
@@ -105,11 +123,20 @@ mod tests {
     }
 
     #[test]
-    fn render_includes_terms_and_template() {
+    fn render_substitutes_every_term() {
         let rendered = sample_tessera().render();
-        assert!(rendered.contains("AMOUNT_B = 50000"));
-        assert!(rendered.contains(&hex::encode([0x11u8; 32])));
+        // amount + timeout as decimal literals on their tagged lines
+        assert!(rendered.contains("= 50000; // TESSERA_PARAM:AMOUNT_B"));
+        assert!(rendered.contains("= 200; // TESSERA_PARAM:TIMEOUT"));
+        // 32-byte terms as 0x-hex literals
+        assert!(rendered.contains(&format!("0x{}; // TESSERA_PARAM:ASSET_B", "11".repeat(32))));
+        assert!(rendered.contains(&format!("0x{}; // TESSERA_PARAM:MAKER_SPK", "22".repeat(32))));
+        assert!(rendered.contains(&format!("0x{}; // TESSERA_PARAM:MAKER_PK", "33".repeat(32))));
+        // no all-zero placeholder literal survives substitution
+        assert!(!rendered.contains(&"0".repeat(64)));
+        // the program body is intact
         assert!(rendered.contains("fn main"));
+        assert!(rendered.contains("fn settle"));
     }
 
     #[test]
