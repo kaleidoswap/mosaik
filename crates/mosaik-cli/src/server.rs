@@ -4,11 +4,12 @@
 //! you pick **one trading pair** and every panel — order book, depth, the trade
 //! tape, the open orders — re-renders for that pair.
 //!
-//! There is **one wallet for the user** (`mosaik-user`). With it you can post a
-//! new covenant offer (act as a maker) *or* fill an existing one (act as a
-//! taker). The order book is also seeded by a few independent **market-maker**
-//! wallets, so the book shows liquidity from several distinct makers — exactly
-//! what a permissionless covenant orderbook looks like.
+//! The UI has an **active-wallet switcher**: you act as any of four wallets
+//! (`mosaik-user` plus three market makers). With whichever wallet is active
+//! you can post a new covenant offer (act as a maker) *or* fill an existing
+//! one (act as a taker), so cross-user buys and sells are testable end to
+//! end. The seeded book shows liquidity from several distinct makers —
+//! exactly what a permissionless covenant orderbook looks like.
 //!
 //! Every offer is also published as a Nostr addressable event (kind 30050); the
 //! UI surfaces the real event id, pubkey, and tags so discovery-over-Nostr is
@@ -49,12 +50,12 @@ const TEST_ASSETS: [&str; 2] = ["USDT", "EURx"];
 /// Nostr relay the demo points at (informational — the event is built locally).
 const RELAY_URL: &str = "ws://127.0.0.1:7777";
 
-/// Makers known to the demo: `(label, wallet name, display name)`.
+/// Wallets known to the demo: `(label, wallet name, display name)`.
 ///
-/// `user` is the UI wallet; the rest are independent market makers that seed
-/// the order book so it shows liquidity from several distinct parties.
+/// Any of them can be the active trader in the UI; the three `mm-*` wallets
+/// also seed the order book so it shows liquidity from several distinct parties.
 const MAKERS: [(&str, &str, &str); 4] = [
-    ("user", "mosaik-user", "You"),
+    ("user", "mosaik-user", "Mosaik User"),
     ("mm-a", "mosaik-mm-a", "Helix MM"),
     ("mm-b", "mosaik-mm-b", "Aurora Desk"),
     ("mm-c", "mosaik-mm-c", "Tessera LP"),
@@ -92,9 +93,6 @@ fn treasury() -> ElementsRpc {
 }
 fn wallet_rpc(name: &str) -> ElementsRpc {
     ElementsRpc::wallet(BASE, name, RPC_USER, RPC_PASS)
-}
-fn user_rpc() -> ElementsRpc {
-    wallet_rpc("mosaik-user")
 }
 fn node_rpc() -> ElementsRpc {
     ElementsRpc::node(BASE, RPC_USER, RPC_PASS)
@@ -274,7 +272,6 @@ fn api_state(state: &Mutex<AppState>) -> Result<Value> {
                 "maker_address": o.maker_address,
                 "maker": lo.maker,
                 "maker_name": lo.maker_name,
-                "is_own": lo.maker == "user",
                 "covenant_address": compiled.as_ref().and_then(|c| c.address().ok())
                     .map(|a| a.to_string()),
                 "cmr": compiled.as_ref().map(|c| c.cmr_hex()),
@@ -290,12 +287,19 @@ fn api_state(state: &Mutex<AppState>) -> Result<Value> {
         })
         .collect();
 
+    // A snapshot of every wallet, so the UI can switch the active trader and
+    // test cross-user buys and sells.
+    let mut wallets = serde_json::Map::new();
+    for (label, wname, _) in MAKERS {
+        wallets.insert(label.to_string(), wallet_snapshot(&wallet_rpc(wname), &assets)?);
+    }
+
     Ok(json!({
         "block_count": node_rpc().block_count()?,
         "assets": assets.keys().cloned().collect::<Vec<_>>(),
         "makers": MAKERS.iter().map(|(l, _, n)| json!({ "label": l, "name": n }))
             .collect::<Vec<_>>(),
-        "user": wallet_snapshot(&user_rpc(), &assets)?,
+        "wallets": wallets,
         "offers": offers,
         "trades": trades,
         "relay": RELAY_URL,
@@ -405,8 +409,11 @@ fn api_make_offer(req: &mut Request, state: &Mutex<AppState>) -> Result<Value> {
     }))
 }
 
-/// Taker: fill a registered offer from the user wallet — the node executes the
-/// covenant.
+/// Taker: fill a registered offer — the node executes the covenant.
+///
+/// The `taker` field picks which wallet fills the offer (`user` | `mm-a` |
+/// `mm-b` | `mm-c`), so the UI can switch the active trader and test
+/// cross-user buys and sells. Defaults to `user`.
 ///
 /// An optional `cheat` field (`underpay` | `wrong_recipient` | `wrong_index`)
 /// builds a deliberately fraudulent settlement. The transaction is well-formed
@@ -417,6 +424,8 @@ fn api_take_offer(req: &mut Request, state: &Mutex<AppState>) -> Result<Value> {
     let b = body(req);
     let index = b.get("index").and_then(Value::as_u64).ok_or_else(|| anyhow!("index"))? as usize;
     let cheat = Cheat::parse(b.get("cheat").and_then(Value::as_str).unwrap_or("none"));
+    let taker_label = b.get("taker").and_then(Value::as_str).unwrap_or("user");
+    let (_, taker_wallet, _) = maker_entry(taker_label)?;
 
     let listed = {
         let st = state.lock().unwrap();
@@ -424,7 +433,7 @@ fn api_take_offer(req: &mut Request, state: &Mutex<AppState>) -> Result<Value> {
     };
     let offer = listed.offer.clone();
 
-    let result = MosaikTaker::new(user_rpc()).settle(&offer, cheat);
+    let result = MosaikTaker::new(wallet_rpc(taker_wallet)).settle(&offer, cheat);
 
     match (cheat, result) {
         // Honest fill that succeeded: confirm it, record the trade, drop the offer.
@@ -483,7 +492,11 @@ fn api_take_offer(req: &mut Request, state: &Mutex<AppState>) -> Result<Value> {
     }
 }
 
-/// Maker: reclaim an unfilled offer via the covenant's keyless REFUND path.
+/// Reclaim an unfilled offer via the covenant's keyless REFUND path.
+///
+/// The path is keyless — *any* wallet may sweep it, and the covenant still
+/// forces the locked asset back to the maker. The `wallet` field picks which
+/// wallet broadcasts the sweep; it defaults to the offer's own maker.
 fn api_reclaim(req: &mut Request, state: &Mutex<AppState>) -> Result<Value> {
     let b = body(req);
     let index = b.get("index").and_then(Value::as_u64).ok_or_else(|| anyhow!("index"))? as usize;
@@ -492,7 +505,8 @@ fn api_reclaim(req: &mut Request, state: &Mutex<AppState>) -> Result<Value> {
         let st = state.lock().unwrap();
         st.offers.get(index).cloned().ok_or_else(|| anyhow!("no offer #{index}"))?
     };
-    let (_, wallet, _) = maker_entry(listed.maker)?;
+    let sweeper = b.get("wallet").and_then(Value::as_str).unwrap_or(listed.maker);
+    let (_, wallet, _) = maker_entry(sweeper)?;
 
     let txid = MosaikMaker::new(wallet_rpc(wallet)).reclaim(&listed.offer)?;
     treasury().generate(1)?; // confirm the reclaim

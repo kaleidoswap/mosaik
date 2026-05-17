@@ -466,6 +466,16 @@
     font: 800 12px/1 var(--mono);
   }
 
+  .wallet-switch {
+    width: auto;
+    min-width: 160px;
+    min-height: 38px;
+    color: var(--green-2);
+    background: #0d1625;
+    border-color: rgba(0, 208, 156, 0.3);
+    font-weight: 800;
+  }
+
   .bals {
     display: grid;
     grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -940,14 +950,15 @@
     <div class="depth-stage" id="depth"></div>
   </section>
 
-  <section class="panel wallets" aria-label="Your wallet">
+  <section class="panel wallets" aria-label="Active wallet">
     <div class="panel-head">
-      <h2 class="panel-title">Your Wallet</h2>
-      <span class="panel-meta">maker + taker</span>
+      <h2 class="panel-title">Active Wallet</h2>
+      <span class="panel-meta" id="wallet-meta">switch to test cross-user trades</span>
     </div>
     <div class="wallet-side">
       <div class="wallet-top">
-        <div class="role" id="u-role">mosaik-user</div>
+        <select id="walletSwitch" class="wallet-switch"
+          aria-label="Switch the active wallet"></select>
         <button id="fundUser">Fund wallet</button>
       </div>
       <div class="bals" id="u-bals"></div>
@@ -978,9 +989,16 @@
 
 <script>
 const $ = id => document.getElementById(id);
-let state = { assets: [], offers: [], trades: [], block_count: 0, user: null, relay: '' };
+let state = { assets: [], offers: [], trades: [], block_count: 0,
+  wallets: {}, makers: [], relay: '' };
 let selectedPair = null;
 let offerSide = 'sell'; // 'sell' = lock base / 'buy' = lock quote
+let activeWallet = 'user'; // which wallet the UI acts as (maker + taker)
+
+const makerName = label => {
+  const m = state.makers.find(x => x.label === label);
+  return m ? m.name : label;
+};
 
 const esc = s => String(s == null ? '' : s)
   .replace(/[&<>]/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;' }[c]));
@@ -1075,8 +1093,21 @@ const pairTrades = () =>
 
 // ---- wallet ----------------------------------------------------------------
 
-function renderWallet(w) {
-  if (!w) return;
+// Populate the active-wallet switcher from the makers list.
+function syncWalletSwitch() {
+  const sel = $('walletSwitch');
+  if (!state.makers.length) return;
+  if (!state.makers.some(m => m.label === activeWallet))
+    activeWallet = state.makers[0].label;
+  sel.innerHTML = state.makers
+    .map(m => `<option value="${m.label}">${esc(m.name)}</option>`).join('');
+  sel.value = activeWallet;
+}
+
+function renderWallet() {
+  const w = state.wallets[activeWallet];
+  $('wallet-meta').textContent = 'acting as ' + makerName(activeWallet);
+  if (!w) { $('u-bals').innerHTML = ''; $('u-addr').textContent = '--'; return; }
   const parts = [`<div class="balance-pill"><div class="k">L-BTC</div>
     <div class="v">${fmt(units(w.lbtc_sats))}</div></div>`];
   for (const name of state.assets) {
@@ -1270,13 +1301,14 @@ function renderOffers() {
   box.innerHTML = `<div class="offers-list">${offers.map(o => {
     const p = project(o);
     const n = o.nostr || {};
+    const own = o.maker === activeWallet;
     return `
-      <div class="offer-card ${o.is_own ? 'own' : ''}">
+      <div class="offer-card ${own ? 'own' : ''}">
         <div class="offer-main">
           <div>
             <div class="offer-top">
               <span class="side-tag ${p.side}">${p.side === 'ask' ? 'SELL' : 'BUY'} ${esc(p.base)}</span>
-              <span class="maker-tag ${o.is_own ? 'own' : ''}">${esc(o.maker_name)}</span>
+              <span class="maker-tag ${own ? 'own' : ''}">${esc(o.maker_name)}${own ? ' · you' : ''}</span>
               <span class="nostr-badge" title="Nostr event ${esc(n.event_id || '')}">
                 ${esc(short(n.event_id, 12))}</span>
             </div>
@@ -1294,7 +1326,9 @@ function renderOffers() {
             </div>
           </div>
           <div class="offer-actions">
-            <button data-take="${o.index}">Take offer</button>
+            <button data-take="${o.index}" ${own ? 'disabled' : ''}
+              title="${own ? 'Your own offer — switch the active wallet to take it'
+                : 'Fill this offer as ' + esc(makerName(activeWallet))}">Take offer</button>
             <button class="maker" data-reclaim="${o.index}"
               ${state.block_count >= o.timeout ? '' : 'disabled'}
               title="${state.block_count >= o.timeout
@@ -1351,7 +1385,8 @@ function setSide(side) {
 
 function renderAll() {
   syncPairFilter();
-  renderWallet(state.user);
+  syncWalletSwitch();
+  renderWallet();
   renderBook();
   renderDepth();
   renderChart();
@@ -1368,7 +1403,8 @@ async function refresh() {
     state.offers = s.offers;
     state.trades = s.trades || [];
     state.block_count = s.block_count;
-    state.user = s.user;
+    state.wallets = s.wallets || {};
+    state.makers = s.makers || [];
     state.relay = s.relay || '';
     $('height').textContent = s.block_count;
     renderAll();
@@ -1389,16 +1425,17 @@ async function action(btn, path, body, okMsg) {
 $('pairFilter').onchange = e => { selectedPair = e.target.value; syncTicket(); renderAll(); };
 $('sideSell').onclick = () => setSide('sell');
 $('sideBuy').onclick = () => setSide('buy');
+$('walletSwitch').onchange = e => { activeWallet = e.target.value; renderAll(); };
 
 $('fundUser').onclick = e =>
-  action(e.target, '/api/fund', { wallet: 'user' }, r => r.funded);
+  action(e.target, '/api/fund', { wallet: activeWallet }, r => r.funded);
 
 $('makeOffer').onclick = e => {
   const lock = $('lockAsset').value === 'L-BTC' ? 'BTC' : $('lockAsset').value;
   const want = $('wantAsset').value === 'L-BTC' ? 'BTC' : $('wantAsset').value;
   if (lock === want) { toast('Lock and want assets must differ', 'err'); return; }
   action(e.target, '/api/make-offer', {
-    maker: 'user',
+    maker: activeWallet,
     lock, want,
     amount_a: Math.round(Number($('amountA').value) * 1e8),
     amount_b: Math.round(Number($('wantAmount').value) * 1e8),
@@ -1411,8 +1448,9 @@ async function takeOffer(index, btn) {
   let was;
   if (btn) { was = btn.textContent; btn.disabled = true; btn.textContent = 'Settling...'; }
   try {
-    const r = await api('/api/take-offer', { index });
-    toast('Settled - the node executed the covenant. tx <code>' + r.txid + '</code>', 'ok');
+    const r = await api('/api/take-offer', { index, taker: activeWallet });
+    toast('Settled - ' + esc(makerName(activeWallet))
+      + ' filled the offer. tx <code>' + r.txid + '</code>', 'ok');
   } catch (e) { toast(e.message, 'err'); }
   if (btn) { btn.disabled = false; btn.textContent = was; }
   refresh();
@@ -1422,8 +1460,8 @@ async function reclaimOffer(index, btn) {
   const was = btn.textContent;
   btn.disabled = true; btn.textContent = 'Reclaiming...';
   try {
-    const r = await api('/api/reclaim', { index });
-    toast('Reclaimed via the covenant REFUND path. tx <code>' + r.txid + '</code>', 'ok');
+    const r = await api('/api/reclaim', { index, wallet: activeWallet });
+    toast('Reclaimed via the keyless REFUND path. tx <code>' + r.txid + '</code>', 'ok');
   } catch (e) { toast(e.message, 'err'); }
   btn.disabled = false;
   btn.textContent = was;
@@ -1435,7 +1473,7 @@ async function cheatOffer(index, cheat, btn) {
   const was = btn.textContent;
   btn.textContent = 'Attacking...';
   try {
-    const r = await api('/api/take-offer', { index, cheat });
+    const r = await api('/api/take-offer', { index, cheat, taker: activeWallet });
     if (r.covenant_bug) {
       toast('COVENANT BUG - a fraudulent fill was accepted. tx <code>'
         + r.txid + '</code>', 'err');
