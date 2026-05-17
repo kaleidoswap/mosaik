@@ -271,8 +271,13 @@ fn api_fund(state: &Mutex<AppState>, target: &ElementsRpc) -> Result<Value> {
 fn api_make_offer(req: &mut Request, state: &Mutex<AppState>) -> Result<Value> {
     let b = body(req);
     let amount_a = b.get("amount_a").and_then(Value::as_u64).ok_or_else(|| anyhow!("amount_a"))?;
-    let amount_b = b.get("amount_b").and_then(Value::as_u64).ok_or_else(|| anyhow!("amount_b"))?;
+    // `mid` is the reference price — units of `want` per unit of `lock`. The
+    // maker never hand-picks the amount: each offer is priced from mid, and the
+    // spread is the maker's margin, so every offer is beneficial by construction.
+    let mid = b.get("mid").and_then(Value::as_f64).ok_or_else(|| anyhow!("mid"))?;
     let spread = b.get("spread").and_then(Value::as_f64).unwrap_or(0.0);
+    // A ladder: `count` offers at 1x, 2x, 3x ... the base lock size.
+    let count = b.get("count").and_then(Value::as_u64).unwrap_or(1).clamp(1, 8);
     let timeout = b.get("timeout").and_then(Value::as_u64).unwrap_or(500) as u32;
     let lock = b.get("lock").and_then(Value::as_str).unwrap_or("BTC");
     let want = b.get("want").and_then(Value::as_str).unwrap_or("USDT");
@@ -283,34 +288,43 @@ fn api_make_offer(req: &mut Request, state: &Mutex<AppState>) -> Result<Value> {
     let maker = maker_rpc();
     let lbtc = maker.policy_asset()?;
     let assets = { state.lock().unwrap().assets.clone() };
-    let maker_address = maker.new_unconfidential_address()?;
-
-    // The covenant is price-less — it pins the `want` asset and the maker key;
-    // the amount is set per fill by a signed quote.
     let want_id = label_to_id(&assets, want, &lbtc)?;
-    let tessera = if want_id == lbtc {
-        lbtc_quote_tessera(&maker, &maker_address, timeout, demo_maker_pk())?
-    } else {
-        quote_tessera_for(&maker, &maker_address, &want_id, timeout, demo_maker_pk())?
-    };
+    let lock_label =
+        if lock == "BTC" { "BTC".to_string() } else { label_to_id(&assets, lock, &lbtc)? };
 
-    // `lock` is what the maker locks in the covenant UTXO.
-    let lock_label = if lock == "BTC" { "BTC".to_string() } else { label_to_id(&assets, lock, &lbtc)? };
-    let offer =
-        MosaikMaker::new(maker).make_offer(&lock_label, amount_a, &tessera, &maker_address)?;
+    let mut created = Vec::new();
+    for rung in 1..=count {
+        let rung_amount_a = amount_a * rung;
+        // base amount of `want` at the reference price — beneficial once the
+        // spread is added on top at quote time.
+        let base_amount_b = (rung_amount_a as f64 * mid).round() as u64;
 
-    let mut st = state.lock().unwrap();
-    let index = st.offers.len();
-    let outpoint = offer.outpoint.clone();
-    let maker_address = offer.maker_address.clone();
-    st.offers.push(OfferRecord { offer, base_amount_b: amount_b, spread });
+        let maker_address = maker.new_unconfidential_address()?;
+        let tessera = if want_id == lbtc {
+            lbtc_quote_tessera(&maker, &maker_address, timeout, demo_maker_pk())?
+        } else {
+            quote_tessera_for(&maker, &maker_address, &want_id, timeout, demo_maker_pk())?
+        };
+        let offer = MosaikMaker::new(maker_rpc()).make_offer(
+            &lock_label,
+            rung_amount_a,
+            &tessera,
+            &maker_address,
+        )?;
 
-    Ok(json!({
-        "ok": true,
-        "index": index,
-        "outpoint": outpoint,
-        "maker_address": maker_address,
-    }))
+        let mut st = state.lock().unwrap();
+        let index = st.offers.len();
+        let outpoint = offer.outpoint.clone();
+        st.offers.push(OfferRecord { offer, base_amount_b, spread });
+        created.push(json!({
+            "index": index,
+            "outpoint": outpoint,
+            "amount_a": rung_amount_a,
+            "base_amount_b": base_amount_b,
+        }));
+    }
+
+    Ok(json!({ "ok": true, "count": created.len(), "created": created }))
 }
 
 /// Taker: request a quote for an offer — the maker's price for filling it now.

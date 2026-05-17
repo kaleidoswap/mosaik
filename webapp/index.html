@@ -139,25 +139,31 @@
     <div class="btnrow"><button class="maker" id="fundMaker">+ Fund maker</button></div>
   </div>
 
-  <h2>Make an offer</h2>
+  <h2>Auto-quote — generate a beneficial offer ladder</h2>
   <div class="card maker">
     <div class="row">
       <div><label>Lock asset</label><select id="lockAsset"></select></div>
-      <div><label>Lock amount</label>
+      <div><label>Lock size (rung 1)</label>
         <input id="amountA" type="number" value="0.01" min="0" step="any"></div>
       <div><label>Want asset</label><select id="wantAsset"></select></div>
-      <div><label>Base amount</label>
-        <input id="wantAmount" type="number" value="50" min="0" step="any"></div>
+      <div><label>Mid price</label>
+        <input id="midPrice" type="number" value="4000" min="0" step="any"></div>
       <div><label>Spread %</label>
         <input id="spread" type="number" value="1" min="0" step="any"></div>
+      <div><label>Offers</label>
+        <input id="offerCount" type="number" value="3" min="1" max="8"></div>
       <div><label>Refund height</label>
         <input id="timeout" type="number" value="500" min="1"></div>
     </div>
+    <div id="offerPreview" class="swapinfo"></div>
     <div class="btnrow">
-      <button class="maker" id="makeOffer">Fund covenant &amp; publish offer</button>
+      <button class="maker" id="makeOffer">Fund covenant ladder</button>
     </div>
-    <div class="note">The covenant is funded price-less. The fill price is a
-      signed quote — <strong>base amount + spread</strong> — issued at take time.</div>
+    <div class="note">The maker never hand-picks an amount. Each offer is priced
+      from the <strong>mid price + spread</strong>, so every rung is beneficial
+      by construction. The ladder funds <em>count</em> price-less covenants at
+      1×, 2×, 3× … the lock size; the spread is applied in the signed quote at
+      take time.</div>
   </div>
 
   <h2>Your offers</h2>
@@ -418,6 +424,7 @@ async function refresh() {
       fillSelect($('wantAsset'), s.assets[0]);
       fillSelect($('fromAsset'), s.assets[0]);
       fillSelect($('toAsset'), 'L-BTC');
+      updateOfferPreview();
     }
     render();
   } catch (e) {
@@ -438,6 +445,26 @@ $('fundMaker').onclick = e =>
 $('fundTaker').onclick = e =>
   action(e.target, '/api/fund/taker', {}, r => 'Taker funded — ' + r.funded);
 
+// Preview the ladder the maker is about to fund.
+function updateOfferPreview() {
+  const lockA = Number($('amountA').value) || 0;
+  const mid = Number($('midPrice').value) || 0;
+  const spread = Number($('spread').value) / 100;
+  const count = Math.max(1, Math.min(8, Number($('offerCount').value) || 1));
+  const lockN = $('lockAsset').value, wantN = $('wantAsset').value;
+  const rungs = [];
+  for (let k = 1; k <= count; k++) {
+    const lock = lockA * k;
+    const ask = lock * mid * (1 + spread);
+    rungs.push(`${fmt(lock)} ${esc(lockN)} → ${fmt(ask)} ${esc(wantN)}`);
+  }
+  $('offerPreview').innerHTML = `Will fund <span class="rate">${count}</span>
+    covenant(s), each priced at mid +${($('spread').value || 0)}%:<br>` +
+    rungs.join(' &nbsp;·&nbsp; ');
+}
+['amountA', 'midPrice', 'spread', 'offerCount', 'lockAsset', 'wantAsset']
+  .forEach(id => $(id).addEventListener('input', updateOfferPreview));
+
 $('makeOffer').onclick = e => {
   const lock = $('lockAsset').value === 'L-BTC' ? 'BTC' : $('lockAsset').value;
   const want = $('wantAsset').value === 'L-BTC' ? 'BTC' : $('wantAsset').value;
@@ -445,10 +472,11 @@ $('makeOffer').onclick = e => {
   action(e.target, '/api/make-offer', {
     lock, want,
     amount_a: Math.round(Number($('amountA').value) * 1e8),
-    amount_b: Math.round(Number($('wantAmount').value) * 1e8),
+    mid: Number($('midPrice').value),
     spread: Number($('spread').value) / 100,
+    count: Number($('offerCount').value),
     timeout: Number($('timeout').value),
-  }, r => 'Offer #' + r.index + ' funded — covenant <code>' + r.outpoint + '</code>');
+  }, r => 'Funded a ladder of ' + r.count + ' beneficial offer(s).');
 };
 
 
