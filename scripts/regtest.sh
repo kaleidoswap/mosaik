@@ -27,8 +27,48 @@ RPCPORT="7040"
 FREECOINS_TXID="027f015923d266ffb8af1fadd09a3743dffebd199e8f1e45c96ca12e58992d5f"
 
 cli() {
-    "$ELEMENTS_CLI" -datadir="$DATADIR" -rpcport="$RPCPORT" \
-        -rpcuser="$RPCUSER" -rpcpassword="$RPCPASS" "$@"
+    if [ -x "$ELEMENTS_CLI" ]; then
+        "$ELEMENTS_CLI" -datadir="$DATADIR" -rpcport="$RPCPORT" \
+            -rpcuser="$RPCUSER" -rpcpassword="$RPCPASS" "$@"
+        return
+    fi
+    # elements-cli not found (smplx ships only elementsd) — fall back to curl + python3.
+    # Python infers each arg's type: JSON literals pass through, pure decimals become
+    # numbers, everything else (addresses, txids, wallet names) becomes a JSON string.
+    local method="$1"; shift
+    local params
+    params=$(python3 - "$@" <<'PYEOF'
+import json, sys
+result = []
+for a in sys.argv[1:]:
+    if a in ('true', 'false', 'null'):
+        result.append(json.loads(a))
+    elif a[:1] in ('[', '{'):
+        result.append(json.loads(a))
+    else:
+        try:
+            result.append(float(a) if '.' in a else int(a))
+        except ValueError:
+            result.append(a)
+print(json.dumps(result))
+PYEOF
+)
+    local resp
+    resp=$(curl -sf --user "${RPCUSER}:${RPCPASS}" \
+        -H 'Content-Type: application/json' \
+        --data "{\"jsonrpc\":\"1.0\",\"id\":\"r\",\"method\":\"${method}\",\"params\":${params}}" \
+        "http://127.0.0.1:${RPCPORT}") || { echo "RPC ${method}: connection refused" >&2; return 1; }
+    echo "$resp" | python3 -c "
+import json, sys
+d = json.loads(sys.stdin.read())
+if d.get('error'):
+    e = d['error']
+    print(json.dumps(e) if isinstance(e, dict) else str(e), file=sys.stderr)
+    sys.exit(1)
+r = d.get('result')
+if isinstance(r, str): print(r)
+elif r is not None: print(json.dumps(r))
+"
 }
 
 wait_for_rpc() {
@@ -84,12 +124,21 @@ initialfreecoins=2100000000000000
 rpcport=$RPCPORT
 rpcbind=127.0.0.1
 EOF
-    "$ELEMENTSD" -datadir="$DATADIR" -daemon
-    echo "elementsd starting (datadir: $DATADIR)"
+    if "$ELEMENTSD" -datadir="$DATADIR" -daemon 2>/dev/null; then
+        echo "elementsd starting (datadir: $DATADIR)"
+    else
+        echo "elementsd already running, continuing wallet setup"
+    fi
     wait_for_rpc
     cli createwallet mosaik >/dev/null 2>&1 \
         || cli loadwallet mosaik >/dev/null 2>&1 || true
     fund_wallet
+    # Create maker/taker wallets after funding so fund_wallet's implicit wallet
+    # calls (getnewaddress, sendtoaddress) resolve to mosaik unambiguously.
+    cli createwallet mosaik-maker >/dev/null 2>&1 \
+        || cli loadwallet mosaik-maker >/dev/null 2>&1 || true
+    cli createwallet mosaik-taker >/dev/null 2>&1 \
+        || cli loadwallet mosaik-taker >/dev/null 2>&1 || true
     echo "regtest up — chain height $(cli getblockcount)"
     ;;
   mine)
