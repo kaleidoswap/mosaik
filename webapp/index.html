@@ -89,10 +89,18 @@
     background:var(--panel2);border:1px solid var(--line);border-radius:10px;
     padding:11px 18px;font-size:13px;max-width:90vw;box-shadow:0 8px 30px #0008;
     opacity:0;transition:opacity .2s;pointer-events:none;}
-  .toast.show{opacity:1;}
+  /* Re-enable clicks once visible so the explorer link & copy-able code work. */
+  .toast.show{opacity:1;pointer-events:auto;}
   .toast.ok{border-color:var(--ok);} .toast.err{border-color:var(--bad);}
   .toast code{font-family:ui-monospace,Menlo,monospace;color:var(--accent);}
   .note{font-size:11.5px;color:var(--muted);margin-top:8px;}
+  /* Any code with this class is click-to-copy; the contract source <pre> isn't. */
+  code.copy{cursor:pointer;border-bottom:1px dashed transparent;}
+  code.copy:hover{border-bottom-color:var(--accent);color:var(--ink);}
+  code.copy:active{opacity:.6;}
+  .explorer{color:var(--accent);text-decoration:none;font-size:11px;
+    margin-left:8px;border-bottom:1px dashed var(--accent);}
+  .explorer:hover{color:var(--ink);border-bottom-color:var(--ink);}
 </style>
 </head>
 <body>
@@ -176,6 +184,34 @@ const fmt = n => Number(n || 0).toLocaleString(undefined, { maximumFractionDigit
 // raw amount + asset name -> "1.5 USDT"
 const fmtAmt = (raw, name) => fmt(units(raw)) + ' ' + name;
 
+// Format a txid (or "txid:vout" outpoint) as a copyable code element + an
+// explorer link when we're on testnet (regtest has no public explorer).
+function txLink(s) {
+  if (!s) return '';
+  const safe = esc(s);
+  const tx = String(s).split(':')[0];
+  const explorer = state.network === 'testnet'
+    ? ` <a class="explorer" target="_blank" rel="noopener" href="https://blockstream.info/liquidtestnet/tx/${tx}">explorer ↗</a>`
+    : '';
+  return `<code class="copy" title="click to copy">${safe}</code>${explorer}`;
+}
+
+// Click-to-copy for every <code class="copy"> in the document. One delegated
+// listener; works for offer cards and toasts alike.
+document.addEventListener('click', async (e) => {
+  const c = e.target.closest('code.copy');
+  if (!c) return;
+  try {
+    await navigator.clipboard.writeText(c.textContent);
+    const original = c.style.color;
+    c.style.color = 'var(--ok)';
+    setTimeout(() => { c.style.color = original; }, 600);
+    toast('Copied: <code>' + esc(c.textContent.slice(0, 24)) + (c.textContent.length > 24 ? '…' : '') + '</code>', 'ok');
+  } catch (err) {
+    toast('Copy failed: ' + err.message, 'err');
+  }
+});
+
 function toast(msg, kind) {
   const t = $('toast');
   t.className = 'toast show ' + (kind || '');
@@ -240,10 +276,10 @@ function renderOffers() {
           <span class="b">${fmtAmt(o.amount_b, esc(o.want_name))}</span>
         </div>
         <div class="meta">
-          <span>covenant address</span><code>${esc(o.covenant_address)}</code>
-          <span>covenant UTXO</span><code>${esc(o.outpoint)}</code>
-          <span>CMR</span><code>${esc(o.cmr)}</code>
-          <span>maker paid to</span><code>${esc(o.maker_address)}</code>
+          <span>covenant address</span><code class="copy" title="click to copy">${esc(o.covenant_address)}</code>
+          <span>covenant UTXO</span><code class="copy" title="click to copy">${esc(o.outpoint)}</code>
+          <span>CMR</span><code class="copy" title="click to copy">${esc(o.cmr)}</code>
+          <span>maker paid to</span><code class="copy" title="click to copy">${esc(o.maker_address)}</code>
           <span>refund height</span><code>${o.timeout}</code>
         </div>
         <div class="act">
@@ -322,14 +358,14 @@ $('makeOffer').onclick = e => {
     amount_a: Math.round(Number($('amountA').value) * 1e8),
     amount_b: Math.round(Number($('wantAmount').value) * 1e8),
     timeout: Number($('timeout').value),
-  }, r => 'Offer #' + r.index + ' funded — covenant <code>' + r.outpoint + '</code>');
+  }, r => 'Offer #' + r.index + ' funded — covenant ' + txLink(r.outpoint));
 };
 
 async function takeOffer(index, btn) {
   btn.disabled = true; btn.textContent = 'Settling…';
   try {
     const r = await api('/api/take-offer', { index });
-    toast('Settled — the node executed the covenant. tx <code>' + r.txid + '</code>', 'ok');
+    toast('Settled — the node executed the covenant. tx ' + txLink(r.txid), 'ok');
   } catch (e) { toast(e.message, 'err'); }
   refresh();
 }
@@ -338,7 +374,7 @@ async function reclaimOffer(index, btn) {
   btn.disabled = true; btn.textContent = 'Reclaiming…';
   try {
     const r = await api('/api/reclaim', { index });
-    toast('Reclaimed via the covenant REFUND path. tx <code>' + r.txid + '</code>', 'ok');
+    toast('Reclaimed via the covenant REFUND path. tx ' + txLink(r.txid), 'ok');
   } catch (e) { toast(e.message, 'err'); }
   refresh();
 }
@@ -350,8 +386,8 @@ async function cheatOffer(index, cheat, btn) {
   try {
     const r = await api('/api/take-offer', { index, cheat });
     if (r.covenant_bug) {
-      toast('⚠ COVENANT BUG — a fraudulent fill was accepted! tx <code>'
-        + r.txid + '</code>', 'err');
+      toast('⚠ COVENANT BUG — a fraudulent fill was accepted! tx '
+        + txLink(r.txid), 'err');
     } else if (r.rejected) {
       toast('Covenant rejected the attack ✓ — ' + esc(r.reason), 'ok');
     } else {
