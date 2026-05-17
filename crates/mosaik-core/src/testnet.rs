@@ -22,6 +22,14 @@ use crate::Offer;
 pub const ESPLORA_DEFAULT: &str = "https://blockstream.info/liquidtestnet/api";
 pub const FAUCET_DEFAULT: &str = "https://liquidtestnet.com/faucet";
 
+/// Environment-variable name for the Esplora base URL. Override with e.g.
+/// `https://us.enterprise.blockstream.info/liquidtestnet/api`.
+pub const ESPLORA_URL_ENV: &str = "ESPLORA_URL";
+
+/// Environment-variable name for a Bearer token sent with every Esplora call.
+/// Needed by the Blockstream Enterprise endpoint.
+pub const ESPLORA_TOKEN_ENV: &str = "ESPLORA_TOKEN";
+
 /// Liquid testnet L-BTC asset id, RPC display order.
 pub const LBTC_TESTNET_DISPLAY: &str =
     "144c654344aa716d6f3abcc1ca90e5641e4e2a7f633bc09fe3baf64585819a49";
@@ -74,6 +82,8 @@ pub const DEFAULT_FEE_SATS: u64 = 500;
 #[derive(Clone)]
 pub struct Esplora {
     base: String,
+    /// Bearer token sent with every request when set (Enterprise Esplora).
+    token: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -114,23 +124,48 @@ pub struct EsploraTx {
 
 impl Esplora {
     pub fn new(base: &str) -> Self {
-        Self { base: base.trim_end_matches('/').to_string() }
+        Self { base: base.trim_end_matches('/').to_string(), token: None }
     }
 
+    pub fn with_token(mut self, token: impl Into<String>) -> Self {
+        let t = token.into();
+        if !t.is_empty() { self.token = Some(t); }
+        self
+    }
+
+    pub fn base_url(&self) -> &str { &self.base }
+    pub fn has_token(&self) -> bool { self.token.is_some() }
+
+    /// Build an Esplora client from the environment.
+    ///
+    /// `ESPLORA_URL`   — base URL (default: public Liquid testnet Esplora).
+    /// `ESPLORA_TOKEN` — optional Bearer token (Blockstream Enterprise).
     pub fn testnet() -> Self {
-        Self::new(ESPLORA_DEFAULT)
+        let base = std::env::var(ESPLORA_URL_ENV)
+            .unwrap_or_else(|_| ESPLORA_DEFAULT.to_string());
+        let token = std::env::var(ESPLORA_TOKEN_ENV).ok();
+        let mut esp = Self::new(&base);
+        if let Some(t) = token { esp = esp.with_token(t); }
+        esp
+    }
+
+    fn auth(&self, req: ureq::Request) -> ureq::Request {
+        match &self.token {
+            Some(t) => req.set("Authorization", &format!("Bearer {t}")),
+            None => req,
+        }
     }
 
     fn get_json(&self, path: &str) -> Result<Value> {
         let url = format!("{}{}", self.base, path);
-        let resp = ureq::get(&url).call()
+        let resp = self.auth(ureq::get(&url)).call()
             .map_err(|e| anyhow!("esplora GET {url}: {e}"))?;
         resp.into_json::<Value>().context("esplora response not JSON")
     }
 
     fn get_text(&self, path: &str) -> Result<String> {
         let url = format!("{}{}", self.base, path);
-        let resp = ureq::get(&url).call()
+        let resp = self.auth(ureq::get(&url)).call()
             .map_err(|e| anyhow!("esplora GET {url}: {e}"))?;
         resp.into_string().context("esplora response not text")
     }
@@ -172,7 +207,7 @@ impl Esplora {
     /// Broadcast a raw tx hex; returns the txid.
     pub fn broadcast(&self, tx_hex: &str) -> Result<String> {
         let url = format!("{}/tx", self.base);
-        let resp = ureq::post(&url)
+        let resp = self.auth(ureq::post(&url))
             .set("Content-Type", "text/plain")
             .send_string(tx_hex);
         match resp {

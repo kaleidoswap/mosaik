@@ -16,3 +16,9 @@
 .vscode/
 *.swp
 /.testnet
+
+# Local env (Esplora URL + Bearer token); .env.example is committed
+.env
+
+# Saved offer JSON produced by ./scripts/testnet.sh make-offer
+/offer.json
