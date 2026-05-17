@@ -113,7 +113,7 @@ pub async fn run_local_relay(port: u16) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use mosaik_core::Tessera;
+    use mosaik_core::QuoteTessera;
 
     fn sample_offer() -> TesseraOffer {
         TesseraOffer {
@@ -122,9 +122,8 @@ mod tests {
                 outpoint: "aa".repeat(32) + ":0",
                 asset_a: "BTC".into(),
                 amount_a: 1_000_000,
-                tessera: Tessera {
+                tessera: QuoteTessera {
                     asset_b: [0x11; 32],
-                    amount_b: 600_000,
                     maker_spk_hash: [0x22; 32],
                     timeout: 500,
                     maker_pk: [0x33; 32],
@@ -148,7 +147,6 @@ mod tests {
         let back = TesseraOffer::from_event(&event).expect("parse event");
         assert_eq!(back.order_id, offer.order_id);
         assert_eq!(back.offer.amount_a, 1_000_000);
-        assert_eq!(back.offer.tessera.amount_b, 600_000);
         assert_eq!(back.status, OfferStatus::Active);
     }
 

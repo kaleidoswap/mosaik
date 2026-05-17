@@ -1,17 +1,15 @@
 //! Mosaik demo CLI.
 //!
-//! Three commands map onto the protocol in `docs/DESIGN.md` §5:
+//! The covenant-DEX flow, Phase 1 (quote / RFQ settlement):
 //!
-//!   mosaik make-offer ...   maker funds a covenant UTXO (a Tessera)
-//!   mosaik take-offer ...   taker fills it (SETTLE path)
+//!   mosaik make-offer ...   maker funds a covenant UTXO (price-less)
+//!   mosaik quote      ...   maker signs a per-fill price quote
+//!   mosaik take-offer ...   taker fills it at a quote (SETTLE path)
 //!   mosaik reclaim    ...   maker reclaims it (REFUND path)
-//!
-//! The Liquid side (PSET build/sign/broadcast) is wired during the hackathon —
-//! see the `TODO(hackathon)` markers in `mosaik-core`.
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
-use tessera::Tessera;
+use serde::{Deserialize, Serialize};
 
 mod server;
 
@@ -30,9 +28,6 @@ enum Command {
         /// Sats of L-BTC the maker locks in the covenant.
         #[arg(long)]
         amount_a: u64,
-        /// Raw units of `asset_b` the covenant requires the taker to pay the maker.
-        #[arg(long)]
-        amount_b: u64,
         /// Asset id (RPC display order) the maker wants to be paid in.
         /// Defaults to L-BTC (the network policy asset).
         #[arg(long)]
@@ -41,59 +36,33 @@ enum Command {
         #[arg(long, default_value_t = 500)]
         timeout: u32,
     },
-    /// Taker: fill a published offer — the node executes the covenant (SETTLE).
+    /// Maker: sign a per-fill price quote for an offer; print the quote JSON.
+    Quote {
+        /// Path to the offer JSON produced by `make-offer`.
+        #[arg(long)]
+        offer: String,
+        /// Raw units of `asset_b` the taker must pay the maker.
+        #[arg(long)]
+        amount_b: u64,
+        /// Block height the quote is anchored to (the freshness floor).
+        /// Defaults to the current chain tip.
+        #[arg(long)]
+        valid_height: Option<u32>,
+    },
+    /// Taker: fill a published offer at a maker-signed quote (SETTLE path).
     TakeOffer {
         /// Path to the offer JSON produced by `make-offer`.
         #[arg(long)]
         offer: String,
+        /// Path to the signed quote JSON produced by `quote`.
+        #[arg(long)]
+        quote: String,
     },
     /// Maker: reclaim an unfilled offer after its timeout (REFUND path).
     Reclaim {
         /// Path to the offer JSON.
         #[arg(long)]
         offer: String,
-    },
-    /// Print the parameterised SimplicityHL covenant for a Tessera.
-    ShowTessera {
-        #[arg(long)]
-        asset_b: String,
-        #[arg(long)]
-        amount_b: u64,
-        #[arg(long)]
-        maker_pk: String,
-        #[arg(long)]
-        maker_spk_hash: String,
-        #[arg(long)]
-        timeout: u32,
-    },
-    /// Compile a Tessera covenant and print its Commitment Merkle Root.
-    CompileTessera {
-        #[arg(long)]
-        asset_b: String,
-        #[arg(long)]
-        amount_b: u64,
-        #[arg(long)]
-        maker_pk: String,
-        #[arg(long)]
-        maker_spk_hash: String,
-        #[arg(long)]
-        timeout: u32,
-    },
-    /// Build the Taproot SETTLE witness for spending a Tessera covenant.
-    SettleWitness {
-        #[arg(long)]
-        asset_b: String,
-        #[arg(long)]
-        amount_b: u64,
-        #[arg(long)]
-        maker_pk: String,
-        #[arg(long)]
-        maker_spk_hash: String,
-        #[arg(long)]
-        timeout: u32,
-        /// Index of the output that pays the maker.
-        #[arg(long, default_value_t = 0)]
-        settle_vout: u32,
     },
     /// Maker: publish a funded offer to the Nostr orderbook.
     PublishOffer {
@@ -121,144 +90,106 @@ enum Command {
         #[arg(long, default_value_t = 7777)]
         port: u16,
     },
-    /// Serve the browser wallet UI for funding, making, and taking offers.
+    /// Serve the browser wallet UI for funding, quoting, and taking offers.
     ServeWallet {
         #[arg(long, default_value_t = 8080)]
         port: u16,
     },
 }
 
-fn parse_32(label: &str, s: &str) -> Result<[u8; 32]> {
-    let bytes = hex::decode(s)?;
-    let arr: [u8; 32] = bytes
-        .try_into()
-        .map_err(|_| anyhow::anyhow!("{label} must be 32 bytes of hex"))?;
-    Ok(arr)
-}
-
-fn build_tessera(
-    asset_b: &str,
-    amount_b: u64,
-    maker_pk: &str,
-    maker_spk_hash: &str,
-    timeout: u32,
-) -> Result<Tessera> {
-    Ok(Tessera {
-        asset_b: parse_32("asset_b", asset_b)?,
-        amount_b,
-        maker_spk_hash: parse_32("maker_spk_hash", maker_spk_hash)?,
-        timeout,
-        maker_pk: parse_32("maker_pk", maker_pk)?,
-    })
+/// A maker-signed quote, as written by `quote` and read by `take-offer`.
+#[derive(Serialize, Deserialize)]
+struct SignedQuote {
+    quote: mosaik_core::Quote,
+    /// The maker's 64-byte BIP-340 signature over the quote, hex.
+    sig: String,
 }
 
 fn main() -> Result<()> {
     let cli = Cli::parse();
 
     match cli.command {
-        Command::MakeOffer {
-            amount_a,
-            amount_b,
-            asset_b,
-            timeout,
-        } => make_offer(amount_a, amount_b, asset_b.as_deref(), timeout),
-        Command::TakeOffer { offer } => take_offer(&offer),
+        Command::MakeOffer { amount_a, asset_b, timeout } => {
+            make_offer(amount_a, asset_b.as_deref(), timeout)
+        }
+        Command::Quote { offer, amount_b, valid_height } => {
+            quote(&offer, amount_b, valid_height)
+        }
+        Command::TakeOffer { offer, quote } => take_offer(&offer, &quote),
         Command::Reclaim { offer } => reclaim(&offer),
-        Command::ShowTessera {
-            asset_b,
-            amount_b,
-            maker_pk,
-            maker_spk_hash,
-            timeout,
-        } => {
-            let tessera = build_tessera(&asset_b, amount_b, &maker_pk, &maker_spk_hash, timeout)?;
-            println!("{}", tessera.render());
-            Ok(())
+        Command::PublishOffer { offer, relay, order_id, ttl } => {
+            publish_offer(&offer, &relay, &order_id, ttl)
         }
-        Command::CompileTessera {
-            asset_b,
-            amount_b,
-            maker_pk,
-            maker_spk_hash,
-            timeout,
-        } => {
-            let tessera = build_tessera(&asset_b, amount_b, &maker_pk, &maker_spk_hash, timeout)?;
-            let compiled = tessera.compile()?;
-            println!("Tessera covenant compiled.");
-            println!("  CMR:     {}", compiled.cmr_hex());
-            println!("  Address: {}", compiled.address()?);
-            println!("Fund the address to create this offer's covenant UTXO.");
-            Ok(())
-        }
-        Command::SettleWitness {
-            asset_b,
-            amount_b,
-            maker_pk,
-            maker_spk_hash,
-            timeout,
-            settle_vout,
-        } => {
-            let tessera = build_tessera(&asset_b, amount_b, &maker_pk, &maker_spk_hash, timeout)?;
-            let wit = tessera.settle_witness(settle_vout)?;
-            println!("Tessera SETTLE witness (Taproot script-path, bottom to top):");
-            println!("  program:       {}", hex::encode(&wit.program));
-            println!("  witness:       {}", hex::encode(&wit.witness));
-            println!("  leaf_script:   {}", hex::encode(&wit.leaf_script));
-            println!("  control_block: {}", hex::encode(&wit.control_block));
-            Ok(())
-        }
-        Command::PublishOffer {
-            offer,
-            relay,
-            order_id,
-            ttl,
-        } => publish_offer(&offer, &relay, &order_id, ttl),
         Command::BrowseOffers { relay } => browse_offers(&relay),
-        Command::ServeRelay { port } => {
-            block_on(mosaik_relay::run_local_relay(port))
-        }
+        Command::ServeRelay { port } => block_on(mosaik_relay::run_local_relay(port)),
         Command::ServeWallet { port } => server::run(port),
     }
 }
 
-/// Maker: fund a covenant UTXO on the regtest, print the offer JSON to stdout.
-fn make_offer(
-    amount_a: u64,
-    amount_b: u64,
-    asset_b: Option<&str>,
-    timeout: u32,
-) -> Result<()> {
-    use mosaik_core::{lbtc_tessera, rpc::ElementsRpc, tessera_for, MakeOffer, MosaikMaker};
+/// Maker: fund a price-less covenant UTXO, print the offer JSON to stdout.
+fn make_offer(amount_a: u64, asset_b: Option<&str>, timeout: u32) -> Result<()> {
+    use mosaik_core::{
+        lbtc_quote_tessera, quote_tessera_for, rpc::ElementsRpc, MakeOffer, MosaikMaker,
+    };
 
     let rpc = ElementsRpc::regtest_wallet();
     let maker_address = rpc.new_unconfidential_address()?;
+    let maker_pk = mosaik_core::demo_maker_pk();
     let tessera = match asset_b {
-        Some(asset) => tessera_for(&rpc, &maker_address, asset, amount_b, timeout, mosaik_core::demo_maker_pk())?,
-        None => lbtc_tessera(&rpc, &maker_address, amount_b, timeout, mosaik_core::demo_maker_pk())?,
+        Some(asset) => quote_tessera_for(&rpc, &maker_address, asset, timeout, maker_pk)?,
+        None => lbtc_quote_tessera(&rpc, &maker_address, timeout, maker_pk)?,
     };
     let offer = MosaikMaker::regtest().make_offer("BTC", amount_a, &tessera, &maker_address)?;
 
-    // Human-readable summary to stderr; the offer JSON to stdout (pipe it).
     eprintln!("Funded a covenant offer:");
     eprintln!("  covenant UTXO : {}", offer.outpoint);
     eprintln!("  locked        : {} sats L-BTC", offer.amount_a);
-    eprintln!(
-        "  maker wants   : {} sats paid to {}",
-        offer.tessera.amount_b, offer.maker_address
-    );
+    eprintln!("  maker paid to : {}", offer.maker_address);
+    eprintln!("  price         : set per fill — see `mosaik quote`");
     println!("{}", serde_json::to_string(&offer)?);
     Ok(())
 }
 
-/// Taker: fill an offer — the Liquid node executes and enforces the covenant.
-fn take_offer(offer_path: &str) -> Result<()> {
+/// Maker: sign a per-fill price quote for an offer; print the quote JSON.
+fn quote(offer_path: &str, amount_b: u64, valid_height: Option<u32>) -> Result<()> {
+    use mosaik_core::{rpc::ElementsRpc, MosaikMaker, Offer, Quote, DEMO_MAKER_SECRET};
+
+    let offer: Offer = serde_json::from_str(
+        &std::fs::read_to_string(offer_path)
+            .map_err(|e| anyhow::anyhow!("reading {offer_path}: {e}"))?,
+    )?;
+
+    let valid_height = match valid_height {
+        Some(h) => h,
+        None => ElementsRpc::regtest_wallet().block_count()? as u32,
+    };
+    let quote = Quote { amount_b, valid_height };
+    let sig = MosaikMaker::regtest().sign_quote(&offer, &quote, &DEMO_MAKER_SECRET)?;
+
+    eprintln!("Signed a quote for covenant {}:", offer.outpoint);
+    eprintln!("  taker pays   : {amount_b} units of asset_b");
+    eprintln!("  valid from   : height {valid_height}");
+    println!("{}", serde_json::to_string(&SignedQuote { quote, sig: hex::encode(sig) })?);
+    Ok(())
+}
+
+/// Taker: fill an offer at a maker-signed quote — the node enforces the covenant.
+fn take_offer(offer_path: &str, quote_path: &str) -> Result<()> {
     use mosaik_core::{MosaikTaker, Offer, TakeOffer};
 
-    let offer_json = std::fs::read_to_string(offer_path)
-        .map_err(|e| anyhow::anyhow!("reading {offer_path}: {e}"))?;
-    let offer: Offer = serde_json::from_str(&offer_json)?;
+    let offer: Offer = serde_json::from_str(
+        &std::fs::read_to_string(offer_path)
+            .map_err(|e| anyhow::anyhow!("reading {offer_path}: {e}"))?,
+    )?;
+    let signed: SignedQuote = serde_json::from_str(
+        &std::fs::read_to_string(quote_path)
+            .map_err(|e| anyhow::anyhow!("reading {quote_path}: {e}"))?,
+    )?;
+    let sig: [u8; 64] = hex::decode(&signed.sig)?
+        .try_into()
+        .map_err(|_| anyhow::anyhow!("quote signature must be 64 bytes of hex"))?;
 
-    let txid = MosaikTaker::regtest().take_offer(&offer)?;
+    let txid = MosaikTaker::regtest().take_offer(&offer, &signed.quote, &sig)?;
     println!("Settled. The Liquid node executed the Tessera covenant and accepted the spend.");
     println!("  settlement txid: {txid}");
     Ok(())
@@ -268,9 +199,10 @@ fn take_offer(offer_path: &str) -> Result<()> {
 fn reclaim(offer_path: &str) -> Result<()> {
     use mosaik_core::{MosaikMaker, Offer, ReclaimOffer, DEMO_MAKER_SECRET};
 
-    let offer_json = std::fs::read_to_string(offer_path)
-        .map_err(|e| anyhow::anyhow!("reading {offer_path}: {e}"))?;
-    let offer: Offer = serde_json::from_str(&offer_json)?;
+    let offer: Offer = serde_json::from_str(
+        &std::fs::read_to_string(offer_path)
+            .map_err(|e| anyhow::anyhow!("reading {offer_path}: {e}"))?,
+    )?;
 
     let txid = MosaikMaker::regtest().reclaim(&offer, &DEMO_MAKER_SECRET)?;
     println!("Reclaimed. The covenant's REFUND path returned the locked asset to the maker.");
@@ -288,9 +220,10 @@ fn block_on<F: std::future::Future>(fut: F) -> F::Output {
 fn publish_offer(offer_path: &str, relay: &str, order_id: &str, ttl: u64) -> Result<()> {
     use mosaik_relay::{Keys, MosaikRelay, OfferStatus, TesseraOffer};
 
-    let offer_json = std::fs::read_to_string(offer_path)
-        .map_err(|e| anyhow::anyhow!("reading {offer_path}: {e}"))?;
-    let offer: mosaik_core::Offer = serde_json::from_str(&offer_json)?;
+    let offer: mosaik_core::Offer = serde_json::from_str(
+        &std::fs::read_to_string(offer_path)
+            .map_err(|e| anyhow::anyhow!("reading {offer_path}: {e}"))?,
+    )?;
 
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)?
@@ -326,12 +259,11 @@ fn browse_offers(relay: &str) -> Result<()> {
         println!("Tessera offers on {relay}:\n");
         for o in &offers {
             println!(
-                "  [{}] {} {} of {}  →  wants {} of asset {}  ({})",
+                "  [{}] {} {} of {}  ->  wants asset {}  ({})",
                 o.order_id,
                 if o.is_expired() { "EXPIRED" } else { "active" },
                 o.offer.amount_a,
                 o.offer.asset_a,
-                o.offer.tessera.amount_b,
                 hex::encode(&o.offer.tessera.asset_b[..4]),
                 o.offer.outpoint,
             );

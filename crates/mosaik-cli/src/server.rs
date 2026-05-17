@@ -22,8 +22,8 @@ use std::sync::Mutex;
 use anyhow::{anyhow, Result};
 use mosaik_core::rpc::ElementsRpc;
 use mosaik_core::{
-    demo_maker_pk, lbtc_tessera, tessera_for, Cheat, MakeOffer, MosaikMaker, MosaikTaker, Offer,
-    ReclaimOffer, DEMO_MAKER_SECRET,
+    demo_maker_pk, lbtc_quote_tessera, quote_tessera_for, Cheat, MakeOffer, MosaikMaker,
+    MosaikTaker, Offer, Quote, ReclaimOffer, DEMO_MAKER_SECRET,
 };
 use serde_json::{json, Value};
 use tiny_http::{Header, Method, Request, Response, Server};
@@ -38,10 +38,27 @@ const RPC_PASS: &str = "pass";
 /// The two test Liquid assets the demo issues, so asset/asset swaps are real.
 const TEST_ASSETS: [&str; 2] = ["USDT", "EURx"];
 
+/// A funded offer plus the maker's pricing policy. The covenant is price-less;
+/// `base_amount_b` and `spread` are how the maker prices a fill — the quote
+/// signed at settlement is `base_amount_b * (1 + spread)`.
+#[derive(Clone)]
+struct OfferRecord {
+    offer: Offer,
+    base_amount_b: u64,
+    spread: f64,
+}
+
+impl OfferRecord {
+    /// The effective amount a taker pays: the base price plus the spread.
+    fn effective_amount_b(&self) -> u64 {
+        (self.base_amount_b as f64 * (1.0 + self.spread)).round() as u64
+    }
+}
+
 /// In-memory server state: the offers made this session and the test assets
 /// (name -> RPC display-order id).
 struct AppState {
-    offers: Vec<Offer>,
+    offers: Vec<OfferRecord>,
     assets: BTreeMap<String, String>,
 }
 
@@ -195,7 +212,8 @@ fn api_state(state: &Mutex<AppState>) -> Result<Value> {
     let offers: Vec<Value> = offers
         .iter()
         .enumerate()
-        .map(|(i, o)| {
+        .map(|(i, rec)| {
+            let o = &rec.offer;
             let compiled = o.tessera.compile().ok();
             // asset_b is stored internal-order; reverse for the display id.
             let mut ab = o.tessera.asset_b.to_vec();
@@ -205,7 +223,10 @@ fn api_state(state: &Mutex<AppState>) -> Result<Value> {
                 "index": i,
                 "outpoint": o.outpoint,
                 "amount_a": o.amount_a,
-                "amount_b": o.tessera.amount_b,
+                // The covenant is price-less; these are the maker's quote policy.
+                "base_amount_b": rec.base_amount_b,
+                "spread": rec.spread,
+                "amount_b": rec.effective_amount_b(),
                 "lock_name": id_to_name(&assets, &o.asset_a, &lbtc),
                 "want_name": id_to_name(&assets, &asset_b, &lbtc),
                 "timeout": o.tessera.timeout,
@@ -250,6 +271,7 @@ fn api_make_offer(req: &mut Request, state: &Mutex<AppState>) -> Result<Value> {
     let b = body(req);
     let amount_a = b.get("amount_a").and_then(Value::as_u64).ok_or_else(|| anyhow!("amount_a"))?;
     let amount_b = b.get("amount_b").and_then(Value::as_u64).ok_or_else(|| anyhow!("amount_b"))?;
+    let spread = b.get("spread").and_then(Value::as_f64).unwrap_or(0.0);
     let timeout = b.get("timeout").and_then(Value::as_u64).unwrap_or(500) as u32;
     let lock = b.get("lock").and_then(Value::as_str).unwrap_or("BTC");
     let want = b.get("want").and_then(Value::as_str).unwrap_or("USDT");
@@ -262,12 +284,13 @@ fn api_make_offer(req: &mut Request, state: &Mutex<AppState>) -> Result<Value> {
     let assets = { state.lock().unwrap().assets.clone() };
     let maker_address = maker.new_unconfidential_address()?;
 
-    // The covenant enforces the maker's counter-payment in the `want` asset.
+    // The covenant is price-less — it pins the `want` asset and the maker key;
+    // the amount is set per fill by a signed quote.
     let want_id = label_to_id(&assets, want, &lbtc)?;
     let tessera = if want_id == lbtc {
-        lbtc_tessera(&maker, &maker_address, amount_b, timeout, demo_maker_pk())?
+        lbtc_quote_tessera(&maker, &maker_address, timeout, demo_maker_pk())?
     } else {
-        tessera_for(&maker, &maker_address, &want_id, amount_b, timeout, demo_maker_pk())?
+        quote_tessera_for(&maker, &maker_address, &want_id, timeout, demo_maker_pk())?
     };
 
     // `lock` is what the maker locks in the covenant UTXO.
@@ -277,13 +300,15 @@ fn api_make_offer(req: &mut Request, state: &Mutex<AppState>) -> Result<Value> {
 
     let mut st = state.lock().unwrap();
     let index = st.offers.len();
-    st.offers.push(offer.clone());
+    let outpoint = offer.outpoint.clone();
+    let maker_address = offer.maker_address.clone();
+    st.offers.push(OfferRecord { offer, base_amount_b: amount_b, spread });
 
     Ok(json!({
         "ok": true,
         "index": index,
-        "outpoint": offer.outpoint,
-        "maker_address": offer.maker_address,
+        "outpoint": outpoint,
+        "maker_address": maker_address,
     }))
 }
 
@@ -299,12 +324,19 @@ fn api_take_offer(req: &mut Request, state: &Mutex<AppState>) -> Result<Value> {
     let index = b.get("index").and_then(Value::as_u64).ok_or_else(|| anyhow!("index"))? as usize;
     let cheat = Cheat::parse(b.get("cheat").and_then(Value::as_str).unwrap_or("none"));
 
-    let offer = {
+    let rec = {
         let st = state.lock().unwrap();
         st.offers.get(index).cloned().ok_or_else(|| anyhow!("no offer #{index}"))?
     };
+    let effective_amount_b = rec.effective_amount_b();
+    let offer = rec.offer;
 
-    let result = MosaikTaker::new(taker_rpc()).settle(&offer, cheat);
+    // The maker prices the fill now: base + spread, anchored to the chain tip.
+    let valid_height = node_rpc().block_count()? as u32;
+    let quote = Quote { amount_b: effective_amount_b, valid_height };
+    let sig = quote.sign(&offer.tessera.asset_b, &DEMO_MAKER_SECRET)?;
+
+    let result = MosaikTaker::new(taker_rpc()).settle(&offer, &quote, &sig, cheat);
 
     match (cheat, result) {
         // Honest fill that succeeded: confirm it and drop the offer.
@@ -344,7 +376,7 @@ fn api_reclaim(req: &mut Request, state: &Mutex<AppState>) -> Result<Value> {
 
     let offer = {
         let st = state.lock().unwrap();
-        st.offers.get(index).cloned().ok_or_else(|| anyhow!("no offer #{index}"))?
+        st.offers.get(index).cloned().ok_or_else(|| anyhow!("no offer #{index}"))?.offer
     };
 
     let txid = MosaikMaker::new(maker_rpc()).reclaim(&offer, &DEMO_MAKER_SECRET)?;
@@ -364,7 +396,7 @@ fn api_contract(req: &mut Request, state: &Mutex<AppState>) -> Result<Value> {
 
     let offer = {
         let st = state.lock().unwrap();
-        st.offers.get(index).cloned().ok_or_else(|| anyhow!("no offer #{index}"))?
+        st.offers.get(index).cloned().ok_or_else(|| anyhow!("no offer #{index}"))?.offer
     };
     let compiled = offer.tessera.compile()?;
 
@@ -372,9 +404,10 @@ fn api_contract(req: &mut Request, state: &Mutex<AppState>) -> Result<Value> {
         "source": offer.tessera.render(),
         "cmr": compiled.cmr_hex(),
         "address": compiled.address()?.to_string(),
-        "settle": "Taker path: spends the UTXO if output 0 pays the maker exactly \
-            `amount_b` of `asset_b`. The node runs the covenant and rejects any \
-            transaction that underpays. The locked asset is never inspected.",
+        "settle": "Taker path: spends the UTXO if output 0 pays the maker the \
+            quoted amount of `asset_b`, and the maker's signature over that \
+            quote verifies. The node runs the covenant and rejects any \
+            under-paying or unsigned fill. The locked asset is never inspected.",
         "refund": "Maker path: once the chain reaches the refund block height \
             the maker reclaims the locked L-BTC, signing the Simplicity sig_all \
             hash with a BIP-340 key. The covenant rejects an early or wrongly \

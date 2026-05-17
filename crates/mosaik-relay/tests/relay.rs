@@ -2,7 +2,7 @@
 
 use std::time::Duration;
 
-use mosaik_core::{Offer, Tessera};
+use mosaik_core::{Offer, QuoteTessera};
 use mosaik_relay::{MosaikRelay, OfferStatus, TesseraOffer};
 use nostr_relay_builder::prelude::*;
 
@@ -13,9 +13,8 @@ fn sample_offer(order_id: &str) -> TesseraOffer {
             outpoint: "bb".repeat(32) + ":1",
             asset_a: "BTC".into(),
             amount_a: 2_000_000,
-            tessera: Tessera {
+            tessera: QuoteTessera {
                 asset_b: [0xab; 32],
-                amount_b: 1_200_000,
                 maker_spk_hash: [0xcd; 32],
                 timeout: 800,
                 maker_pk: [0x44; 32],
@@ -58,6 +57,6 @@ async fn publish_and_discover_an_offer_over_nostr() {
         .find(|o| o.order_id == "order-xyz")
         .expect("the published offer must be discoverable");
     assert_eq!(found.offer.amount_a, 2_000_000);
-    assert_eq!(found.offer.tessera.amount_b, 1_200_000);
+    assert_eq!(found.offer.tessera.timeout, 800);
     assert_eq!(found.status, OfferStatus::Active);
 }
