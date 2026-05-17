@@ -118,6 +118,7 @@ fn route(req: &mut Request, state: &Mutex<AppState>) -> (u16, Value) {
         (Method::Post, "/api/fund/maker") => api_fund(state, &maker_rpc()),
         (Method::Post, "/api/fund/taker") => api_fund(state, &taker_rpc()),
         (Method::Post, "/api/make-offer") => api_make_offer(req, state),
+        (Method::Post, "/api/quote") => api_quote(req, state),
         (Method::Post, "/api/take-offer") => api_take_offer(req, state),
         (Method::Post, "/api/reclaim") => api_reclaim(req, state),
         (Method::Post, "/api/contract") => api_contract(req, state),
@@ -312,6 +313,30 @@ fn api_make_offer(req: &mut Request, state: &Mutex<AppState>) -> Result<Value> {
     }))
 }
 
+/// Taker: request a quote for an offer — the maker's price for filling it now.
+///
+/// Returns the amount and the validity height; the taker locks this quote by
+/// passing it back to `/api/take-offer`. The maker signs it at settlement.
+fn api_quote(req: &mut Request, state: &Mutex<AppState>) -> Result<Value> {
+    let b = body(req);
+    let index = b.get("index").and_then(Value::as_u64).ok_or_else(|| anyhow!("index"))? as usize;
+
+    let rec = {
+        let st = state.lock().unwrap();
+        st.offers.get(index).cloned().ok_or_else(|| anyhow!("no offer #{index}"))?
+    };
+    let valid_height = node_rpc().block_count()? as u32;
+
+    Ok(json!({
+        "ok": true,
+        "index": index,
+        "base_amount_b": rec.base_amount_b,
+        "spread": rec.spread,
+        "amount_b": rec.effective_amount_b(),
+        "valid_height": valid_height,
+    }))
+}
+
 /// Taker: fill a registered offer — the node executes the covenant.
 ///
 /// An optional `cheat` field (`underpay` | `wrong_recipient` | `wrong_index`)
@@ -331,9 +356,22 @@ fn api_take_offer(req: &mut Request, state: &Mutex<AppState>) -> Result<Value> {
     let effective_amount_b = rec.effective_amount_b();
     let offer = rec.offer;
 
-    // The maker prices the fill now: base + spread, anchored to the chain tip.
-    let valid_height = node_rpc().block_count()? as u32;
-    let quote = Quote { amount_b: effective_amount_b, valid_height };
+    // Use the quote the taker locked from `/api/quote` if supplied, else the
+    // maker prices it now: base + spread, anchored to the chain tip.
+    let quote = match b.get("quote") {
+        Some(q) => Quote {
+            amount_b: q.get("amount_b").and_then(Value::as_u64).unwrap_or(effective_amount_b),
+            valid_height: q
+                .get("valid_height")
+                .and_then(Value::as_u64)
+                .map(|h| h as u32)
+                .unwrap_or(node_rpc().block_count()? as u32),
+        },
+        None => Quote {
+            amount_b: effective_amount_b,
+            valid_height: node_rpc().block_count()? as u32,
+        },
+    };
     let sig = quote.sign(&offer.tessera.asset_b, &DEMO_MAKER_SECRET)?;
 
     let result = MosaikTaker::new(taker_rpc()).settle(&offer, &quote, &sig, cheat);

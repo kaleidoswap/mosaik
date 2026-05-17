@@ -120,6 +120,14 @@ mosaik/
       hidden maker output — all rejected by the covenant.
 - [x] REFUND / reclaim — the maker reclaims an unfilled offer after its
       timeout, signing the Simplicity `sig_all` hash with a BIP-340 key.
+- [x] Quote covenant (intent / RFQ settlement) — the SETTLE price is no longer
+      baked into the tapleaf. The maker funds a price-less covenant and signs a
+      per-fill `Quote`; the covenant verifies the maker's BIP-340 signature over
+      `(asset_b ‖ amount_b ‖ valid_height)` and enforces the freshness window.
+      Maker and taker each get their own view in the wallet UI.
+      *(branch: `phase1-quote-covenant`)*
+- [ ] Live oracle pricing — the maker's quoter prices from a feed instead of a
+      fixed policy (no covenant change needed).
 - [ ] Recursive partial-fill covenant — fund once, fill many times.
 
 ## Install

@@ -1,0 +1,316 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Mosaik — the oracle-settled covenant</title>
+<style>
+  :root{
+    --bg:#0c0e14; --panel:#151823; --panel2:#1c2030; --ink:#e8eaf2;
+    --muted:#9aa0b4; --line:#2a2f42; --accent:#6ad6c8; --accent2:#c8a8ff;
+    --maker:#c8a8ff; --taker:#6ad6c8; --oracle:#ffcf6a; --bad:#f0a6c8;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font:15px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;}
+  .wrap{max-width:1000px;margin:0 auto;padding:48px 28px 100px;}
+  .eyebrow{text-transform:uppercase;letter-spacing:.18em;font-size:12px;
+    color:var(--accent);font-weight:700;}
+  h1{font-size:36px;margin:10px 0 8px;letter-spacing:-.02em;
+    background:linear-gradient(100deg,var(--accent),var(--accent2));
+    -webkit-background-clip:text;background-clip:text;color:transparent;}
+  .lede{color:var(--muted);font-size:16px;max-width:680px;}
+  h2{font-size:13px;text-transform:uppercase;letter-spacing:.14em;
+    color:var(--accent);margin:54px 0 8px;font-weight:700;}
+  h2 .n{color:var(--line);margin-right:8px;}
+  .sub{color:var(--muted);font-size:14px;margin:0 0 18px;max-width:720px;}
+  p{max-width:720px;}
+  code{font-family:ui-monospace,Menlo,monospace;font-size:.92em;
+    background:var(--panel2);border:1px solid var(--line);border-radius:5px;
+    padding:1px 5px;color:#cdd1e0;}
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:14px;
+    padding:22px 24px;}
+  .cols{display:grid;grid-template-columns:1fr 1fr;gap:16px;}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:14px;
+    padding:20px 22px;}
+  .card.fixed{border-top:3px solid var(--bad);}
+  .card.oracle{border-top:3px solid var(--accent);}
+  .card h3{margin:4px 0 6px;font-size:17px;}
+  .card .tag{font-size:11px;text-transform:uppercase;letter-spacing:.1em;
+    font-weight:700;}
+  .card.fixed .tag{color:var(--bad);} .card.oracle .tag{color:var(--accent);}
+  .card ul{margin:12px 0 0;padding-left:18px;color:var(--muted);font-size:13.5px;}
+  .card li{margin:5px 0;}
+
+  /* freshness sandwich */
+  .sandwich{font-family:ui-monospace,Menlo,monospace;font-size:13px;
+    background:var(--bg);border:1px solid var(--line);border-radius:10px;
+    padding:16px 18px;margin:16px 0;color:#cdd1e0;line-height:1.9;}
+  .sandwich .lab{color:var(--muted);} .sandwich .hot{color:var(--accent);}
+  .sandwich .warn{color:var(--oracle);}
+
+  /* block timeline */
+  .timeline{display:flex;gap:0;margin:18px 0 6px;align-items:stretch;}
+  .blk{flex:1;border:1px solid var(--line);border-right:0;
+    background:var(--panel2);padding:10px 6px;text-align:center;font-size:11px;
+    color:var(--muted);position:relative;}
+  .blk:last-child{border-right:1px solid var(--line);}
+  .blk .h{font-family:ui-monospace,Menlo,monospace;color:var(--ink);
+    font-size:12px;font-weight:700;}
+  .blk.maker{background:rgba(200,168,255,.14);}
+  .blk.window{background:rgba(106,214,200,.13);}
+  .blk.refund{background:rgba(255,207,106,.12);}
+  .blk .ev{display:block;margin-top:4px;font-size:10px;}
+  .legend{display:flex;gap:18px;flex-wrap:wrap;font-size:12px;color:var(--muted);
+    margin-top:8px;}
+  .dot{display:inline-block;width:10px;height:10px;border-radius:3px;
+    margin-right:5px;vertical-align:-1px;}
+
+  /* interaction grid */
+  .flow{display:grid;grid-template-columns:1fr 1fr 1fr;gap:0;margin:18px 0;}
+  .lane{padding:0 4px;}
+  .lane .who{text-align:center;font-weight:700;font-size:13px;
+    text-transform:uppercase;letter-spacing:.1em;padding-bottom:10px;}
+  .lane.maker .who{color:var(--maker);}
+  .lane.cov .who{color:var(--ink);}
+  .lane.taker .who{color:var(--taker);}
+  .step{background:var(--panel);border:1px solid var(--line);border-radius:10px;
+    padding:10px 12px;margin:8px 0;font-size:12.5px;}
+  .step .s{font-weight:700;color:var(--accent);margin-right:4px;}
+  .lane.cov .step{background:var(--panel2);border-style:dashed;}
+  .arrow{text-align:center;color:var(--muted);font-size:11px;margin:2px 0;}
+  .checks{font-family:ui-monospace,Menlo,monospace;font-size:11.5px;
+    color:var(--muted);}
+  .checks .ok{color:var(--accent);}
+
+  table{width:100%;border-collapse:collapse;margin:14px 0;font-size:13.5px;}
+  th,td{text-align:left;padding:10px 12px;border-bottom:1px solid var(--line);
+    vertical-align:top;}
+  th{color:var(--accent);font-size:11px;text-transform:uppercase;
+    letter-spacing:.08em;}
+  td.k{color:var(--muted);white-space:nowrap;}
+  .good{color:var(--taker);} .bad{color:var(--bad);} .mid{color:var(--oracle);}
+
+  .note{font-size:12.5px;color:var(--muted);border-left:2px solid var(--line);
+    padding-left:14px;margin:16px 0;}
+  .note b{color:var(--ink);}
+  footer{margin-top:60px;padding-top:22px;border-top:1px solid var(--line);
+    color:var(--muted);font-size:12.5px;}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<div class="eyebrow">Mosaik · Tessera covenant</div>
+<h1>The oracle-settled covenant</h1>
+<p class="lede">A maker stops posting a price and starts posting a rule. The
+order tracks the market until it is filled or reclaimed — priced off-chain,
+enforced by a Simplicity covenant, with no clock anywhere on-chain.</p>
+
+<div class="note" style="border-left:2px solid var(--accent);background:var(--panel);
+  padding:14px 16px;border-radius:10px;margin-top:18px">
+  <b style="color:var(--ink)">What Mosaik ships today.</b> Phase 1 implements the
+  <b>maker-signed quote</b> covenant — the RFQ variant in §3. The covenant is
+  price-less; the maker signs a per-fill quote and the covenant verifies the
+  maker's own BIP-340 signature. There is <b>no oracle inside the covenant</b>:
+  it trusts only the maker, whose funds are locked. The oracle-signed design
+  below is a future option for fully-offline makers. And note the honest
+  framing — an oracle or quote covenant does not <i>eliminate</i> the free
+  option, it <b>bounds</b> it to block-time latency; the maker prices that
+  bounded option with a spread.
+</div>
+
+<!-- ─────────────────────────────────────────────────────────── -->
+<h2><span class="n">01</span> Two ways to price an order</h2>
+<p class="sub">A fixed-price covenant is a free option written to the whole
+market: if the price moves, the maker is picked off. An oracle-settled covenant
+settles at the market rate, so there is no stale quote to exploit.</p>
+
+<div class="cols">
+  <div class="card fixed">
+    <div class="tag">Fixed price — today</div>
+    <h3>"0.01 L-BTC for exactly 50 USDT"</h3>
+    <p style="color:var(--muted);font-size:13.5px;margin:8px 0 0">
+      The amount is frozen into the covenant tapleaf at funding time.</p>
+    <ul>
+      <li>Simple — the covenant just checks one output.</li>
+      <li>No external dependency.</li>
+      <li><span class="bad">Free option:</span> a stale order is filled the
+        moment the market moves through it.</li>
+      <li>The maker must babysit and re-post.</li>
+    </ul>
+  </div>
+  <div class="card oracle">
+    <div class="tag">Oracle settled</div>
+    <h3>"0.01 L-BTC at oracle mid + 0.2%"</h3>
+    <p style="color:var(--muted);font-size:13.5px;margin:8px 0 0">
+      The covenant bakes a <em>rule</em>: oracle key, pair, spread.</p>
+    <ul>
+      <li>Settles at the live market rate — no free option.</li>
+      <li>Fund once, leave it; it tracks the market.</li>
+      <li>Reuses <code>jet::bip_0340_verify</code> — already proven on-chain
+        by the REFUND path.</li>
+      <li>Liveness now depends on the oracle.</li>
+    </ul>
+  </div>
+</div>
+
+<!-- ─────────────────────────────────────────────────────────── -->
+<h2><span class="n">02</span> How blocks work — freshness without a clock</h2>
+<p class="sub">A Simplicity covenant cannot ask "what block is it now." It only
+sees the spending transaction. So freshness rides on block height: the oracle
+attests a height, and the covenant sandwiches the transaction's
+<code>nLockTime</code> against it.</p>
+
+<div class="panel">
+  <div class="sandwich">
+    <span class="lab">oracle signs</span> &nbsp; ( pair ‖ price ‖ <span class="hot">attested_H</span> )<br>
+    <br>
+    <span class="lab">covenant requires</span> &nbsp; <span class="hot">attested_H</span> &nbsp;≤&nbsp; tx.nLockTime &nbsp;≤&nbsp; <span class="hot">attested_H + N</span><br>
+    <span class="lab">consensus enforces</span> &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; tx.nLockTime &nbsp;≤&nbsp; chain tip<br>
+    <span class="lab">─────────────────────────────────────────────</span><br>
+    <span class="warn">⇒ the attestation is provably no more than N blocks old</span>
+  </div>
+  <p style="margin:4px 0 0;font-size:13.5px;color:var(--muted)">
+    The covenant never needs wall-clock time — only the transaction's own
+    locktime and a comparison. The same primitive the REFUND path already uses
+    (<code>check_lock_height</code>) does the freshness check.</p>
+</div>
+
+<div class="timeline">
+  <div class="blk maker"><span class="h">120</span><span class="ev">maker funds<br>covenant</span></div>
+  <div class="blk"><span class="h">…</span><span class="ev">covenant<br>idle</span></div>
+  <div class="blk window"><span class="h">158</span><span class="ev">attest@158</span></div>
+  <div class="blk window"><span class="h">159</span><span class="ev">attest@159</span></div>
+  <div class="blk window"><span class="h">160</span><span class="ev">taker fills<br>nLockTime=160</span></div>
+  <div class="blk window"><span class="h">161</span><span class="ev">window end<br>158 + N</span></div>
+  <div class="blk"><span class="h">…</span><span class="ev">covenant<br>idle</span></div>
+  <div class="blk refund"><span class="h">500</span><span class="ev">REFUND<br>height</span></div>
+</div>
+<div class="legend">
+  <span><span class="dot" style="background:rgba(200,168,255,.6)"></span>maker funds</span>
+  <span><span class="dot" style="background:rgba(106,214,200,.6)"></span>oracle freshness window (N blocks)</span>
+  <span><span class="dot" style="background:rgba(255,207,106,.6)"></span>maker may reclaim</span>
+</div>
+<p class="note"><b>Too old</b> an attestation → the covenant rejects it as
+stale. <b>Too new</b> an <code>nLockTime</code> → consensus rejects the tx as
+non-final. The taker must land inside the band — and the band is exactly the
+window the maker priced for.</p>
+
+<!-- ─────────────────────────────────────────────────────────── -->
+<h2><span class="n">03</span> How maker, taker and the covenant interact</h2>
+<p class="sub">The maker is offline after funding. The oracle never touches the
+chain — it only publishes. Only the taker builds an on-chain transaction, and
+the covenant is the sole arbiter.</p>
+
+<div class="flow">
+  <div class="lane maker">
+    <div class="who">● Maker</div>
+    <div class="step"><span class="s">1</span>Fund the covenant once. Bakes in:
+      oracle key, pair, spread <code>s</code>, refund height.</div>
+    <div class="arrow">│ then offline ▼</div>
+    <div class="step"><span class="s">4</span>Receives asset B automatically
+      when a taker settles.</div>
+    <div class="arrow">│ or, if unfilled ▼</div>
+    <div class="step"><span class="s">5</span>After the refund height, reclaim
+      asset A with a BIP-340 signature.</div>
+  </div>
+  <div class="lane cov">
+    <div class="who">▦ Tessera covenant</div>
+    <div class="step">Holds asset A. Stores a <b>rule</b>, not a price.</div>
+    <div class="arrow">▲ funded · settled ▼</div>
+    <div class="step">On SETTLE, the node runs the covenant:
+      <div class="checks">
+        <span class="ok">✓</span> oracle BIP-340 signature valid<br>
+        <span class="ok">✓</span> attested_H ≤ nLockTime ≤ +N<br>
+        <span class="ok">✓</span> out 0 = A · price · (1+s)<br>
+        <span class="ok">✓</span> out 0 pays the maker
+      </div>
+      reject if any check fails.</div>
+    <div class="step">REFUND branch: maker signature + lock height.</div>
+  </div>
+  <div class="lane taker">
+    <div class="who">● Taker</div>
+    <div class="step"><span class="s">2</span>Fetch the freshest signed
+      attestation from the Nostr relay.</div>
+    <div class="arrow">▼</div>
+    <div class="step"><span class="s">3</span>Build the SETTLE tx — covenant
+      input, attestation in the witness, <code>nLockTime</code> in the window,
+      output 0 to the maker. Broadcast.</div>
+    <div class="arrow">▼</div>
+    <div class="step">Gets asset A. The on-screen quote is the on-chain
+      amount — the chosen attestation <i>is</i> the price.</div>
+  </div>
+</div>
+
+<p style="font-size:13px;color:var(--muted)">
+  <b style="color:var(--oracle)">Nostradamus</b>, off-chain, signs
+  <code>(pair ‖ price ‖ height)</code> every block with a Nostr key — which is
+  a secp256k1 / BIP-340 key, exactly what the covenant verifies — and publishes
+  the attestations over Nostr for any taker to pick up.</p>
+
+<!-- ─────────────────────────────────────────────────────────── -->
+<h2><span class="n">04</span> Tradeoffs</h2>
+<table>
+  <tr><th>Dimension</th><th>Fixed price</th><th>Oracle settled</th>
+    <th>+ Recursive partial fill</th></tr>
+  <tr><td class="k">Maker posts</td><td>a frozen number</td>
+    <td>a pricing rule</td><td>rule + remainder relock</td></tr>
+  <tr><td class="k">Free-option risk</td><td class="bad">high</td>
+    <td class="good">low</td><td class="good">low</td></tr>
+  <tr><td class="k">Taker timing option</td><td>none</td>
+    <td class="mid">small — picks an attestation within N blocks</td>
+    <td class="mid">small</td></tr>
+  <tr><td class="k">Covenant complexity</td><td>low</td>
+    <td>medium — verify + multiply</td>
+    <td>medium — self-introspection</td></tr>
+  <tr><td class="k">External dependency</td><td>none</td>
+    <td class="bad">oracle must be live</td><td>none</td></tr>
+  <tr><td class="k">Capital efficiency</td><td>one fill, then dead</td>
+    <td>one fill, then dead</td>
+    <td class="good">fund once, many fills</td></tr>
+</table>
+<p class="note">The window <b>N</b> is the dial. Small N → tight pricing, but
+the taker must act fast and the oracle must attest often. Large N → the taker
+gets a bigger timing option, so the maker's <b>spread <code>s</code></b> must
+cover N blocks of volatility. The spread is the maker's premium for granting an
+N-block option — not just margin.</p>
+
+<!-- ─────────────────────────────────────────────────────────── -->
+<h2><span class="n">05</span> In a real-world environment</h2>
+<table>
+  <tr><th>Concern</th><th>How it plays out</th></tr>
+  <tr><td class="k">Liquid mainnet</td><td>~1-minute blocks, federated
+    signing, 1-block finality — the N-block window is exact, reorgs are a
+    non-issue.</td></tr>
+  <tr><td class="k">Oracle uptime</td><td>If Nostradamus stops, offers freeze
+    until it resumes or the maker reclaims. Mitigate with a short maker TTL and
+    <b>multi-oracle</b> — Nostradamus already supports multiple keys, so the
+    covenant can require 2-of-3 attestations.</td></tr>
+  <tr><td class="k">Oracle input</td><td>Nostradamus reads exchange prices
+    today; it adds one Liquid-node call to attest the tip height alongside the
+    price.</td></tr>
+  <tr><td class="k">Fill races</td><td>Permissionless fill — multiple takers
+    may try the same covenant; the first valid transaction confirms, the rest
+    fail harmlessly.</td></tr>
+  <tr><td class="k">Fees</td><td>Dynamic fee estimation replaces the demo's
+    flat 1000-sat fee.</td></tr>
+  <tr><td class="k">Regtest demo</td><td>Regtest has no automatic blocks, so
+    the freshness clock is event-driven — the wallet server mines on each
+    action.</td></tr>
+</table>
+
+<p style="margin-top:24px">The clean v1: <b>single oracle, height-based
+attestation, small N, short maker TTL.</b> No clock anywhere in the covenant —
+only heights and signatures, both of which the Tessera covenant already
+handles. The oracle path reuses machinery proven on-chain by the REFUND
+path.</p>
+
+<footer>
+  Mosaik — a covenant DEX on Liquid. Tessera covenants in SimplicityHL,
+  discovery over Nostr, prices from the Nostradamus oracle.
+</footer>
+
+</div>
+</body>
+</html>

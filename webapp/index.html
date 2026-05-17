@@ -8,36 +8,41 @@
   :root{
     --bg:#0c0e14; --panel:#151823; --panel2:#1c2030; --ink:#e8eaf2;
     --muted:#9aa0b4; --line:#2a2f42; --accent:#6ad6c8; --accent2:#c8a8ff;
-    --ok:#6ad6c8; --warn:#ffcf6a; --bad:#f0a6c8;
+    --maker:#c8a8ff; --taker:#6ad6c8; --warn:#ffcf6a; --bad:#f0a6c8;
   }
   *{box-sizing:border-box;}
   body{margin:0;background:var(--bg);color:var(--ink);
-    font:15px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;}
-  .wrap{max-width:980px;margin:0 auto;padding:38px 24px 90px;}
-  header{border-bottom:1px solid var(--line);padding-bottom:18px;margin-bottom:8px;
-    display:flex;justify-content:space-between;align-items:flex-end;gap:16px;}
+    font:15px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;}
+  .wrap{max-width:880px;margin:0 auto;padding:34px 24px 90px;}
+  header{border-bottom:1px solid var(--line);padding-bottom:16px;margin-bottom:18px;}
   .eyebrow{text-transform:uppercase;letter-spacing:.18em;font-size:11px;
     color:var(--accent);font-weight:700;}
-  h1{font-size:30px;margin:8px 0 4px;letter-spacing:-.02em;
+  h1{font-size:27px;margin:7px 0 4px;letter-spacing:-.02em;
     background:linear-gradient(100deg,var(--accent),var(--accent2));
     -webkit-background-clip:text;background-clip:text;color:transparent;}
-  .sub{color:var(--muted);font-size:14px;}
+  .sub{color:var(--muted);font-size:13.5px;}
+  .topbar{display:flex;justify-content:space-between;align-items:center;
+    margin-top:14px;gap:14px;flex-wrap:wrap;}
+  .tabs{display:flex;gap:6px;background:var(--panel2);border:1px solid var(--line);
+    border-radius:10px;padding:4px;}
+  .tab{padding:7px 18px;border-radius:7px;font-size:13px;font-weight:700;
+    cursor:pointer;color:var(--muted);border:0;background:transparent;}
+  .tab.on[data-v="maker"]{background:var(--maker);color:#0c0e14;}
+  .tab.on[data-v="taker"]{background:var(--taker);color:#0c0e14;}
   .height{font-size:12px;color:var(--muted);white-space:nowrap;}
-  .height b{color:var(--ink);font-size:15px;}
+  .height b{color:var(--ink);}
+  .view{display:none;} .view.on{display:block;}
   h2{font-size:12px;text-transform:uppercase;letter-spacing:.14em;
-    color:var(--accent);margin:30px 0 12px;font-weight:700;}
-  .cols{display:grid;grid-template-columns:1fr 1fr;gap:14px;}
+    color:var(--accent);margin:26px 0 12px;font-weight:700;}
   .card{background:var(--panel);border:1px solid var(--line);border-radius:14px;
     padding:18px 20px;}
-  .card.maker{border-top:3px solid var(--accent2);}
-  .card.taker{border-top:3px solid var(--accent);}
+  .card.maker{border-top:3px solid var(--maker);}
+  .card.taker{border-top:3px solid var(--taker);}
   .role{font-size:12px;text-transform:uppercase;letter-spacing:.12em;
     font-weight:700;margin-bottom:12px;}
-  .card.maker .role{color:var(--accent2);}
-  .card.taker .role{color:var(--accent);}
+  .card.maker .role{color:var(--maker);} .card.taker .role{color:var(--taker);}
   .bals{display:flex;gap:18px;flex-wrap:wrap;margin-bottom:12px;}
-  .bals .k{font-size:10px;text-transform:uppercase;letter-spacing:.1em;
-    color:var(--muted);}
+  .bals .k{font-size:10px;text-transform:uppercase;letter-spacing:.1em;color:var(--muted);}
   .bals .v{font-size:18px;font-weight:700;margin-top:2px;}
   .bals .v small{font-size:11px;color:var(--muted);font-weight:500;}
   .addr{font-family:ui-monospace,Menlo,monospace;font-size:11px;color:#cdd1e0;
@@ -55,12 +60,14 @@
     padding:9px 16px;font-size:13px;font-weight:700;cursor:pointer;}
   button:hover{filter:brightness(1.08);}
   button:disabled{opacity:.4;cursor:not-allowed;}
-  button.maker{background:var(--accent2);}
-  button.ghost{background:var(--panel2);color:var(--ink);
-    border:1px solid var(--line);}
+  button.maker{background:var(--maker);}
+  button.ghost{background:var(--panel2);color:var(--ink);border:1px solid var(--line);}
+  button.bad{background:transparent;color:var(--bad);border:1px solid var(--bad);
+    padding:6px 11px;font-size:12px;}
   .btnrow{display:flex;gap:10px;flex-wrap:wrap;margin-top:10px;}
   .offer{background:var(--panel);border:1px solid var(--line);border-radius:12px;
     padding:14px 16px;margin-bottom:10px;border-left:3px solid var(--accent);}
+  .offer.maker{border-left-color:var(--maker);}
   .offer .trade{font-size:16px;font-weight:700;}
   .offer .trade .a{color:var(--accent2);} .offer .trade .b{color:var(--accent);}
   .offer .meta{margin-top:7px;display:grid;grid-template-columns:auto 1fr;
@@ -72,25 +79,29 @@
     display:flex;gap:8px;flex-wrap:wrap;align-items:center;}
   .cheats .lbl{font-size:11px;color:var(--bad);text-transform:uppercase;
     letter-spacing:.08em;font-weight:700;}
-  button.bad{background:transparent;color:var(--bad);
-    border:1px solid var(--bad);padding:6px 11px;font-size:12px;}
+  .quote{margin-top:10px;background:var(--panel2);border:1px solid var(--taker);
+    border-radius:10px;padding:13px 15px;font-size:13px;display:none;}
+  .quote.show{display:block;}
+  .quote .qrow{display:flex;justify-content:space-between;padding:3px 0;}
+  .quote .qrow.big{font-size:16px;font-weight:700;border-top:1px solid var(--line);
+    margin-top:6px;padding-top:8px;}
+  .quote .qrow .lab{color:var(--muted);}
   .contract{margin-top:10px;background:var(--panel2);border:1px solid var(--line);
     border-radius:10px;padding:12px 14px;font-size:12px;display:none;}
   .contract.show{display:block;}
   .contract pre{font-family:ui-monospace,Menlo,monospace;font-size:11px;
     background:var(--bg);border:1px solid var(--line);border-radius:8px;
-    padding:10px;overflow:auto;color:#cdd1e0;max-height:240px;}
-  .contract .path{margin-top:8px;}
-  .contract .path b{color:var(--accent);}
+    padding:10px;overflow:auto;color:#cdd1e0;max-height:220px;}
+  .contract .path{margin-top:8px;} .contract .path b{color:var(--accent);}
   .contract .path.refund b{color:var(--warn);}
-  .empty{color:var(--muted);text-align:center;padding:34px;
+  .empty{color:var(--muted);text-align:center;padding:32px;
     border:1px dashed var(--line);border-radius:12px;}
   .toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);
     background:var(--panel2);border:1px solid var(--line);border-radius:10px;
     padding:11px 18px;font-size:13px;max-width:90vw;box-shadow:0 8px 30px #0008;
     opacity:0;transition:opacity .2s;pointer-events:none;}
   .toast.show{opacity:1;}
-  .toast.ok{border-color:var(--ok);} .toast.err{border-color:var(--bad);}
+  .toast.ok{border-color:var(--taker);} .toast.err{border-color:var(--bad);}
   .toast code{font-family:ui-monospace,Menlo,monospace;color:var(--accent);}
   .note{font-size:11.5px;color:var(--muted);margin-top:8px;}
 </style>
@@ -99,18 +110,22 @@
 <div class="wrap">
 
 <header>
-  <div>
-    <div class="eyebrow">Mosaik</div>
-    <h1>Covenant DEX wallet</h1>
-    <div class="sub">Two wallets, one covenant. Lock any Liquid asset; the
-      covenant releases it only to a transaction that pays the maker. Works for
-      L-BTC/asset and asset/asset, both directions.</div>
+  <div class="eyebrow">Mosaik</div>
+  <h1>Covenant DEX wallet</h1>
+  <div class="sub">A price-less Tessera covenant. The maker prices each fill
+    with a signed quote; the taker locks the quote and settles on-chain.</div>
+  <div class="topbar">
+    <div class="tabs">
+      <button class="tab" data-v="maker">● Maker</button>
+      <button class="tab" data-v="taker">● Taker</button>
+    </div>
+    <div class="height">block height&nbsp; <b id="height">—</b></div>
   </div>
-  <div class="height">block height<br><b id="height">—</b></div>
 </header>
 
-<h2>Wallets</h2>
-<div class="cols">
+<!-- ───────────────── MAKER VIEW ───────────────── -->
+<section class="view" id="view-maker">
+  <h2>Maker wallet</h2>
   <div class="card maker">
     <div class="role">● Maker</div>
     <div class="bals" id="m-bals"></div>
@@ -118,6 +133,35 @@
     <div class="addr" id="m-addr">—</div>
     <div class="btnrow"><button class="maker" id="fundMaker">+ Fund maker</button></div>
   </div>
+
+  <h2>Make an offer</h2>
+  <div class="card maker">
+    <div class="row">
+      <div><label>Lock asset</label><select id="lockAsset"></select></div>
+      <div><label>Lock amount</label>
+        <input id="amountA" type="number" value="0.01" min="0" step="any"></div>
+      <div><label>Want asset</label><select id="wantAsset"></select></div>
+      <div><label>Base amount</label>
+        <input id="wantAmount" type="number" value="50" min="0" step="any"></div>
+      <div><label>Spread %</label>
+        <input id="spread" type="number" value="1" min="0" step="any"></div>
+      <div><label>Refund height</label>
+        <input id="timeout" type="number" value="500" min="1"></div>
+    </div>
+    <div class="btnrow">
+      <button class="maker" id="makeOffer">Fund covenant &amp; publish offer</button>
+    </div>
+    <div class="note">The covenant is funded price-less. The fill price is a
+      signed quote — <strong>base amount + spread</strong> — issued at take time.</div>
+  </div>
+
+  <h2>Your offers</h2>
+  <div id="maker-offers"></div>
+</section>
+
+<!-- ───────────────── TAKER VIEW ───────────────── -->
+<section class="view" id="view-taker">
+  <h2>Taker wallet</h2>
   <div class="card taker">
     <div class="role">● Taker</div>
     <div class="bals" id="t-bals"></div>
@@ -125,59 +169,24 @@
     <div class="addr" id="t-addr">—</div>
     <div class="btnrow"><button id="fundTaker">+ Fund taker</button></div>
   </div>
-</div>
 
-<h2>Maker — make an offer</h2>
-<div class="card maker">
-  <div class="row">
-    <div>
-      <label>Lock asset</label>
-      <select id="lockAsset"></select>
-    </div>
-    <div>
-      <label>Lock amount</label>
-      <input id="amountA" type="number" value="0.01" min="0" step="any">
-    </div>
-    <div>
-      <label>Want asset</label>
-      <select id="wantAsset"></select>
-    </div>
-    <div>
-      <label>Base amount</label>
-      <input id="wantAmount" type="number" value="50" min="0" step="any">
-    </div>
-    <div>
-      <label>Spread %</label>
-      <input id="spread" type="number" value="1" min="0" step="any">
-    </div>
-    <div>
-      <label>Refund height</label>
-      <input id="timeout" type="number" value="500" min="1">
-    </div>
-  </div>
-  <div class="btnrow">
-    <button class="maker" id="makeOffer">Fund covenant &amp; publish offer</button>
-  </div>
-  <div class="note">The covenant is price-less. The maker prices each fill with
-    a signed quote — <strong>base amount + spread</strong> — at take time. Amounts
-    are in whole units (L-BTC, USDT, EURx).</div>
-</div>
-
-<h2>Open offers — taker fills, covenant enforces</h2>
-<div id="offers"></div>
+  <h2>Open offers</h2>
+  <div id="taker-offers"></div>
+</section>
 
 </div>
 <div class="toast" id="toast"></div>
 
 <script>
 const $ = id => document.getElementById(id);
-let state = { assets: [], offers: [], block_count: 0 };
+let state = { assets: [], offers: [], block_count: 0, maker: {}, taker: {} };
+let quotes = {};            // index -> fetched quote { amount_b, valid_height }
+let view = 'taker';
+
 const esc = s => String(s == null ? '' : s)
   .replace(/[&<>]/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;' }[c]));
-// Every asset (L-BTC and the test assets) uses 8 decimals.
-const units = raw => Number(raw || 0) / 1e8;
+const units = raw => Number(raw || 0) / 1e8;          // all assets are 8-decimal
 const fmt = n => Number(n || 0).toLocaleString(undefined, { maximumFractionDigits: 8 });
-// raw amount + asset name -> "1.5 USDT"
 const fmtAmt = (raw, name) => fmt(units(raw)) + ' ' + name;
 
 function toast(msg, kind) {
@@ -198,11 +207,18 @@ async function api(path, body) {
   return data;
 }
 
-function assetOptions() {
-  // L-BTC first, then every issued test asset.
-  return ['L-BTC', ...state.assets];
+function switchView(v) {
+  view = v;
+  $('view-maker').classList.toggle('on', v === 'maker');
+  $('view-taker').classList.toggle('on', v === 'taker');
+  document.querySelectorAll('.tab').forEach(t =>
+    t.classList.toggle('on', t.dataset.v === v));
+  render();
 }
+document.querySelectorAll('.tab').forEach(t =>
+  t.onclick = () => switchView(t.dataset.v));
 
+function assetOptions() { return ['L-BTC', ...state.assets]; }
 function fillSelect(sel, selected) {
   const opts = assetOptions();
   sel.innerHTML = opts.map(a => `<option value="${a}">${a}</option>`).join('');
@@ -214,63 +230,92 @@ function renderWallet(p, w) {
     <div class="v">${fmt(units(w.lbtc_sats))}<small> L-BTC</small></div></div>`];
   for (const name of state.assets) {
     parts.push(`<div><div class="k">${esc(name)}</div>
-      <div class="v">${fmt(units(w.assets[name]))}</div></div>`);
+      <div class="v">${fmt(units((w.assets || {})[name]))}</div></div>`);
   }
   $(p + '-bals').innerHTML = parts.join('');
-  $(p + '-addr').textContent = w.address;
+  $(p + '-addr').textContent = w.address || '—';
 }
 
-function renderOffers() {
-  const box = $('offers');
+// shared offer header (trade line + meta), used by both views
+function offerHead(o, klass) {
+  return `
+    <div class="trade">
+      <span class="a">${fmtAmt(o.amount_a, esc(o.lock_name))}</span>
+      &nbsp;-&gt;&nbsp; quoted
+      <span class="b">${fmtAmt(o.amount_b, esc(o.want_name))}</span>
+    </div>
+    <div class="meta">
+      <span>price</span><code>${fmtAmt(o.base_amount_b, esc(o.want_name))} base
+        + ${(Number(o.spread) * 100).toFixed(2)}% spread</code>
+      <span>covenant address</span><code>${esc(o.covenant_address)}</code>
+      <span>covenant UTXO</span><code>${esc(o.outpoint)}</code>
+      <span>CMR</span><code>${esc(o.cmr)}</code>
+      <span>refund height</span><code>${o.timeout}</code>
+    </div>`;
+}
+
+function renderMakerOffers() {
+  const box = $('maker-offers');
   if (!state.offers.length) {
-    box.innerHTML = '<div class="empty">No offers yet. Fund the maker, then make one above.</div>';
+    box.innerHTML = '<div class="empty">No offers yet. Make one above.</div>';
+    return;
+  }
+  box.innerHTML = state.offers.map(o => {
+    const canReclaim = state.block_count >= o.timeout;
+    return `<div class="offer maker">
+      ${offerHead(o)}
+      <div class="act">
+        <button class="maker" data-reclaim="${o.index}" ${canReclaim ? '' : 'disabled'}
+          title="${canReclaim ? 'Reclaim via the REFUND path'
+            : 'REFUND unlocks at height ' + o.timeout}">Reclaim (REFUND)</button>
+        <button class="ghost" data-contract="m${o.index}">View covenant</button>
+      </div>
+      <div class="contract" id="contract-m${o.index}"></div>
+    </div>`;
+  }).join('');
+  wireContract(box);
+  box.querySelectorAll('button[data-reclaim]').forEach(b =>
+    b.onclick = () => reclaimOffer(Number(b.dataset.reclaim), b));
+}
+
+function renderTakerOffers() {
+  const box = $('taker-offers');
+  if (!state.offers.length) {
+    box.innerHTML = '<div class="empty">No open offers. Switch to Maker and make one.</div>';
     return;
   }
   box.innerHTML = state.offers.map(o => `
-      <div class="offer">
-        <div class="trade">
-          <span class="a">${fmtAmt(o.amount_a, esc(o.lock_name))}</span>
-          &nbsp;-&gt;&nbsp; quoted
-          <span class="b">${fmtAmt(o.amount_b, esc(o.want_name))}</span>
-        </div>
-        <div class="meta">
-          <span>price</span><code>${fmtAmt(o.base_amount_b, esc(o.want_name))} base
-            + ${(Number(o.spread) * 100).toFixed(2)}% spread</code>
-          <span>covenant address</span><code>${esc(o.covenant_address)}</code>
-          <span>covenant UTXO</span><code>${esc(o.outpoint)}</code>
-          <span>CMR</span><code>${esc(o.cmr)}</code>
-          <span>maker paid to</span><code>${esc(o.maker_address)}</code>
-          <span>refund height</span><code>${o.timeout}</code>
-        </div>
-        <div class="act">
-          <button data-take="${o.index}">Take offer (settle covenant)</button>
-          <button class="maker" data-reclaim="${o.index}"
-            ${state.block_count >= o.timeout ? '' : 'disabled'}
-            title="${state.block_count >= o.timeout
-              ? 'Maker reclaims via the REFUND path'
-              : 'REFUND unlocks at height ' + o.timeout}">Reclaim (REFUND)</button>
-          <button class="ghost" data-contract="${o.index}">View covenant</button>
-        </div>
-        <div class="cheats">
-          <span class="lbl">Attack the covenant</span>
-          <button class="bad" data-cheat="underpay" data-idx="${o.index}">Underpay maker</button>
-          <button class="bad" data-cheat="wrong_recipient" data-idx="${o.index}">Pay wrong address</button>
-          <button class="bad" data-cheat="wrong_index" data-idx="${o.index}">Hide maker output</button>
-        </div>
-        <div class="contract" id="contract-${o.index}"></div>
-      </div>`).join('');
-  box.querySelectorAll('button[data-take]').forEach(b => {
-    b.onclick = () => takeOffer(Number(b.dataset.take), b);
-  });
-  box.querySelectorAll('button[data-reclaim]').forEach(b => {
-    b.onclick = () => reclaimOffer(Number(b.dataset.reclaim), b);
-  });
-  box.querySelectorAll('button[data-contract]').forEach(b => {
-    b.onclick = () => viewContract(Number(b.dataset.contract));
-  });
-  box.querySelectorAll('button[data-cheat]').forEach(b => {
-    b.onclick = () => cheatOffer(Number(b.dataset.idx), b.dataset.cheat, b);
-  });
+    <div class="offer">
+      ${offerHead(o)}
+      <div class="act">
+        <button data-quote="${o.index}">Get quote</button>
+        <button class="ghost" data-contract="t${o.index}">View covenant</button>
+      </div>
+      <div class="quote" id="quote-${o.index}"></div>
+      <div class="cheats">
+        <span class="lbl">Attack the covenant</span>
+        <button class="bad" data-cheat="underpay" data-idx="${o.index}">Underpay maker</button>
+        <button class="bad" data-cheat="wrong_recipient" data-idx="${o.index}">Pay wrong address</button>
+        <button class="bad" data-cheat="wrong_index" data-idx="${o.index}">Hide maker output</button>
+      </div>
+      <div class="contract" id="contract-t${o.index}"></div>
+    </div>`).join('');
+  wireContract(box);
+  box.querySelectorAll('button[data-quote]').forEach(b =>
+    b.onclick = () => getQuote(Number(b.dataset.quote), b));
+  box.querySelectorAll('button[data-cheat]').forEach(b =>
+    b.onclick = () => cheatOffer(Number(b.dataset.idx), b.dataset.cheat, b));
+}
+
+function wireContract(box) {
+  box.querySelectorAll('button[data-contract]').forEach(b =>
+    b.onclick = () => viewContract(b.dataset.contract));
+}
+
+function render() {
+  renderWallet('m', state.maker);
+  renderWallet('t', state.taker);
+  if (view === 'maker') renderMakerOffers(); else renderTakerOffers();
 }
 
 async function refresh() {
@@ -280,14 +325,14 @@ async function refresh() {
     state.assets = s.assets;
     state.offers = s.offers;
     state.block_count = s.block_count;
+    state.maker = s.maker;
+    state.taker = s.taker;
     $('height').textContent = s.block_count;
     if (firstLoad && s.assets.length) {
       fillSelect($('lockAsset'), 'L-BTC');
       fillSelect($('wantAsset'), s.assets[0]);
     }
-    renderWallet('m', s.maker);
-    renderWallet('t', s.taker);
-    renderOffers();
+    render();
   } catch (e) {
     toast('Cannot reach the node: ' + e.message, 'err');
   }
@@ -310,7 +355,6 @@ $('makeOffer').onclick = e => {
   const lock = $('lockAsset').value === 'L-BTC' ? 'BTC' : $('lockAsset').value;
   const want = $('wantAsset').value === 'L-BTC' ? 'BTC' : $('wantAsset').value;
   if (lock === want) { toast('Lock and want assets must differ', 'err'); return; }
-  // Every asset is 8-decimal, so amounts go to raw units the same way.
   action(e.target, '/api/make-offer', {
     lock, want,
     amount_a: Math.round(Number($('amountA').value) * 1e8),
@@ -320,11 +364,41 @@ $('makeOffer').onclick = e => {
   }, r => 'Offer #' + r.index + ' funded — covenant <code>' + r.outpoint + '</code>');
 };
 
+// ── taker: request a quote, then settle against it ──
+async function getQuote(index, btn) {
+  btn.disabled = true;
+  try {
+    const q = await api('/api/quote', { index });
+    quotes[index] = { amount_b: q.amount_b, valid_height: q.valid_height };
+    const o = state.offers.find(x => x.index === index) || {};
+    const panel = $('quote-' + index);
+    panel.innerHTML = `
+      <div class="qrow"><span class="lab">base price</span>
+        <span>${fmtAmt(q.base_amount_b, o.want_name)}</span></div>
+      <div class="qrow"><span class="lab">maker spread</span>
+        <span>+${(Number(q.spread) * 100).toFixed(2)}%</span></div>
+      <div class="qrow"><span class="lab">quote anchored at height</span>
+        <span>${q.valid_height}</span></div>
+      <div class="qrow big"><span>you pay</span>
+        <span>${fmtAmt(q.amount_b, o.want_name)}</span></div>
+      <div class="note">This quote is locked. Settle before the maker can
+        reclaim at height ${o.timeout}.</div>
+      <div class="btnrow">
+        <button data-confirm="${index}">Confirm — settle the covenant</button>
+      </div>`;
+    panel.classList.add('show');
+    panel.querySelector('button[data-confirm]').onclick =
+      ev => takeOffer(index, ev.target);
+  } catch (e) { toast(e.message, 'err'); }
+  btn.disabled = false;
+}
+
 async function takeOffer(index, btn) {
   btn.disabled = true; btn.textContent = 'Settling…';
   try {
-    const r = await api('/api/take-offer', { index });
+    const r = await api('/api/take-offer', { index, quote: quotes[index] });
     toast('Settled — the node executed the covenant. tx <code>' + r.txid + '</code>', 'ok');
+    delete quotes[index];
   } catch (e) { toast(e.message, 'err'); }
   refresh();
 }
@@ -358,8 +432,10 @@ async function cheatOffer(index, cheat, btn) {
   refresh();
 }
 
-async function viewContract(index) {
-  const box = $('contract-' + index);
+async function viewContract(key) {
+  // key is "m<index>" or "t<index>"
+  const index = Number(key.slice(1));
+  const box = $('contract-' + key);
   if (box.classList.contains('show')) { box.classList.remove('show'); return; }
   try {
     const c = await api('/api/contract', { index });
@@ -373,6 +449,7 @@ async function viewContract(index) {
   } catch (e) { toast(e.message, 'err'); }
 }
 
+switchView('taker');
 refresh();
 setInterval(refresh, 12000);
 </script>
