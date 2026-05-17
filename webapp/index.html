@@ -167,7 +167,7 @@
 
 <script>
 const $ = id => document.getElementById(id);
-let state = { assets: [], offers: [] };
+let state = { assets: [], offers: [], block_count: 0 };
 const esc = s => String(s == null ? '' : s)
   .replace(/[&<>]/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;' }[c]));
 // Every asset (L-BTC and the test assets) uses 8 decimals.
@@ -238,6 +238,11 @@ function renderOffers() {
         </div>
         <div class="act">
           <button data-take="${o.index}">Take offer (settle covenant)</button>
+          <button class="maker" data-reclaim="${o.index}"
+            ${state.block_count >= o.timeout ? '' : 'disabled'}
+            title="${state.block_count >= o.timeout
+              ? 'Maker reclaims via the REFUND path'
+              : 'REFUND unlocks at height ' + o.timeout}">Reclaim (REFUND)</button>
           <button class="ghost" data-contract="${o.index}">View covenant</button>
         </div>
         <div class="cheats">
@@ -250,6 +255,9 @@ function renderOffers() {
       </div>`).join('');
   box.querySelectorAll('button[data-take]').forEach(b => {
     b.onclick = () => takeOffer(Number(b.dataset.take), b);
+  });
+  box.querySelectorAll('button[data-reclaim]').forEach(b => {
+    b.onclick = () => reclaimOffer(Number(b.dataset.reclaim), b);
   });
   box.querySelectorAll('button[data-contract]').forEach(b => {
     b.onclick = () => viewContract(Number(b.dataset.contract));
@@ -265,6 +273,7 @@ async function refresh() {
     const firstLoad = !state.assets.length;
     state.assets = s.assets;
     state.offers = s.offers;
+    state.block_count = s.block_count;
     $('height').textContent = s.block_count;
     if (firstLoad && s.assets.length) {
       fillSelect($('lockAsset'), 'L-BTC');
@@ -309,6 +318,15 @@ async function takeOffer(index, btn) {
   try {
     const r = await api('/api/take-offer', { index });
     toast('Settled — the node executed the covenant. tx <code>' + r.txid + '</code>', 'ok');
+  } catch (e) { toast(e.message, 'err'); }
+  refresh();
+}
+
+async function reclaimOffer(index, btn) {
+  btn.disabled = true; btn.textContent = 'Reclaiming…';
+  try {
+    const r = await api('/api/reclaim', { index });
+    toast('Reclaimed via the covenant REFUND path. tx <code>' + r.txid + '</code>', 'ok');
   } catch (e) { toast(e.message, 'err'); }
   refresh();
 }

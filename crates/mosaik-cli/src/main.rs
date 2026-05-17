@@ -163,11 +163,7 @@ fn main() -> Result<()> {
             timeout,
         } => make_offer(amount_a, amount_b, asset_b.as_deref(), timeout),
         Command::TakeOffer { offer } => take_offer(&offer),
-        Command::Reclaim { offer } => {
-            println!("Reclaiming offer from {offer}");
-            // REFUND on-chain reclaim — see crates/tessera/contracts/CONTRACT.md.
-            anyhow::bail!("reclaim: REFUND on-chain path not wired yet");
-        }
+        Command::Reclaim { offer } => reclaim(&offer),
         Command::ShowTessera {
             asset_b,
             amount_b,
@@ -237,8 +233,8 @@ fn make_offer(
     let rpc = ElementsRpc::regtest_wallet();
     let maker_address = rpc.new_unconfidential_address()?;
     let tessera = match asset_b {
-        Some(asset) => tessera_for(&rpc, &maker_address, asset, amount_b, timeout, [0x11; 32])?,
-        None => lbtc_tessera(&rpc, &maker_address, amount_b, timeout, [0x11; 32])?,
+        Some(asset) => tessera_for(&rpc, &maker_address, asset, amount_b, timeout, mosaik_core::demo_maker_pk())?,
+        None => lbtc_tessera(&rpc, &maker_address, amount_b, timeout, mosaik_core::demo_maker_pk())?,
     };
     let offer = MosaikMaker::regtest().make_offer("BTC", amount_a, &tessera, &maker_address)?;
 
@@ -265,6 +261,20 @@ fn take_offer(offer_path: &str) -> Result<()> {
     let txid = MosaikTaker::regtest().take_offer(&offer)?;
     println!("Settled. The Liquid node executed the Tessera covenant and accepted the spend.");
     println!("  settlement txid: {txid}");
+    Ok(())
+}
+
+/// Maker: reclaim an unfilled offer via the covenant's REFUND path.
+fn reclaim(offer_path: &str) -> Result<()> {
+    use mosaik_core::{MosaikMaker, Offer, ReclaimOffer, DEMO_MAKER_SECRET};
+
+    let offer_json = std::fs::read_to_string(offer_path)
+        .map_err(|e| anyhow::anyhow!("reading {offer_path}: {e}"))?;
+    let offer: Offer = serde_json::from_str(&offer_json)?;
+
+    let txid = MosaikMaker::regtest().reclaim(&offer, &DEMO_MAKER_SECRET)?;
+    println!("Reclaimed. The covenant's REFUND path returned the locked asset to the maker.");
+    println!("  reclaim txid: {txid}");
     Ok(())
 }
 

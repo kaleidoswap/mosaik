@@ -90,6 +90,16 @@ impl ElementsRpc {
         self.call("getrawtransaction", json!([txid, true]))
     }
 
+    /// The chain's genesis block hash — the Simplicity `sig_all` hash is bound
+    /// to it, so a signed covenant spend must use the right one.
+    pub fn genesis_hash(&self) -> Result<String> {
+        Ok(self
+            .call("getblockhash", json!([0]))?
+            .as_str()
+            .unwrap_or_default()
+            .to_string())
+    }
+
     /// Make sure wallet `name` exists and is loaded. Idempotent: a fresh node
     /// gets it created, an existing one gets loaded, an already-loaded one is
     /// left alone. Errors from any of those races are swallowed on purpose.

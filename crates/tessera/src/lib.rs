@@ -108,14 +108,135 @@ impl Tessera {
     /// maker). The returned [`TesseraWitness`] is the input's witness stack;
     /// drop it into a transaction whose output `settle_vout` pays the maker.
     pub fn settle_witness(&self, settle_vout: u32) -> Result<TesseraWitness> {
+        // SETTLE: PATH = Left(settle_vout). No signature needed.
+        self.witness_for(&format!("Left({settle_vout})"))
+    }
+
+    /// Build the complete REFUND transaction, signed and ready to broadcast.
+    ///
+    /// This does the whole REFUND spend in one step, because the pieces are
+    /// coupled: the maker's signature is over the Simplicity `sig_all` hash
+    /// (which binds to the chain genesis and the spent UTXO), and the covenant
+    /// program must be **pruned** against that same transaction environment
+    /// before it goes into the witness — an unpruned program still carries the
+    /// dead SETTLE branch and the node rejects it (`Program has FAIL node`).
+    ///
+    /// `raw_tx_hex` is the unsigned refund tx (covenant input at `input_index`,
+    /// `nLockTime >= timeout`). `prevout_*` describe the covenant UTXO, and
+    /// `genesis_hash` is the chain's genesis block hash (display hex).
+    pub fn build_refund_tx(
+        &self,
+        raw_tx_hex: &str,
+        input_index: usize,
+        prevout_spk: &[u8],
+        prevout_asset: &str,
+        prevout_value: u64,
+        genesis_hash: &str,
+        maker_secret: &[u8; 32],
+    ) -> Result<String> {
+        use std::str::FromStr;
+        use std::sync::Arc;
+
+        use secp256k1::{Keypair, Message, Secp256k1, SecretKey};
+        use simplicity::elements::{
+            confidential,
+            encode::{deserialize, serialize_hex},
+            taproot::ControlBlock,
+            AssetId, BlockHash, Script, Transaction,
+        };
+        use simplicity::hashes::Hash as _;
+        use simplicity::jet::elements::{ElementsEnv, ElementsUtxo};
+        use simplicityhl::{Arguments, CompiledProgram, WitnessValues};
+
+        let compiled = CompiledProgram::new(self.render(), Arguments::default(), false)
+            .map_err(|e| anyhow::anyhow!("compile: {e}"))?;
+        let cmr = compiled.commit().cmr();
+        let cmr_bytes: [u8; 32] = hex::decode(cmr.to_string())
+            .ok()
+            .and_then(|b| <[u8; 32]>::try_from(b).ok())
+            .ok_or_else(|| anyhow::anyhow!("unexpected CMR encoding"))?;
+
+        let (spend_info, leaf_script) = taproot_spend_info(&cmr_bytes)?;
+        let control_block: ControlBlock = spend_info
+            .control_block(&(leaf_script.clone(), simplicity::leaf_version()))
+            .ok_or_else(|| anyhow::anyhow!("no control block for the covenant leaf"))?;
+
+        let tx: Transaction = deserialize(&hex::decode(raw_tx_hex)?)
+            .map_err(|e| anyhow::anyhow!("decode refund tx: {e}"))?;
+
+        let utxo = ElementsUtxo {
+            script_pubkey: Script::from(prevout_spk.to_vec()),
+            asset: confidential::Asset::Explicit(
+                AssetId::from_str(prevout_asset).map_err(|e| anyhow::anyhow!("asset id: {e}"))?,
+            ),
+            value: confidential::Value::Explicit(prevout_value),
+        };
+        let genesis = BlockHash::from_str(genesis_hash)
+            .map_err(|e| anyhow::anyhow!("genesis hash: {e}"))?;
+
+        let env = ElementsEnv::new(
+            Arc::new(tx.clone()),
+            vec![utxo],
+            input_index as u32,
+            cmr,
+            control_block.clone(),
+            None,
+            genesis,
+        );
+
+        // The covenant's `jet::sig_all_hash` is exactly this `sig_all` sighash.
+        let sighash = env.c_tx_env().sighash_all();
+        let secp = Secp256k1::new();
+        let keypair = Keypair::from_secret_key(
+            &secp,
+            &SecretKey::from_slice(maker_secret).map_err(|e| anyhow::anyhow!("secret: {e}"))?,
+        );
+        let msg = Message::from_digest(sighash.to_byte_array());
+        let sig = secp.sign_schnorr_no_aux_rand(&msg, &keypair);
+
+        // Satisfy the REFUND path, then prune the program against this exact
+        // transaction so the dead SETTLE branch is gone from the witness.
+        let wit_json = format!(
+            r#"{{ "PATH": {{ "value": "Right(0x{})", "type": "Either<u32, Signature>" }} }}"#,
+            hex::encode(sig.as_ref()),
+        );
+        let witness_values: WitnessValues =
+            serde_json::from_str(&wit_json).map_err(|e| anyhow::anyhow!("witness: {e}"))?;
+        let satisfied = compiled
+            .satisfy(witness_values)
+            .map_err(|e| anyhow::anyhow!("satisfy: {e}"))?;
+        let pruned = satisfied
+            .redeem()
+            .prune(&env)
+            .map_err(|e| anyhow::anyhow!("prune: {e}"))?;
+        let program = pruned.to_vec_without_witness();
+        let (_, witness) = pruned.to_vec_with_witness();
+
+        // Drop the witness stack onto the covenant input and serialise.
+        let mut tx = tx;
+        let txin = tx
+            .input
+            .get_mut(input_index)
+            .ok_or_else(|| anyhow::anyhow!("no input #{input_index} in the transaction"))?;
+        txin.witness.script_witness = vec![
+            witness,
+            program,
+            leaf_script.into_bytes(),
+            control_block.serialize(),
+        ];
+        Ok(serialize_hex(&tx))
+    }
+
+    /// Compile the covenant and build the Taproot witness for the given `PATH`
+    /// value (`"Left(vout)"` for SETTLE, `"Right(0x..sig..)"` for REFUND).
+    fn witness_for(&self, path_value: &str) -> Result<TesseraWitness> {
         use simplicityhl::{Arguments, CompiledProgram, WitnessValues};
 
         let compiled = CompiledProgram::new(self.render(), Arguments::default(), false)
             .map_err(|e| anyhow::anyhow!("compile: {e}"))?;
 
-        // SETTLE: PATH = Left(settle_vout). No signature needed.
         let wit_json = format!(
-            r#"{{ "PATH": {{ "value": "Left({settle_vout})", "type": "Either<u32, Signature>" }} }}"#
+            r#"{{ "PATH": {{ "value": "{path_value}", "type": "Either<u32, Signature>" }} }}"#
         );
         let witness_values: WitnessValues =
             serde_json::from_str(&wit_json).map_err(|e| anyhow::anyhow!("witness: {e}"))?;
@@ -178,6 +299,19 @@ impl CompiledTessera {
     }
 }
 
+/// Derive the BIP-340 x-only public key (32 bytes) for a secret key.
+///
+/// Mosaik uses this to set a Tessera's `maker_pk` from the maker's secret, so
+/// the covenant's REFUND path verifies against the right key.
+pub fn x_only_pubkey(secret: &[u8; 32]) -> Result<[u8; 32]> {
+    use simplicityhl::elements::secp256k1_zkp::{Keypair, Secp256k1, SecretKey};
+
+    let secp = Secp256k1::new();
+    let sk = SecretKey::from_slice(secret).map_err(|e| anyhow::anyhow!("secret key: {e}"))?;
+    let keypair = Keypair::from_secret_key(&secp, &sk);
+    Ok(keypair.x_only_public_key().0.serialize())
+}
+
 /// Build the single-leaf Taproot for a covenant with the given CMR.
 ///
 /// The leaf script is the 32-byte CMR, the leaf version is the Simplicity
@@ -232,10 +366,13 @@ pub struct TesseraWitness {
 
 impl TesseraWitness {
     /// The full Taproot script-path witness stack, bottom to top.
+    ///
+    /// Simplicity's canonical order puts the **witness** before the **program**,
+    /// then the tapleaf script (the CMR) and the control block.
     pub fn witness_stack(&self) -> Vec<Vec<u8>> {
         vec![
-            self.program.clone(),
             self.witness.clone(),
+            self.program.clone(),
             self.leaf_script.clone(),
             self.control_block.clone(),
         ]

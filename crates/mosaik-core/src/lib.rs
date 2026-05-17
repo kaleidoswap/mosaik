@@ -426,14 +426,100 @@ fn hal_pset(args: &[&str]) -> Result<String> {
         .to_string())
 }
 
+/// The Mosaik demo maker secret key. A single fixed keypair stands in for the
+/// maker across the demo; a real deployment derives one key per offer.
+pub const DEMO_MAKER_SECRET: [u8; 32] = [7u8; 32];
+
+/// The x-only public key for [`DEMO_MAKER_SECRET`] — the Tessera `maker_pk`.
+pub fn demo_maker_pk() -> [u8; 32] {
+    tessera::x_only_pubkey(&DEMO_MAKER_SECRET).expect("valid demo maker secret")
+}
+
 /// Maker side — reclaim an unfilled offer after its timeout.
 pub trait ReclaimOffer {
-    /// Spend the covenant UTXO back to the maker via the REFUND path.
+    /// Spend the covenant UTXO back to the maker via the REFUND path, signing
+    /// with `maker_secret` (whose x-only pubkey must equal the Tessera's
+    /// `maker_pk`). Returns the reclaim txid.
+    fn reclaim(&self, offer: &Offer, maker_secret: &[u8; 32]) -> Result<String>;
+}
+
+impl ReclaimOffer for MosaikMaker {
+    /// Build, finalise and broadcast the REFUND transaction.
     ///
-    /// TODO(hackathon): build a tx spending the covenant UTXO, set the
-    /// Simplicity witness to the REFUND path with the maker's BIP-340
-    /// signature, set `nLockTime = tessera.timeout`, broadcast.
-    fn reclaim(&self, offer: &Offer) -> Result<String>;
+    /// REFUND spends the covenant UTXO back to the maker once the chain is at
+    /// or past `tessera.timeout`. The transaction sets `nLockTime = timeout`;
+    /// the maker signs the Simplicity `sig_all` hash (computed by
+    /// `hal-simplicity sighash`), and that signature goes into the covenant's
+    /// REFUND witness. Supports L-BTC-locked offers.
+    fn reclaim(&self, offer: &Offer, maker_secret: &[u8; 32]) -> Result<String> {
+        let lbtc = self.rpc.policy_asset()?;
+        if offer.asset_a != lbtc {
+            anyhow::bail!(
+                "reclaim currently supports L-BTC-locked offers; this offer locks {}",
+                offer.asset_a
+            );
+        }
+
+        let (txid, vout_str) = offer
+            .outpoint
+            .split_once(':')
+            .ok_or_else(|| anyhow::anyhow!("bad outpoint: {}", offer.outpoint))?;
+        let covenant_vout: u64 = vout_str.parse()?;
+
+        let amount_a = offer.amount_a;
+        let fee = SETTLE_FEE_SATS;
+        if amount_a <= fee {
+            anyhow::bail!("offer locks too little to cover the fee");
+        }
+        let timeout = offer.tessera.timeout;
+
+        // Surface a clear error before the covenant would reject the spend.
+        let height = self.rpc.block_count()?;
+        if (height as u32) < timeout {
+            anyhow::bail!("refund is locked until height {timeout}; chain is at {height}");
+        }
+
+        let btc = |s: u64| s as f64 / 1e8;
+
+        // The covenant input's sequence must enable `nLockTime`.
+        let inputs = serde_json::json!([
+            { "txid": txid, "vout": covenant_vout, "sequence": 4_294_967_294u64 }
+        ]);
+        let outputs = serde_json::json!([
+            { &offer.maker_address: btc(amount_a - fee), "asset": lbtc },
+            { "fee": btc(fee) },
+        ]);
+        let raw_hex = self
+            .rpc
+            .call("createrawtransaction", serde_json::json!([inputs, outputs, timeout]))?
+            .as_str()
+            .ok_or_else(|| anyhow::anyhow!("createrawtransaction: no hex"))?
+            .to_string();
+
+        let compiled = offer.tessera.compile()?;
+        let covenant_spk_bytes = compiled.address()?.script_pubkey().as_bytes().to_vec();
+
+        // Sign and finalise the REFUND spend in one step: the maker's signature
+        // and the pruned covenant program both bind to this exact transaction.
+        // One covenant input, no wallet inputs — no PSET round-trip needed.
+        let genesis = self.rpc.genesis_hash()?;
+        let raw_tx = offer.tessera.build_refund_tx(
+            &raw_hex,
+            0,
+            &covenant_spk_bytes,
+            &lbtc,
+            amount_a,
+            &genesis,
+            maker_secret,
+        )?;
+
+        if std::env::var("MOSAIK_DEBUG_TX").is_ok() {
+            eprintln!("RECLAIM raw_hex (unsigned): {raw_hex}");
+            eprintln!("RECLAIM raw_tx  (final):    {raw_tx}");
+        }
+
+        self.rpc.send_raw_transaction(&raw_tx)
+    }
 }
 
 #[cfg(test)]

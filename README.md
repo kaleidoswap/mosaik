@@ -118,7 +118,8 @@ mosaik/
       separate maker / taker wallets.
 - [x] Adversarial "attack the covenant" path — underpay, wrong recipient,
       hidden maker output — all rejected by the covenant.
-- [ ] REFUND / reclaim wired with a real maker key.
+- [x] REFUND / reclaim — the maker reclaims an unfilled offer after its
+      timeout, signing the Simplicity `sig_all` hash with a BIP-340 key.
 - [ ] Recursive partial-fill covenant — fund once, fill many times.
 
 ## Install

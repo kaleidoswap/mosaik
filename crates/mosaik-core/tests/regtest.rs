@@ -9,7 +9,8 @@
 
 use mosaik_core::rpc::ElementsRpc;
 use mosaik_core::{
-    tessera_for, Cheat, MakeOffer, MosaikMaker, MosaikTaker, Offer, TakeOffer, Tessera,
+    demo_maker_pk, tessera_for, Cheat, MakeOffer, MosaikMaker, MosaikTaker, Offer, ReclaimOffer,
+    TakeOffer, Tessera, DEMO_MAKER_SECRET,
 };
 use serde_json::json;
 
@@ -172,6 +173,64 @@ fn covenant_rejects_cheating_settlements() {
     // The offer is still fillable honestly after the failed attacks.
     let txid = MosaikTaker::regtest().take_offer(&offer).expect("honest take_offer");
     assert_eq!(txid.len(), 64);
+}
+
+#[test]
+fn reclaim_returns_the_locked_lbtc_after_the_timeout() {
+    let Some(rpc) = regtest() else { return };
+
+    // An L-BTC-locked offer refundable from height 1 — i.e. immediately.
+    let maker_addr = rpc.new_unconfidential_address().expect("maker address");
+    let lbtc = rpc.policy_asset().expect("policy asset");
+    let tessera = tessera_for(&rpc, &maker_addr, &lbtc, 600_000, 1, demo_maker_pk())
+        .expect("build tessera");
+    let offer = MosaikMaker::regtest()
+        .make_offer("BTC", 1_000_000, &tessera, &maker_addr)
+        .expect("make_offer");
+
+    // The maker reclaims via the covenant's REFUND path.
+    let txid = MosaikMaker::regtest()
+        .reclaim(&offer, &DEMO_MAKER_SECRET)
+        .expect("reclaim");
+    assert_eq!(txid.len(), 64);
+    rpc.generate(1).expect("confirm reclaim");
+
+    // The covenant UTXO is spent.
+    let (cov_txid, cov_vout) = offer.outpoint.split_once(':').unwrap();
+    let spent = rpc
+        .call("gettxout", json!([cov_txid, cov_vout.parse::<u64>().unwrap()]))
+        .expect("gettxout");
+    assert!(spent.is_null(), "covenant UTXO must be spent after reclaim");
+
+    // Output 0 returns the locked L-BTC (less the fee) to the maker.
+    let tx = rpc.raw_transaction(&txid).expect("reclaim tx");
+    let out0 = &tx.get("vout").and_then(|v| v.as_array()).unwrap()[0];
+    let paid = out0.get("value").and_then(|v| v.as_f64()).unwrap_or(0.0);
+    assert!(
+        (paid - 999_000.0 / 1e8).abs() < 1e-8,
+        "maker should reclaim 999000 sats, got {paid} BTC"
+    );
+}
+
+#[test]
+fn reclaim_rejected_before_the_timeout() {
+    let Some(rpc) = regtest() else { return };
+
+    // An offer whose refund height is far in the future.
+    let height = rpc.block_count().expect("block count") as u32;
+    let maker_addr = rpc.new_unconfidential_address().expect("maker address");
+    let lbtc = rpc.policy_asset().expect("policy asset");
+    let tessera = tessera_for(&rpc, &maker_addr, &lbtc, 600_000, height + 10_000, demo_maker_pk())
+        .expect("build tessera");
+    let offer = MosaikMaker::regtest()
+        .make_offer("BTC", 1_000_000, &tessera, &maker_addr)
+        .expect("make_offer");
+
+    let result = MosaikMaker::regtest().reclaim(&offer, &DEMO_MAKER_SECRET);
+    assert!(
+        result.is_err(),
+        "reclaim must be rejected before the timeout, got {result:?}"
+    );
 }
 
 #[test]

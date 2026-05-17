@@ -22,7 +22,8 @@ use std::sync::Mutex;
 use anyhow::{anyhow, Result};
 use mosaik_core::rpc::ElementsRpc;
 use mosaik_core::{
-    lbtc_tessera, tessera_for, Cheat, MakeOffer, MosaikMaker, MosaikTaker, Offer,
+    demo_maker_pk, lbtc_tessera, tessera_for, Cheat, MakeOffer, MosaikMaker, MosaikTaker, Offer,
+    ReclaimOffer, DEMO_MAKER_SECRET,
 };
 use serde_json::{json, Value};
 use tiny_http::{Header, Method, Request, Response, Server};
@@ -33,10 +34,6 @@ const INDEX_HTML: &str = include_str!("../../../webapp/index.html");
 const BASE: &str = "http://127.0.0.1:7040";
 const RPC_USER: &str = "user";
 const RPC_PASS: &str = "pass";
-
-/// Maker pubkey used for the demo covenants. The REFUND path needs a real key,
-/// so the UI surfaces reclaim as not-yet-wired rather than faking it.
-const DEMO_MAKER_PK: [u8; 32] = [0x11; 32];
 
 /// The two test Liquid assets the demo issues, so asset/asset swaps are real.
 const TEST_ASSETS: [&str; 2] = ["USDT", "EURx"];
@@ -105,6 +102,7 @@ fn route(req: &mut Request, state: &Mutex<AppState>) -> (u16, Value) {
         (Method::Post, "/api/fund/taker") => api_fund(state, &taker_rpc()),
         (Method::Post, "/api/make-offer") => api_make_offer(req, state),
         (Method::Post, "/api/take-offer") => api_take_offer(req, state),
+        (Method::Post, "/api/reclaim") => api_reclaim(req, state),
         (Method::Post, "/api/contract") => api_contract(req, state),
         _ => return (404, json!({ "error": "not found" })),
     };
@@ -267,9 +265,9 @@ fn api_make_offer(req: &mut Request, state: &Mutex<AppState>) -> Result<Value> {
     // The covenant enforces the maker's counter-payment in the `want` asset.
     let want_id = label_to_id(&assets, want, &lbtc)?;
     let tessera = if want_id == lbtc {
-        lbtc_tessera(&maker, &maker_address, amount_b, timeout, DEMO_MAKER_PK)?
+        lbtc_tessera(&maker, &maker_address, amount_b, timeout, demo_maker_pk())?
     } else {
-        tessera_for(&maker, &maker_address, &want_id, amount_b, timeout, DEMO_MAKER_PK)?
+        tessera_for(&maker, &maker_address, &want_id, amount_b, timeout, demo_maker_pk())?
     };
 
     // `lock` is what the maker locks in the covenant UTXO.
@@ -339,6 +337,26 @@ fn api_take_offer(req: &mut Request, state: &Mutex<AppState>) -> Result<Value> {
     }
 }
 
+/// Maker: reclaim an unfilled offer via the covenant's REFUND path.
+fn api_reclaim(req: &mut Request, state: &Mutex<AppState>) -> Result<Value> {
+    let b = body(req);
+    let index = b.get("index").and_then(Value::as_u64).ok_or_else(|| anyhow!("index"))? as usize;
+
+    let offer = {
+        let st = state.lock().unwrap();
+        st.offers.get(index).cloned().ok_or_else(|| anyhow!("no offer #{index}"))?
+    };
+
+    let txid = MosaikMaker::new(maker_rpc()).reclaim(&offer, &DEMO_MAKER_SECRET)?;
+    treasury().generate(1)?; // confirm the reclaim
+
+    let mut st = state.lock().unwrap();
+    if index < st.offers.len() {
+        st.offers.remove(index);
+    }
+    Ok(json!({ "ok": true, "txid": txid }))
+}
+
 /// Inspect the Simplicity covenant behind an offer — the on-chain "contract".
 fn api_contract(req: &mut Request, state: &Mutex<AppState>) -> Result<Value> {
     let b = body(req);
@@ -357,8 +375,9 @@ fn api_contract(req: &mut Request, state: &Mutex<AppState>) -> Result<Value> {
         "settle": "Taker path: spends the UTXO if output 0 pays the maker exactly \
             `amount_b` of `asset_b`. The node runs the covenant and rejects any \
             transaction that underpays. The locked asset is never inspected.",
-        "refund": "Maker path: after the refund block height the maker reclaims \
-            the locked asset with a BIP-340 signature. Needs a real maker key — \
-            not wired in this demo build.",
+        "refund": "Maker path: once the chain reaches the refund block height \
+            the maker reclaims the locked L-BTC, signing the Simplicity sig_all \
+            hash with a BIP-340 key. The covenant rejects an early or wrongly \
+            signed reclaim.",
     }))
 }
