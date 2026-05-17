@@ -104,6 +104,11 @@
   .toast.ok{border-color:var(--taker);} .toast.err{border-color:var(--bad);}
   .toast code{font-family:ui-monospace,Menlo,monospace;color:var(--accent);}
   .note{font-size:11.5px;color:var(--muted);margin-top:8px;}
+  .swap-arrow{text-align:center;color:var(--muted);font-size:18px;margin:9px 0;}
+  input[readonly]{color:var(--accent);font-weight:700;}
+  .swapinfo{margin-top:10px;font-size:12.5px;color:var(--muted);min-height:18px;}
+  .swapinfo .rate{color:var(--ink);}
+  .swapinfo.bad{color:var(--bad);}
 </style>
 </head>
 <body>
@@ -170,7 +175,28 @@
     <div class="btnrow"><button id="fundTaker">+ Fund taker</button></div>
   </div>
 
-  <h2>Open offers</h2>
+  <h2>Swap</h2>
+  <div class="card taker">
+    <label>You pay</label>
+    <div class="row">
+      <div style="flex:2"><input id="fromAmount" type="number" min="0" step="any"
+        placeholder="amount"></div>
+      <div><select id="fromAsset"></select></div>
+    </div>
+    <div class="swap-arrow">⇅</div>
+    <label>You receive</label>
+    <div class="row">
+      <div style="flex:2"><input id="toAmount" readonly placeholder="—"></div>
+      <div><select id="toAsset"></select></div>
+    </div>
+    <div id="swapInfo" class="swapinfo"></div>
+    <div class="btnrow"><button id="doSwap" disabled>Swap</button></div>
+    <div class="note">Each offer is a fixed-size covenant UTXO. The form matches
+      your pair to a live offer and snaps to the maker's signed quote — press
+      Swap and the covenant settles the trade on-chain.</div>
+  </div>
+
+  <h2>Open offers — inspect &amp; attack the covenant</h2>
   <div id="taker-offers"></div>
 </section>
 
@@ -180,7 +206,6 @@
 <script>
 const $ = id => document.getElementById(id);
 let state = { assets: [], offers: [], block_count: 0, maker: {}, taker: {} };
-let quotes = {};            // index -> fetched quote { amount_b, valid_height }
 let view = 'taker';
 
 const esc = s => String(s == null ? '' : s)
@@ -288,10 +313,8 @@ function renderTakerOffers() {
     <div class="offer">
       ${offerHead(o)}
       <div class="act">
-        <button data-quote="${o.index}">Get quote</button>
         <button class="ghost" data-contract="t${o.index}">View covenant</button>
       </div>
-      <div class="quote" id="quote-${o.index}"></div>
       <div class="cheats">
         <span class="lbl">Attack the covenant</span>
         <button class="bad" data-cheat="underpay" data-idx="${o.index}">Underpay maker</button>
@@ -301,11 +324,68 @@ function renderTakerOffers() {
       <div class="contract" id="contract-t${o.index}"></div>
     </div>`).join('');
   wireContract(box);
-  box.querySelectorAll('button[data-quote]').forEach(b =>
-    b.onclick = () => getQuote(Number(b.dataset.quote), b));
   box.querySelectorAll('button[data-cheat]').forEach(b =>
     b.onclick = () => cheatOffer(Number(b.dataset.idx), b.dataset.cheat, b));
 }
+
+let swapMatch = null;   // index of the offer the swap form is matched to
+
+// Match the chosen pair to a live offer and snap the form to its signed quote.
+function recalcSwap() {
+  const from = $('fromAsset').value, to = $('toAsset').value;
+  const info = $('swapInfo'), btn = $('doSwap');
+  swapMatch = null;
+  $('toAmount').value = '';
+  btn.disabled = true;
+  info.className = 'swapinfo';
+  if (!from || !to) return;
+  if (from === to) { info.textContent = 'Pick two different assets.'; return; }
+
+  // The taker pays `from` (the maker's want asset) and receives `to` (locked).
+  const matches = state.offers.filter(o => o.want_name === from && o.lock_name === to);
+  if (!matches.length) {
+    info.classList.add('bad');
+    info.textContent = 'No open offer for ' + from + ' → ' + to + '.';
+    return;
+  }
+  // Snap to the offer whose quoted cost is closest to the typed amount.
+  const want = Math.round(Number($('fromAmount').value || 0) * 1e8);
+  let best = matches[0];
+  if (want > 0) {
+    best = matches.reduce((a, b) =>
+      Math.abs(b.amount_b - want) < Math.abs(a.amount_b - want) ? b : a);
+  }
+  swapMatch = best.index;
+  if (document.activeElement !== $('fromAmount')) {
+    $('fromAmount').value = units(best.amount_b);
+  }
+  $('toAmount').value = units(best.amount_a);
+  const rate = best.amount_b / best.amount_a;
+  info.innerHTML = `Matched offer #${best.index}. Rate
+    <span class="rate">1 ${esc(to)} = ${fmt(rate)} ${esc(from)}</span> ·
+    includes the maker's ${(Number(best.spread) * 100).toFixed(2)}% spread.`;
+  btn.disabled = false;
+}
+
+['fromAsset', 'toAsset', 'fromAmount'].forEach(id =>
+  $(id).addEventListener('input', recalcSwap));
+
+$('doSwap').onclick = async e => {
+  if (swapMatch == null) return;
+  e.target.disabled = true;
+  e.target.textContent = 'Swapping…';
+  try {
+    const q = await api('/api/quote', { index: swapMatch });
+    const r = await api('/api/take-offer', {
+      index: swapMatch,
+      quote: { amount_b: q.amount_b, valid_height: q.valid_height },
+    });
+    toast('Swapped — the covenant settled the trade. tx <code>'
+      + r.txid + '</code>', 'ok');
+  } catch (err) { toast(err.message, 'err'); }
+  e.target.textContent = 'Swap';
+  refresh();
+};
 
 function wireContract(box) {
   box.querySelectorAll('button[data-contract]').forEach(b =>
@@ -315,7 +395,12 @@ function wireContract(box) {
 function render() {
   renderWallet('m', state.maker);
   renderWallet('t', state.taker);
-  if (view === 'maker') renderMakerOffers(); else renderTakerOffers();
+  if (view === 'maker') {
+    renderMakerOffers();
+  } else {
+    renderTakerOffers();
+    recalcSwap();
+  }
 }
 
 async function refresh() {
@@ -331,6 +416,8 @@ async function refresh() {
     if (firstLoad && s.assets.length) {
       fillSelect($('lockAsset'), 'L-BTC');
       fillSelect($('wantAsset'), s.assets[0]);
+      fillSelect($('fromAsset'), s.assets[0]);
+      fillSelect($('toAsset'), 'L-BTC');
     }
     render();
   } catch (e) {
@@ -364,44 +451,6 @@ $('makeOffer').onclick = e => {
   }, r => 'Offer #' + r.index + ' funded — covenant <code>' + r.outpoint + '</code>');
 };
 
-// ── taker: request a quote, then settle against it ──
-async function getQuote(index, btn) {
-  btn.disabled = true;
-  try {
-    const q = await api('/api/quote', { index });
-    quotes[index] = { amount_b: q.amount_b, valid_height: q.valid_height };
-    const o = state.offers.find(x => x.index === index) || {};
-    const panel = $('quote-' + index);
-    panel.innerHTML = `
-      <div class="qrow"><span class="lab">base price</span>
-        <span>${fmtAmt(q.base_amount_b, o.want_name)}</span></div>
-      <div class="qrow"><span class="lab">maker spread</span>
-        <span>+${(Number(q.spread) * 100).toFixed(2)}%</span></div>
-      <div class="qrow"><span class="lab">quote anchored at height</span>
-        <span>${q.valid_height}</span></div>
-      <div class="qrow big"><span>you pay</span>
-        <span>${fmtAmt(q.amount_b, o.want_name)}</span></div>
-      <div class="note">This quote is locked. Settle before the maker can
-        reclaim at height ${o.timeout}.</div>
-      <div class="btnrow">
-        <button data-confirm="${index}">Confirm — settle the covenant</button>
-      </div>`;
-    panel.classList.add('show');
-    panel.querySelector('button[data-confirm]').onclick =
-      ev => takeOffer(index, ev.target);
-  } catch (e) { toast(e.message, 'err'); }
-  btn.disabled = false;
-}
-
-async function takeOffer(index, btn) {
-  btn.disabled = true; btn.textContent = 'Settling…';
-  try {
-    const r = await api('/api/take-offer', { index, quote: quotes[index] });
-    toast('Settled — the node executed the covenant. tx <code>' + r.txid + '</code>', 'ok');
-    delete quotes[index];
-  } catch (e) { toast(e.message, 'err'); }
-  refresh();
-}
 
 async function reclaimOffer(index, btn) {
   btn.disabled = true; btn.textContent = 'Reclaiming…';
