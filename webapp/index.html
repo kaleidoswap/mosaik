@@ -582,31 +582,26 @@
 
   .offers-panel { grid-area: offers; }
 
-  .offers-list { display: grid; gap: 10px; padding: 12px; }
+  .offers-list { display: grid; gap: 7px; padding: 10px; }
 
   .offer-card {
     border: 1px solid var(--line);
     border-radius: 8px;
     background: rgba(255, 255, 255, 0.035);
     overflow: hidden;
+    transition: border-color 0.15s ease, background 0.15s ease;
   }
 
+  .offer-card:hover { background: rgba(255, 255, 255, 0.055); }
   .offer-card.own { border-color: rgba(111, 50, 255, 0.36); }
 
-  .offer-main {
-    display: grid;
-    grid-template-columns: minmax(200px, 1fr) auto;
-    gap: 12px;
-    align-items: start;
-    padding: 13px;
-  }
-
-  .offer-top {
+  /* one compact line per offer — details live behind the toggle */
+  .offer-row {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: 9px;
     flex-wrap: wrap;
-    margin-bottom: 8px;
+    padding: 9px 11px;
   }
 
   .side-tag {
@@ -616,7 +611,8 @@
     border-radius: 5px;
     padding: 0 8px;
     font: 900 10px/1 var(--sans);
-    letter-spacing: 0.1em;
+    letter-spacing: 0.08em;
+    white-space: nowrap;
   }
 
   .side-tag.ask { color: var(--red); background: rgba(242, 99, 123, 0.14); }
@@ -631,7 +627,7 @@
     color: var(--muted);
     padding: 0 8px;
     font: 800 10px/1 var(--sans);
-    letter-spacing: 0.06em;
+    white-space: nowrap;
   }
 
   .maker-tag.own {
@@ -639,6 +635,34 @@
     border-color: rgba(111, 50, 255, 0.4);
     background: rgba(111, 50, 255, 0.1);
   }
+
+  .offer-amts {
+    flex: 1;
+    min-width: 150px;
+    font: 800 13px/1.3 var(--mono);
+    color: var(--muted);
+  }
+
+  .offer-amts .a { color: var(--purple-2); }
+  .offer-amts .b { color: var(--green-2); }
+  .offer-amts .arrow { color: var(--dim); margin: 0 3px; }
+
+  .offer-px {
+    font: 800 13px/1 var(--mono);
+    color: var(--ink);
+    text-align: right;
+    white-space: nowrap;
+  }
+
+  .offer-px small {
+    display: block;
+    margin-top: 3px;
+    color: var(--dim);
+    font: 700 9px/1 var(--sans);
+  }
+
+  .offer-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+  .offer-actions button { min-height: 30px; padding: 0 11px; font-size: 12px; }
 
   .nostr-badge {
     display: inline-flex;
@@ -657,20 +681,10 @@
     box-shadow: 0 0 8px rgba(157, 120, 255, 0.7);
   }
 
-  .trade {
-    color: var(--muted);
-    font-size: 14px;
-    font-weight: 800;
-  }
-
-  .trade .a { color: var(--purple-2); }
-  .trade .b { color: var(--green-2); }
-
   .offer-meta {
     display: grid;
-    grid-template-columns: 96px minmax(0, 1fr);
+    grid-template-columns: 86px minmax(0, 1fr);
     gap: 4px 10px;
-    margin-top: 10px;
     color: var(--dim);
     font-size: 11px;
   }
@@ -679,13 +693,6 @@
     overflow-wrap: anywhere;
     color: rgba(246, 248, 251, 0.72);
     font-family: var(--mono);
-  }
-
-  .offer-actions {
-    display: flex;
-    flex-wrap: wrap;
-    justify-content: flex-end;
-    gap: 8px;
   }
 
   .cheats {
@@ -1332,48 +1339,28 @@ function renderOffers() {
   }
   box.innerHTML = `<div class="offers-list">${offers.map(o => {
     const p = project(o);
-    const n = o.nostr || {};
     const own = o.maker === activeWallet;
+    const reclaimable = state.block_count >= o.timeout;
     return `
       <div class="offer-card ${own ? 'own' : ''}">
-        <div class="offer-main">
-          <div>
-            <div class="offer-top">
-              <span class="side-tag ${p.side}">${p.side === 'ask' ? 'SELL' : 'BUY'} ${esc(p.base)}</span>
-              <span class="maker-tag ${own ? 'own' : ''}">${esc(o.maker_name)}${own ? ' · you' : ''}</span>
-              <span class="nostr-badge" title="Nostr event ${esc(n.event_id || '')}">
-                ${esc(short(n.event_id, 12))}</span>
-            </div>
-            <div class="trade">
-              <span class="a">${fmtAmt(o.amount_a, esc(o.lock_name))}</span>
-              &nbsp;-&gt;&nbsp;
-              <span class="b">${fmtAmt(o.amount_b, esc(o.want_name))}</span>
-            </div>
-            <div class="offer-meta">
-              <span>price</span><code>${fmt(p.price)} ${esc(p.quote)}/${esc(p.base)}</code>
-              <span>covenant</span><code>${esc(o.covenant_address)}</code>
-              <span>utxo</span><code>${esc(o.outpoint)}</code>
-              <span>maker paid</span><code>${esc(o.maker_address)}</code>
-              <span>refund</span><code>height ${o.timeout}</code>
-            </div>
-          </div>
-          <div class="offer-actions">
+        <div class="offer-row">
+          <span class="side-tag ${p.side}">${p.side === 'ask' ? 'SELL' : 'BUY'} ${esc(p.base)}</span>
+          <span class="maker-tag ${own ? 'own' : ''}">${esc(o.maker_name)}${own ? ' · you' : ''}</span>
+          <span class="offer-amts">
+            <span class="a">${fmtAmt(o.amount_a, esc(o.lock_name))}</span>
+            <span class="arrow">→</span>
+            <span class="b">${fmtAmt(o.amount_b, esc(o.want_name))}</span>
+          </span>
+          <span class="offer-px">${fmt(p.price)}<small>${esc(p.quote)}/${esc(p.base)}</small></span>
+          <span class="offer-actions">
             <button data-take="${o.index}" ${own ? 'disabled' : ''}
               title="${own ? 'Your own offer — switch the active wallet to take it'
-                : 'Fill this offer as ' + esc(makerName(activeWallet))}">Take offer</button>
-            <button class="maker" data-reclaim="${o.index}"
-              ${state.block_count >= o.timeout ? '' : 'disabled'}
-              title="${state.block_count >= o.timeout
-                ? 'Reclaim via the keyless REFUND path'
+                : 'Fill this offer as ' + esc(makerName(activeWallet))}">Take</button>
+            <button class="maker" data-reclaim="${o.index}" ${reclaimable ? '' : 'disabled'}
+              title="${reclaimable ? 'Reclaim via the keyless REFUND path'
                 : 'REFUND unlocks at height ' + o.timeout}">Reclaim</button>
-            <button class="ghost" data-contract="${o.index}">Covenant + Nostr</button>
-          </div>
-        </div>
-        <div class="cheats">
-          <span class="lbl">Attack tests</span>
-          <button class="bad" data-cheat="underpay" data-idx="${o.index}">Underpay maker</button>
-          <button class="bad" data-cheat="wrong_recipient" data-idx="${o.index}">Pay wrong address</button>
-          <button class="bad" data-cheat="wrong_index" data-idx="${o.index}">Hide maker output</button>
+            <button class="ghost" data-contract="${o.index}">Details</button>
+          </span>
         </div>
         <div class="contract" id="contract-${o.index}"></div>
       </div>`;
@@ -1386,9 +1373,6 @@ function renderOffers() {
   });
   box.querySelectorAll('button[data-contract]').forEach(b => {
     b.onclick = () => viewContract(Number(b.dataset.contract));
-  });
-  box.querySelectorAll('button[data-cheat]').forEach(b => {
-    b.onclick = () => cheatOffer(Number(b.dataset.idx), b.dataset.cheat, b);
   });
 }
 
@@ -1523,11 +1507,18 @@ async function cheatOffer(index, cheat, btn) {
 async function viewContract(index) {
   const box = $('contract-' + index);
   if (box.classList.contains('show')) { box.classList.remove('show'); return; }
+  const o = state.offers.find(x => x.index === index) || {};
   try {
     const c = await api('/api/contract', { index });
     const n = c.nostr || {};
     box.innerHTML = `
-      <div><b>Compiled covenant.</b> CMR <code>${esc(c.cmr)}</code></div>
+      <div class="offer-meta">
+        <span>covenant</span><code>${esc(o.covenant_address)}</code>
+        <span>utxo</span><code>${esc(o.outpoint)}</code>
+        <span>maker paid</span><code>${esc(o.maker_address)}</code>
+        <span>refund</span><code>height ${esc(o.timeout)}</code>
+        <span>cmr</span><code>${esc(c.cmr)}</code>
+      </div>
       <div class="path"><b>SETTLE</b> - ${esc(c.settle)}</div>
       <div class="path refund"><b>REFUND</b> - ${esc(c.refund)}</div>
       <div class="nostr-box">
@@ -1540,8 +1531,17 @@ async function viewContract(index) {
           <span>relay</span><code>${esc(n.relay)}</code>
         </div>
       </div>
+      <div class="cheats">
+        <span class="lbl">Attack tests</span>
+        <button class="bad" data-cheat="underpay" data-idx="${index}">Underpay maker</button>
+        <button class="bad" data-cheat="wrong_recipient" data-idx="${index}">Pay wrong address</button>
+        <button class="bad" data-cheat="wrong_index" data-idx="${index}">Hide maker output</button>
+      </div>
       <div style="margin-top:10px">SimplicityHL source:</div>
       <pre>${esc(c.source)}</pre>`;
+    box.querySelectorAll('button[data-cheat]').forEach(b => {
+      b.onclick = () => cheatOffer(Number(b.dataset.idx), b.dataset.cheat, b);
+    });
     box.classList.add('show');
   } catch (e) { toast(e.message, 'err'); }
 }
