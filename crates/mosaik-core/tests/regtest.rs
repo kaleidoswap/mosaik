@@ -8,9 +8,10 @@
 //! so `cargo test` stays green in environments without one.
 
 use mosaik_core::rpc::ElementsRpc;
-use mosaik_core::{MakeOffer, MosaikMaker, MosaikTaker, TakeOffer, Tessera};
+use mosaik_core::{
+    tessera_for, Cheat, MakeOffer, MosaikMaker, MosaikTaker, Offer, TakeOffer, Tessera,
+};
 use serde_json::json;
-use sha2::{Digest, Sha256};
 
 /// A sample Tessera for the given maker-payment amount (arbitrary terms —
 /// fine for funding tests, which never run the covenant).
@@ -24,25 +25,26 @@ fn sample_tessera(amount_b: u64) -> Tessera {
     }
 }
 
-/// A Tessera whose terms exactly match an L-BTC payment of `amount_b` to
-/// `maker_addr` — so the covenant accepts the settlement.
-fn matching_tessera(rpc: &ElementsRpc, maker_addr: &str, amount_b: u64) -> Tessera {
-    // maker_spk_hash = SHA-256 of the maker scriptPubKey
-    let spk = hex::decode(rpc.address_script_pubkey(maker_addr).unwrap()).unwrap();
-    let maker_spk_hash: [u8; 32] = Sha256::digest(&spk).into();
+/// Issue a test asset, place an explicit (unconfidential) UTXO of it for the
+/// taker, and publish a real two-asset offer: the maker locks 1,000,000 sats of
+/// L-BTC and wants `amount_b` units of the issued asset. Returns the offer and
+/// the asset's display id.
+fn two_asset_offer(rpc: &ElementsRpc, amount_b: u64) -> (Offer, String) {
+    let (asset, _) = rpc.issue_asset(100.0, 0.0).expect("issue asset");
+    rpc.generate(1).expect("confirm issuance");
 
-    // asset_b = L-BTC asset id in tx/jet (internal) order — the RPC display
-    // order is byte-reversed.
-    let mut asset_b = hex::decode(rpc.policy_asset().unwrap()).unwrap();
-    asset_b.reverse();
+    // A Tessera settlement must spend an explicit asset input.
+    let unconf = rpc.new_unconfidential_address().expect("unconfidential address");
+    rpc.send_asset_to(&unconf, 50.0, &asset).expect("explicit asset UTXO");
+    rpc.generate(1).expect("confirm asset UTXO");
 
-    Tessera {
-        asset_b: asset_b.try_into().unwrap(),
-        amount_b,
-        maker_spk_hash,
-        timeout: 500,
-        maker_pk: [0x11; 32],
-    }
+    let maker_addr = rpc.new_unconfidential_address().expect("maker address");
+    let tessera = tessera_for(rpc, &maker_addr, &asset, amount_b, 500, [0x11; 32])
+        .expect("build tessera");
+    let offer = MosaikMaker::regtest()
+        .make_offer("BTC", 1_000_000, &tessera, &maker_addr)
+        .expect("make_offer");
+    (offer, asset)
 }
 
 /// Returns the regtest RPC handle, or `None` (test skips) if no node answers.
@@ -67,8 +69,10 @@ fn node_is_synced_and_mineable() {
     let hashes = rpc.generate(2).expect("mine 2 blocks");
     assert_eq!(hashes.len(), 2);
 
+    // `>=`, not `==`: these integration tests share one regtest node and run
+    // in parallel, so other tests may mine blocks concurrently.
     let after = rpc.block_count().expect("block count");
-    assert_eq!(after, before + 2);
+    assert!(after >= before + 2, "mining should advance the chain");
 }
 
 #[test]
@@ -120,14 +124,9 @@ fn make_offer_funds_a_real_covenant_utxo() {
 fn take_offer_settles_and_pays_the_maker() {
     let Some(rpc) = regtest() else { return };
 
-    // Maker publishes an offer: locks 1,000,000 sats, wants 600,000 paid back.
-    // The covenant terms match the settlement output exactly.
-    let maker_addr = rpc.new_unconfidential_address().expect("maker address");
-    let amount_b = 600_000;
-    let tessera = matching_tessera(&rpc, &maker_addr, amount_b);
-    let offer = MosaikMaker::regtest()
-        .make_offer("BTC", 1_000_000, &tessera, &maker_addr)
-        .expect("make_offer");
+    // Maker locks 1,000,000 sats L-BTC, wants 3.0 units of an issued asset.
+    let amount_b = 300_000_000; // 3.0 units (8-decimal asset)
+    let (offer, asset) = two_asset_offer(&rpc, amount_b);
 
     // Taker fills it — spends the covenant UTXO via SETTLE.
     let txid = MosaikTaker::regtest().take_offer(&offer).expect("take_offer");
@@ -141,34 +140,38 @@ fn take_offer_settles_and_pays_the_maker() {
         .expect("gettxout");
     assert!(spent.is_null(), "covenant UTXO must be spent after take_offer");
 
-    // The settlement tx's output 0 paid the maker exactly 600,000 sats.
+    // The settlement tx's output 0 paid the maker exactly 3.0 of the asset.
     let settle = rpc.raw_transaction(&txid).expect("settlement tx");
     let out0 = &settle.get("vout").and_then(|v| v.as_array()).unwrap()[0];
     let paid = out0.get("value").and_then(|v| v.as_f64()).unwrap_or(0.0);
-    assert!(
-        (paid - 600_000.0 / 1e8).abs() < 1e-8,
-        "maker output should be 600000 sats, got {paid} BTC"
+    assert!((paid - 3.0).abs() < 1e-8, "maker output should be 3.0 units, got {paid}");
+    assert_eq!(
+        out0.get("asset").and_then(|v| v.as_str()),
+        Some(asset.as_str()),
+        "maker output 0 must be the wanted asset"
     );
 }
 
 #[test]
-fn take_offer_rejected_when_covenant_terms_mismatch() {
+fn covenant_rejects_cheating_settlements() {
     let Some(rpc) = regtest() else { return };
 
-    // The covenant's terms (arbitrary) do NOT match an L-BTC payment to the
-    // maker, so the node executes the covenant and rejects the settlement.
-    let maker_addr = rpc.new_unconfidential_address().expect("maker address");
-    let tessera = sample_tessera(600_000);
-    let offer = MosaikMaker::regtest()
-        .make_offer("BTC", 1_000_000, &tessera, &maker_addr)
-        .expect("make_offer");
+    // A valid offer; each cheat builds a balanced but fraudulent settlement,
+    // so only the covenant can reject it. A rejected cheat leaves the covenant
+    // UTXO unspent, so all three can be tried against the same offer.
+    let (offer, _asset) = two_asset_offer(&rpc, 300_000_000);
 
-    let result = MosaikTaker::regtest().take_offer(&offer);
-    assert!(
-        result.is_err(),
-        "the covenant must reject a settlement that does not match its terms, \
-         got {result:?}"
-    );
+    for cheat in [Cheat::Underpay, Cheat::WrongRecipient, Cheat::WrongIndex] {
+        let result = MosaikTaker::regtest().settle(&offer, cheat);
+        assert!(
+            result.is_err(),
+            "the covenant must reject {cheat:?}, got {result:?}"
+        );
+    }
+
+    // The offer is still fillable honestly after the failed attacks.
+    let txid = MosaikTaker::regtest().take_offer(&offer).expect("honest take_offer");
+    assert_eq!(txid.len(), 64);
 }
 
 #[test]

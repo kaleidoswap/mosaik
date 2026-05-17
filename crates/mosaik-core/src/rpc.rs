@@ -90,6 +90,17 @@ impl ElementsRpc {
         self.call("getrawtransaction", json!([txid, true]))
     }
 
+    /// Make sure wallet `name` exists and is loaded. Idempotent: a fresh node
+    /// gets it created, an existing one gets loaded, an already-loaded one is
+    /// left alone. Errors from any of those races are swallowed on purpose.
+    pub fn ensure_wallet(&self, name: &str) -> Result<()> {
+        if self.call("createwallet", json!([name])).is_ok() {
+            return Ok(());
+        }
+        let _ = self.call("loadwallet", json!([name]));
+        Ok(())
+    }
+
     // ---- wallet helpers ----------------------------------------------------
 
     pub fn new_address(&self) -> Result<String> {
@@ -131,6 +142,19 @@ impl ElementsRpc {
             .to_string())
     }
 
+    /// Send `amount` (whole units) of `asset` to `address`; returns the txid.
+    /// Paying an unconfidential address yields an explicit (unblinded) output.
+    pub fn send_asset_to(&self, address: &str, amount: f64, asset: &str) -> Result<String> {
+        Ok(self
+            .call(
+                "sendtoaddress",
+                json!([address, amount, "", "", false, false, 1, "unset", false, asset]),
+            )?
+            .as_str()
+            .unwrap_or_default()
+            .to_string())
+    }
+
     /// Issue a new Liquid asset; returns `(asset_id, issuance_txid)`.
     pub fn issue_asset(&self, asset_amount: f64, token_amount: f64) -> Result<(String, String)> {
         let res = self.call("issueasset", json!([asset_amount, token_amount]))?;
@@ -157,6 +181,47 @@ impl ElementsRpc {
             .and_then(Value::as_str)
             .ok_or_else(|| anyhow!("no bitcoin asset label"))?
             .to_string())
+    }
+
+    /// Sign this wallet's inputs of a PSET; returns the updated PSET.
+    pub fn wallet_process_psbt(&self, pset: &str) -> Result<String> {
+        Ok(self
+            .call("walletprocesspsbt", json!([pset]))?
+            .get("psbt")
+            .and_then(Value::as_str)
+            .ok_or_else(|| anyhow!("walletprocesspsbt: no psbt in result"))?
+            .to_string())
+    }
+
+    /// The first confirmed *explicit* (unblinded) unspent output of `asset` with
+    /// at least `min` units (raw). Returns `(txid, vout, amount_raw)`.
+    ///
+    /// Blinded (confidential) outputs are skipped: a Tessera settlement pays the
+    /// maker with explicit asset-B outputs, and mixing a confidential input with
+    /// explicit outputs unbalances the transaction's blinding factors.
+    pub fn unspent_of_asset(&self, asset: &str, min: u64) -> Result<Option<(String, u64, u64)>> {
+        let unspent = self.list_unspent()?;
+        Ok(unspent.as_array().and_then(|arr| {
+            arr.iter().find_map(|u| {
+                if u.get("asset")?.as_str()? != asset {
+                    return None;
+                }
+                // Skip confidential outputs — only explicit ones can fund a
+                // covenant settlement without rebalancing blinders.
+                if u.get("amountcommitment").is_some() {
+                    return None;
+                }
+                let raw = (u.get("amount")?.as_f64()? * 1e8).round() as u64;
+                if raw < min {
+                    return None;
+                }
+                Some((
+                    u.get("txid")?.as_str()?.to_string(),
+                    u.get("vout")?.as_u64()?,
+                    raw,
+                ))
+            })
+        }))
     }
 
     /// The scriptPubKey (hex) of an address.
