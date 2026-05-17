@@ -17,6 +17,11 @@ use std::sync::{Mutex, OnceLock};
 use anyhow::{anyhow, Result};
 use mosaik_core::rpc::ElementsRpc;
 use mosaik_core::testnet as tn;
+
+/// Address params for the network the testnet UI binds to.
+fn testnet_params() -> &'static simplicityhl::elements::AddressParams {
+    &simplicityhl::elements::AddressParams::LIQUID_TESTNET
+}
 use mosaik_core::{
     demo_maker_pk, lbtc_tessera, tessera_for, Cheat, MakeOffer, MosaikMaker, MosaikTaker, Offer,
     ReclaimOffer, DEMO_MAKER_SECRET,
@@ -383,7 +388,7 @@ fn api_make_offer_testnet(req: &mut Request, state: &Mutex<AppState>) -> Result<
 
     let tessera = tn::demo_tessera(amount_b, timeout, demo_maker_pk())?;
     let compiled = tessera.compile()?;
-    let covenant_address = compiled.address()?.to_string();
+    let covenant_address = compiled.address_for(testnet_params())?.to_string();
 
     // Hit the faucet on the covenant address.
     let faucet = tn::Faucet::testnet();
@@ -536,10 +541,14 @@ fn api_contract(req: &mut Request, state: &Mutex<AppState>) -> Result<Value> {
             .ok_or_else(|| anyhow!("no offer #{index}"))?.offer,
     };
     let compiled = offer.tessera.compile()?;
+    let address = match network() {
+        Network::Testnet => compiled.address_for(testnet_params())?,
+        Network::Regtest => compiled.address()?,
+    };
     Ok(json!({
         "source":  offer.tessera.render(),
         "cmr":     compiled.cmr_hex(),
-        "address": compiled.address()?.to_string(),
+        "address": address.to_string(),
         "settle":  "Taker path: spends the UTXO if output 0 pays the maker exactly \
                     `amount_b` of `asset_b`.",
         "refund":  "Maker path: once the chain reaches the refund block height the \
