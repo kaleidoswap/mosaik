@@ -21,9 +21,9 @@ const TESTNET_LBTC: &str = "144c654344aa716d6f3abcc1ca90e5641e4e2a7f633bc09fe3ba
 const TESTNET_GENESIS: &str = "9f87eb580b9e5f14dc794e4c723c5348b4e58c65e0bf5d2d74a6e5a1d991dd48";
 const ESPLORA_URL: &str = "https://blockstream.info/liquidtestnet/api";
 
-const TREASURY_MNEMONIC: &str = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
-const MAKER_MNEMONIC: &str = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon acid";
-const TAKER_MNEMONIC: &str = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon ads";
+const TREASURY_MNEMONIC: &str = "remind length crumble example secret cost ticket access decrease syrup match check";
+const MAKER_MNEMONIC: &str = "fetch wrap tongue good expect excuse breeze inflict alcohol avoid try usual";
+const TAKER_MNEMONIC: &str = "obey flock cruise slender tray mystery chat try bounce wife furnace action";
 
 // ── LwkWallet ────────────────────────────────────────────────────────────────
 
