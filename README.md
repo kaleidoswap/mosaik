@@ -126,6 +126,16 @@ mosaik/
 You need three things: the Rust toolchain, a **Simplicity-capable** `elementsd`,
 and `hal-simplicity`.
 
+The quick path — once you have the Simplicity `elementsd` (see below) — is the
+helper script. It installs `hal-simplicity`, locates and verifies the node,
+ad-hoc signs the binaries on macOS, and builds the workspace:
+
+```sh
+./scripts/install-deps.sh
+```
+
+Or do it by hand:
+
 ```sh
 # 1. Rust (the workspace pins its toolchain via rust-toolchain.toml)
 curl https://sh.rustup.rs -sSf | sh
@@ -137,19 +147,45 @@ cargo install hal-simplicity      # lands in ~/.cargo/bin
 cargo build
 ```
 
-**`elementsd` must support Simplicity.** Stock Elements can *fund* a covenant
-address (a normal Taproot payment) but cannot *validate a covenant spend* —
-spending a Tessera needs the Simplicity-capable node from the
-[smplx / Simplicity codespace](https://github.com/Blockstream/simplicity-codespace).
+### Simplicity-capable `elementsd`
+
+Stock Elements can *fund* a covenant address (a normal Taproot payment) but
+**cannot validate a covenant spend** — leaf version `0xbe` is non-standard, so a
+Tessera settlement is rejected. Spending a covenant needs an `elementsd` built
+with the Simplicity consensus rules.
+
+The Mosaik demo was developed against the build bundled with **smplx** (the
+Simplicity dev framework — its `simplex` CLI ships a matching `elementsd`,
+`elements-cli`, and `electrs`). Either source works:
+
+- **smplx** — install the `simplex` toolchain and use the `elementsd` it
+  bundles. See [github.com/BlockstreamResearch/smplx](https://github.com/BlockstreamResearch/smplx).
+- **Simplicity codespace** — the Blockstream
+  [simplicity-codespace](https://github.com/Blockstream/simplicity-codespace)
+  ships a Simplicity-capable `elementsd` and the SimplicityHL tooling.
+
+Put the binaries somewhere stable and point Mosaik at them — the demo expects
+them under `tools/` (git-ignored), but any path works via `ELEMENTSD_EXEC`:
+
+```sh
+mkdir -p tools
+cp /path/from/smplx/{elementsd,elements-cli,electrs,simplex} tools/
+
+# verify it is a Simplicity build (Elements Core v23.3.1, from smplx)
+tools/elementsd -version | head -1
+```
 
 > **macOS:** a freshly downloaded `elementsd` is unsigned and gets SIGKILL-ed.
-> Ad-hoc sign it once: `codesign -s - /path/to/elementsd`.
+> Ad-hoc sign each binary once: `codesign -s - tools/elementsd tools/elements-cli`.
+
+`hal-simplicity` must be on `PATH` (step 2 puts it in `~/.cargo/bin`), or set
+`HAL_SIMPLICITY=/path/to/hal-simplicity`.
 
 ## Run
 
 ```sh
-# 1. start a local Elements regtest (point ELEMENTSD_EXEC at the Simplicity build)
-export ELEMENTSD_EXEC=/path/to/simplicity/elementsd
+# 1. start a local Elements regtest with the Simplicity-capable node
+export ELEMENTSD_EXEC="$PWD/tools/elementsd"
 ./scripts/regtest.sh up           # starts elementsd + funds the treasury wallet
 
 # 2. serve the browser wallet UI
@@ -169,8 +205,6 @@ In the UI:
    **Attack the covenant** buttons build fraudulent fills and show the covenant
    rejecting them; **View covenant** shows the compiled SimplicityHL source +
    the Commitment Merkle Root.
-
-`hal-simplicity` must be on `PATH`, or set `HAL_SIMPLICITY=/path/to/hal-simplicity`.
 
 Stop everything with `./scripts/regtest.sh down` and `pkill -f 'mosaik serve'`.
 
