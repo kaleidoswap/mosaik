@@ -96,48 +96,99 @@ mosaik/
 │   ├── tessera/              # the Tessera Simplicity covenant
 │   │   ├── contracts/        #   SimplicityHL (tessera.simf) source
 │   │   └── src/              #   Rust: parameterise + compile the covenant
-│   ├── mosaik-core/          # PSET construction, keys, Liquid plumbing (LWK / rust-elements)
-│   └── mosaik-cli/           # demo CLI `mosaik`: make-offer / take-offer / reclaim
+│   ├── mosaik-core/          # offers, multi-asset PSET construction, Elements RPC
+│   ├── mosaik-relay/         # Nostr orderbook — publish / discover Tessera offers
+│   └── mosaik-cli/           # `mosaik` CLI + the browser wallet UI server
+├── webapp/index.html         # the two-wallet covenant DEX UI (served by mosaik)
 ├── docs/DESIGN.md            # full protocol + covenant spec
 ├── docs/hackathon.html       # hackathon plan + 3-dev work division
 └── scripts/regtest.sh        # local Elements regtest harness
 ```
 
-## Roadmap (hackathon)
+## Status
 
-- [ ] **Day 1** — Tessera covenant compiles in the Simplicity codespace; offer
-      UTXO funded and the SETTLE path spent on Elements regtest.
-- [ ] **Day 1** — REFUND path verified after timeout.
-- [ ] **Day 2** — `mosaik` CLI end-to-end demo: make-offer → take-offer → confirmed.
-- [ ] **Stretch** — Tessera flavours: Dutch-auction (price decays with height)
-      and oracle-settled offers, from the same covenant codebase.
-- [ ] **Stretch** — wire Mosaik into [kaleidoswap-maker](../kaleidoswap-maker)
-      as a `pset`-venue settlement path alongside LWK LiquiDEX.
+- [x] Tessera covenant compiles to a CMR; SETTLE and REFUND paths covered by
+      execution tests.
+- [x] Enforced settlement on a Simplicity-capable `elementsd` — the node
+      executes the covenant and rejects any spend that underpays the maker.
+- [x] `mosaik` CLI end-to-end: make-offer → take-offer → confirmed.
+- [x] Multi-asset swaps — L-BTC/asset, asset/L-BTC and asset/asset, in either
+      direction (the covenant never inspects the *locked* asset).
+- [x] Nostr orderbook (`mosaik-relay`) and a browser wallet UI with two
+      separate maker / taker wallets.
+- [x] Adversarial "attack the covenant" path — underpay, wrong recipient,
+      hidden maker output — all rejected by the covenant.
+- [ ] REFUND / reclaim wired with a real maker key.
+- [ ] Recursive partial-fill covenant — fund once, fill many times.
 
-## Getting started
+## Install
 
-The Simplicity contract is developed in
-**[Blockstream/simplicity-codespace](https://github.com/Blockstream/simplicity-codespace)**
-(SimplicityHL compiler + tooling preinstalled — run it in-browser or in VS Code).
-See [`crates/tessera/contracts/tessera.simf`](crates/tessera/contracts/tessera.simf).
-
-For the Liquid side you need an Elements node:
+You need three things: the Rust toolchain, a **Simplicity-capable** `elementsd`,
+and `hal-simplicity`.
 
 ```sh
-# download elementsd from https://github.com/ElementsProject/elements/releases
-export ELEMENTSD_EXEC=/path/to/elementsd
-./scripts/regtest.sh up        # start a local Elements regtest, funded
-cargo run -p mosaik-cli -- --help
+# 1. Rust (the workspace pins its toolchain via rust-toolchain.toml)
+curl https://sh.rustup.rs -sSf | sh
+
+# 2. hal-simplicity — assembles the covenant witness for a settlement
+cargo install hal-simplicity      # lands in ~/.cargo/bin
+
+# 3. build the workspace
+cargo build
 ```
 
-Two notes on `elementsd`:
+**`elementsd` must support Simplicity.** Stock Elements can *fund* a covenant
+address (a normal Taproot payment) but cannot *validate a covenant spend* —
+spending a Tessera needs the Simplicity-capable node from the
+[smplx / Simplicity codespace](https://github.com/Blockstream/simplicity-codespace).
 
-- **macOS:** a freshly downloaded `elementsd` is unsigned and gets SIGKILL-ed.
-  Ad-hoc sign it once: `codesign -s - /path/to/elementsd`.
-- **Simplicity:** stock Elements has no Simplicity consensus rules, so it can
-  *fund* a covenant address (a normal Taproot payment) but cannot *validate a
-  covenant spend*. Spending a Tessera needs the Simplicity-capable `elementsd`
-  from the [Simplicity codespace](https://github.com/Blockstream/simplicity-codespace).
+> **macOS:** a freshly downloaded `elementsd` is unsigned and gets SIGKILL-ed.
+> Ad-hoc sign it once: `codesign -s - /path/to/elementsd`.
+
+## Run
+
+```sh
+# 1. start a local Elements regtest (point ELEMENTSD_EXEC at the Simplicity build)
+export ELEMENTSD_EXEC=/path/to/simplicity/elementsd
+./scripts/regtest.sh up           # starts elementsd + funds the treasury wallet
+
+# 2. serve the browser wallet UI
+cargo run -p mosaik-cli -- serve-wallet --port 8080
+
+# 3. open the UI
+open http://127.0.0.1:8080
+```
+
+In the UI:
+
+1. **Fund maker** and **Fund taker** — each wallet gets L-BTC plus the two test
+   assets (USDT, EURx).
+2. **Make an offer** — pick any lock asset and want asset, set the amounts, and
+   fund the covenant UTXO.
+3. On an offer card: **Take offer** settles it via the covenant; the red
+   **Attack the covenant** buttons build fraudulent fills and show the covenant
+   rejecting them; **View covenant** shows the compiled SimplicityHL source +
+   the Commitment Merkle Root.
+
+`hal-simplicity` must be on `PATH`, or set `HAL_SIMPLICITY=/path/to/hal-simplicity`.
+
+Stop everything with `./scripts/regtest.sh down` and `pkill -f 'mosaik serve'`.
+
+### CLI
+
+The same flow without the browser:
+
+```sh
+cargo run -p mosaik-cli -- --help
+cargo run -p mosaik-cli -- make-offer --amount-a 1000000 --amount-b 5000000000 \
+    --asset-b <usdt-asset-id> --timeout 500 > offer.json
+cargo run -p mosaik-cli -- take-offer --offer offer.json
+cargo run -p mosaik-cli -- serve-relay --port 7777   # local Nostr orderbook
+```
+
+The Simplicity contract itself is developed in
+**[Blockstream/simplicity-codespace](https://github.com/Blockstream/simplicity-codespace)** —
+see [`crates/tessera/contracts/tessera.simf`](crates/tessera/contracts/tessera.simf).
 
 ## References
 
