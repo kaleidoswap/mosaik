@@ -60,8 +60,6 @@ enum Command {
         #[arg(long)]
         amount_b: u64,
         #[arg(long)]
-        maker_pk: String,
-        #[arg(long)]
         maker_spk_hash: String,
         #[arg(long)]
         timeout: u32,
@@ -73,8 +71,6 @@ enum Command {
         #[arg(long)]
         amount_b: u64,
         #[arg(long)]
-        maker_pk: String,
-        #[arg(long)]
         maker_spk_hash: String,
         #[arg(long)]
         timeout: u32,
@@ -85,8 +81,6 @@ enum Command {
         asset_b: String,
         #[arg(long)]
         amount_b: u64,
-        #[arg(long)]
-        maker_pk: String,
         #[arg(long)]
         maker_spk_hash: String,
         #[arg(long)]
@@ -139,7 +133,6 @@ fn parse_32(label: &str, s: &str) -> Result<[u8; 32]> {
 fn build_tessera(
     asset_b: &str,
     amount_b: u64,
-    maker_pk: &str,
     maker_spk_hash: &str,
     timeout: u32,
 ) -> Result<Tessera> {
@@ -148,7 +141,6 @@ fn build_tessera(
         amount_b,
         maker_spk_hash: parse_32("maker_spk_hash", maker_spk_hash)?,
         timeout,
-        maker_pk: parse_32("maker_pk", maker_pk)?,
     })
 }
 
@@ -167,22 +159,20 @@ fn main() -> Result<()> {
         Command::ShowTessera {
             asset_b,
             amount_b,
-            maker_pk,
             maker_spk_hash,
             timeout,
         } => {
-            let tessera = build_tessera(&asset_b, amount_b, &maker_pk, &maker_spk_hash, timeout)?;
+            let tessera = build_tessera(&asset_b, amount_b, &maker_spk_hash, timeout)?;
             println!("{}", tessera.render());
             Ok(())
         }
         Command::CompileTessera {
             asset_b,
             amount_b,
-            maker_pk,
             maker_spk_hash,
             timeout,
         } => {
-            let tessera = build_tessera(&asset_b, amount_b, &maker_pk, &maker_spk_hash, timeout)?;
+            let tessera = build_tessera(&asset_b, amount_b, &maker_spk_hash, timeout)?;
             let compiled = tessera.compile()?;
             println!("Tessera covenant compiled.");
             println!("  CMR:     {}", compiled.cmr_hex());
@@ -193,12 +183,11 @@ fn main() -> Result<()> {
         Command::SettleWitness {
             asset_b,
             amount_b,
-            maker_pk,
             maker_spk_hash,
             timeout,
             settle_vout,
         } => {
-            let tessera = build_tessera(&asset_b, amount_b, &maker_pk, &maker_spk_hash, timeout)?;
+            let tessera = build_tessera(&asset_b, amount_b, &maker_spk_hash, timeout)?;
             let wit = tessera.settle_witness(settle_vout)?;
             println!("Tessera SETTLE witness (Taproot script-path, bottom to top):");
             println!("  program:       {}", hex::encode(&wit.program));
@@ -233,8 +222,8 @@ fn make_offer(
     let rpc = ElementsRpc::regtest_wallet();
     let maker_address = rpc.new_unconfidential_address()?;
     let tessera = match asset_b {
-        Some(asset) => tessera_for(&rpc, &maker_address, asset, amount_b, timeout, mosaik_core::demo_maker_pk())?,
-        None => lbtc_tessera(&rpc, &maker_address, amount_b, timeout, mosaik_core::demo_maker_pk())?,
+        Some(asset) => tessera_for(&rpc, &maker_address, asset, amount_b, timeout)?,
+        None => lbtc_tessera(&rpc, &maker_address, amount_b, timeout)?,
     };
     let offer = MosaikMaker::regtest().make_offer("BTC", amount_a, &tessera, &maker_address)?;
 
@@ -266,13 +255,13 @@ fn take_offer(offer_path: &str) -> Result<()> {
 
 /// Maker: reclaim an unfilled offer via the covenant's REFUND path.
 fn reclaim(offer_path: &str) -> Result<()> {
-    use mosaik_core::{MosaikMaker, Offer, ReclaimOffer, DEMO_MAKER_SECRET};
+    use mosaik_core::{MosaikMaker, Offer, ReclaimOffer};
 
     let offer_json = std::fs::read_to_string(offer_path)
         .map_err(|e| anyhow::anyhow!("reading {offer_path}: {e}"))?;
     let offer: Offer = serde_json::from_str(&offer_json)?;
 
-    let txid = MosaikMaker::regtest().reclaim(&offer, &DEMO_MAKER_SECRET)?;
+    let txid = MosaikMaker::regtest().reclaim(&offer)?;
     println!("Reclaimed. The covenant's REFUND path returned the locked asset to the maker.");
     println!("  reclaim txid: {txid}");
     Ok(())

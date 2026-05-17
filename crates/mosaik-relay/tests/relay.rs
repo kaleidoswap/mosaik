@@ -18,7 +18,6 @@ fn sample_offer(order_id: &str) -> TesseraOffer {
                 amount_b: 1_200_000,
                 maker_spk_hash: [0xcd; 32],
                 timeout: 800,
-                maker_pk: [0x44; 32],
             },
             maker_address: "ert1qmaker".into(),
         },

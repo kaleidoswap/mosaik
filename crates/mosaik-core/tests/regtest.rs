@@ -9,8 +9,8 @@
 
 use mosaik_core::rpc::ElementsRpc;
 use mosaik_core::{
-    demo_maker_pk, tessera_for, Cheat, MakeOffer, MosaikMaker, MosaikTaker, Offer, ReclaimOffer,
-    TakeOffer, Tessera, DEMO_MAKER_SECRET,
+    tessera_for, Cheat, MakeOffer, MosaikMaker, MosaikTaker, Offer, ReclaimOffer, TakeOffer,
+    Tessera,
 };
 use serde_json::json;
 
@@ -22,7 +22,6 @@ fn sample_tessera(amount_b: u64) -> Tessera {
         amount_b,
         maker_spk_hash: [0xcd; 32],
         timeout: 500,
-        maker_pk: [0x11; 32],
     }
 }
 
@@ -40,7 +39,7 @@ fn two_asset_offer(rpc: &ElementsRpc, amount_b: u64) -> (Offer, String) {
     rpc.generate(1).expect("confirm asset UTXO");
 
     let maker_addr = rpc.new_unconfidential_address().expect("maker address");
-    let tessera = tessera_for(rpc, &maker_addr, &asset, amount_b, 500, [0x11; 32])
+    let tessera = tessera_for(rpc, &maker_addr, &asset, amount_b, 500)
         .expect("build tessera");
     let offer = MosaikMaker::regtest()
         .make_offer("BTC", 1_000_000, &tessera, &maker_addr)
@@ -182,7 +181,7 @@ fn reclaim_returns_the_locked_lbtc_after_the_timeout() {
     // An L-BTC-locked offer refundable from height 1 — i.e. immediately.
     let maker_addr = rpc.new_unconfidential_address().expect("maker address");
     let lbtc = rpc.policy_asset().expect("policy asset");
-    let tessera = tessera_for(&rpc, &maker_addr, &lbtc, 600_000, 1, demo_maker_pk())
+    let tessera = tessera_for(&rpc, &maker_addr, &lbtc, 600_000, 1)
         .expect("build tessera");
     let offer = MosaikMaker::regtest()
         .make_offer("BTC", 1_000_000, &tessera, &maker_addr)
@@ -190,7 +189,7 @@ fn reclaim_returns_the_locked_lbtc_after_the_timeout() {
 
     // The maker reclaims via the covenant's REFUND path.
     let txid = MosaikMaker::regtest()
-        .reclaim(&offer, &DEMO_MAKER_SECRET)
+        .reclaim(&offer)
         .expect("reclaim");
     assert_eq!(txid.len(), 64);
     rpc.generate(1).expect("confirm reclaim");
@@ -220,13 +219,13 @@ fn reclaim_rejected_before_the_timeout() {
     let height = rpc.block_count().expect("block count") as u32;
     let maker_addr = rpc.new_unconfidential_address().expect("maker address");
     let lbtc = rpc.policy_asset().expect("policy asset");
-    let tessera = tessera_for(&rpc, &maker_addr, &lbtc, 600_000, height + 10_000, demo_maker_pk())
+    let tessera = tessera_for(&rpc, &maker_addr, &lbtc, 600_000, height + 10_000)
         .expect("build tessera");
     let offer = MosaikMaker::regtest()
         .make_offer("BTC", 1_000_000, &tessera, &maker_addr)
         .expect("make_offer");
 
-    let result = MosaikMaker::regtest().reclaim(&offer, &DEMO_MAKER_SECRET);
+    let result = MosaikMaker::regtest().reclaim(&offer);
     assert!(
         result.is_err(),
         "reclaim must be rejected before the timeout, got {result:?}"

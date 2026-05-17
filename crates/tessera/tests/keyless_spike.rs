@@ -16,7 +16,7 @@ use simplicityhl::elements;
 use simplicityhl::elements::taproot::ControlBlock;
 use simplicityhl::{Arguments, CompiledProgram, WitnessValues};
 
-const KEYLESS_SIMF: &str = include_str!("../contracts/tessera-keyless.simf");
+const KEYLESS_SIMF: &str = include_str!("../contracts/tessera.simf");
 
 /// SHA-256 of an empty scriptPubKey — what `output_script_hash` returns for
 /// `Script::default()`.
@@ -137,10 +137,17 @@ fn refund_accepts_a_full_sweep_after_the_timeout() {
 }
 
 #[test]
+fn refund_allows_a_fee_within_max_fee() {
+    // The sweep returns 999_000 of the locked 1_000_000 — a 1_000 fee, < MAX_FEE.
+    run_refund(100, 1_000_000, 999_000, 150)
+        .expect("REFUND must allow a sweep fee within MAX_FEE");
+}
+
+#[test]
 fn refund_rejects_a_skimming_sweep() {
-    // The sweep returns only 999_999 of the locked 1_000_000 — a skim.
-    let result = run_refund(100, 1_000_000, 999_999, 150);
-    assert!(result.is_err(), "REFUND must reject a sweep that shortchanges the maker");
+    // The sweep returns only 994_000 of 1_000_000 — a 6_000 skim, over MAX_FEE.
+    let result = run_refund(100, 1_000_000, 994_000, 150);
+    assert!(result.is_err(), "REFUND must reject a skim larger than MAX_FEE");
 }
 
 #[test]

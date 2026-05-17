@@ -127,7 +127,6 @@ mod tests {
                     amount_b: 600_000,
                     maker_spk_hash: [0x22; 32],
                     timeout: 500,
-                    maker_pk: [0x33; 32],
                 },
                 maker_address: "ert1qexample".into(),
             },

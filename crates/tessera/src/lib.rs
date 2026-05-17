@@ -3,119 +3,94 @@
 //! A **Tessera** is one swap offer expressed as a covenant: a single Liquid
 //! coin whose Simplicity program enforces the trade terms. This crate owns the
 //! [`Tessera`] terms of an offer and turns them into a concrete Simplicity
-//! program — it substitutes the terms into the [`tessera.simf`] template and
-//! (once wired to the SimplicityHL compiler) produces the program whose
-//! commitment goes into the Taproot tapleaf.
+//! program — it substitutes the terms into [`tessera.simf`] and compiles it.
 //!
-//! A **Mosaik** market is a mosaic of these tesserae.
+//! The covenant is **keyless** — pure transaction introspection, no signatures.
+//! SETTLE pays the maker the counter-asset; REFUND, after a timeout, lets anyone
+//! sweep the coin home to the maker. See `contracts/tessera.simf`.
 //!
 //! [`tessera.simf`]: ../contracts/tessera.simf
 
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 
-/// The SimplicityHL source for the fixed-price Tessera covenant.
+/// The SimplicityHL source for the Tessera covenant.
 pub const TESSERA_SIMF: &str = include_str!("../contracts/tessera.simf");
 
-/// The SimplicityHL source for the quote (intent / RFQ) Tessera covenant.
-pub const TESSERA_QUOTE_SIMF: &str = include_str!("../contracts/tessera-quote.simf");
+/// The witness `PATH` type — `Left(settle_vout)` or `Right(refund_vout)`,
+/// both plain `u32` (the covenant carries no signatures).
+const PATH_TYPE: &str = "Either<u32, u32>";
 
 /// A Tessera — the immutable terms of one Mosaik swap offer.
 ///
 /// Every field is committed into the covenant tapleaf, so the terms cannot
-/// change once the offer UTXO exists. See `docs/DESIGN.md` §2.
+/// change once the offer UTXO exists. There is no maker key: the maker is
+/// identified purely by the scriptPubKey their payment must reach.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Tessera {
-    /// Asset id (32 bytes, hex) the maker wants to receive.
+    /// Asset id (32 bytes) the maker wants to receive.
     pub asset_b: [u8; 32],
     /// Exact amount of `asset_b` the maker must be paid.
     pub amount_b: u64,
-    /// SHA-256 of the maker's scriptPubKey — where the counter-payment must go.
+    /// SHA-256 of the maker's scriptPubKey — where the counter-payment, or a
+    /// refund sweep, must go.
     pub maker_spk_hash: [u8; 32],
-    /// Block height after which the maker may take the REFUND path.
+    /// Block height after which anyone may take the keyless REFUND path.
     pub timeout: u32,
-    /// Maker BIP-340 x-only public key (32 bytes) for the REFUND path.
-    pub maker_pk: [u8; 32],
 }
 
 impl Tessera {
     /// Render concrete SimplicityHL source with these terms substituted in.
-    ///
-    /// The template carries the five terms as inline literals, each on a line
-    /// tagged `// TESSERA_PARAM:<NAME>`. This rewrites the literal on each
-    /// tagged line so the program is fully concrete and ready to compile.
     pub fn render(&self) -> String {
-        render_template(TESSERA_SIMF, |name| self.param_literal(name))
-    }
-
-    /// The SimplicityHL literal for a `TESSERA_PARAM` name.
-    fn param_literal(&self, name: &str) -> String {
-        match name {
+        render_template(TESSERA_SIMF, |name| match name {
             "ASSET_B" => format!("0x{}", hex::encode(self.asset_b)),
             "AMOUNT_B" => self.amount_b.to_string(),
             "MAKER_SPK" => format!("0x{}", hex::encode(self.maker_spk_hash)),
             "TIMEOUT" => self.timeout.to_string(),
-            "MAKER_PK" => format!("0x{}", hex::encode(self.maker_pk)),
             other => panic!("unknown TESSERA_PARAM:{other} in tessera.simf"),
-        }
+        })
     }
 
-    /// Compile the parameterised covenant with the SimplicityHL compiler.
-    ///
-    /// Renders the terms into concrete source, compiles it to Simplicity, and
-    /// returns the program's Commitment Merkle Root — the 32-byte value the
-    /// Taproot tapleaf commits to, and what `mosaik-core` needs to derive the
-    /// offer's address.
+    /// Compile the covenant and return its Commitment Merkle Root.
     pub fn compile(&self) -> Result<CompiledTessera> {
         compile_cmr(&self.render())
     }
 
     /// Build the Taproot witness for spending this covenant via SETTLE.
     ///
-    /// SETTLE carries no signature — the witness is fully determined by the
-    /// covenant and `settle_vout` (the index of the output that pays the
-    /// maker). The returned [`TesseraWitness`] is the input's witness stack;
-    /// drop it into a transaction whose output `settle_vout` pays the maker.
+    /// `settle_vout` is the index of the output that pays the maker. The
+    /// witness carries no signature.
     pub fn settle_witness(&self, settle_vout: u32) -> Result<TesseraWitness> {
-        // SETTLE: PATH = Left(settle_vout). No signature needed.
-        build_witness(&self.render(), FIXED_PATH_TYPE, &format!("Left({settle_vout})"))
+        build_witness(&self.render(), &format!("Left({settle_vout})"))
     }
 
-    /// Build the complete REFUND transaction, signed and ready to broadcast.
+    /// Build the complete REFUND transaction, ready to broadcast.
     ///
-    /// `raw_tx_hex` is the unsigned refund tx (covenant input at `input_index`,
-    /// `nLockTime >= timeout`). `prevout_*` describe the covenant UTXO, and
-    /// `genesis_hash` is the chain's genesis block hash (display hex).
+    /// REFUND is keyless: no signing. `raw_tx_hex` is the unsigned sweep tx
+    /// (covenant input at `input_index`, `nLockTime >= timeout`, an output at
+    /// `refund_vout` returning the full locked amount to the maker). The
+    /// covenant program is pruned against that transaction and dropped onto the
+    /// input. `prevout_*` describe the covenant UTXO.
     pub fn build_refund_tx(
         &self,
         raw_tx_hex: &str,
         input_index: usize,
+        refund_vout: u32,
         prevout_spk: &[u8],
         prevout_asset: &str,
         prevout_value: u64,
-        genesis_hash: &str,
-        maker_secret: &[u8; 32],
     ) -> Result<String> {
         refund_tx_impl(
             &self.render(),
-            FIXED_PATH_TYPE,
             raw_tx_hex,
             input_index,
+            refund_vout,
             prevout_spk,
             prevout_asset,
             prevout_value,
-            genesis_hash,
-            maker_secret,
         )
     }
 }
-
-/// The witness `PATH` type for the fixed-price covenant (`tessera.simf`).
-const FIXED_PATH_TYPE: &str = "Either<u32, Signature>";
-
-/// The witness `PATH` type for the quote covenant (`tessera-quote.simf`) — the
-/// SETTLE arm carries the quote tuple `(vout, amount_b, valid_height, sig)`.
-const QUOTE_PATH_TYPE: &str = "Either<(u32, u64, u32, Signature), Signature>";
 
 /// Substitute `// TESSERA_PARAM:<NAME>` literals in a covenant template.
 fn render_template(template: &str, lookup: impl Fn(&str) -> String) -> String {
@@ -153,16 +128,16 @@ fn compile_cmr(source: &str) -> Result<CompiledTessera> {
     Ok(CompiledTessera { cmr })
 }
 
-/// Build the Taproot script-path witness for covenant `source`, given a witness
-/// `PATH` value of type `path_type`.
-fn build_witness(source: &str, path_type: &str, path_value: &str) -> Result<TesseraWitness> {
+/// Build the Taproot script-path witness for covenant `source` and a witness
+/// `PATH` value (`"Left(vout)"` or `"Right(vout)"`).
+fn build_witness(source: &str, path_value: &str) -> Result<TesseraWitness> {
     use simplicityhl::{Arguments, CompiledProgram, WitnessValues};
 
     let compiled = CompiledProgram::new(source.to_string(), Arguments::default(), false)
         .map_err(|e| anyhow::anyhow!("compile: {e}"))?;
 
     let wit_json =
-        format!(r#"{{ "PATH": {{ "value": "{path_value}", "type": "{path_type}" }} }}"#);
+        format!(r#"{{ "PATH": {{ "value": "{path_value}", "type": "{PATH_TYPE}" }} }}"#);
     let witness_values: WitnessValues =
         serde_json::from_str(&wit_json).map_err(|e| anyhow::anyhow!("witness: {e}"))?;
     let satisfied = compiled
@@ -193,26 +168,22 @@ fn build_witness(source: &str, path_type: &str, path_value: &str) -> Result<Tess
 
 /// Build the complete REFUND transaction for covenant `source`.
 ///
-/// The maker's signature is over the Simplicity `sig_all` hash (which binds the
-/// chain genesis and the spent UTXO), and the covenant program is **pruned**
-/// against that exact transaction so the dead SETTLE branch is gone from the
-/// witness — an unpruned program is rejected with `Program has FAIL node`.
-#[allow(clippy::too_many_arguments)]
+/// Keyless — no signing. The covenant program is **pruned** against the exact
+/// transaction so the dead SETTLE branch is gone from the witness (an unpruned
+/// program is rejected with `Program has FAIL node`). The keyless covenant
+/// never reads the chain genesis, so a dummy genesis is fine for pruning.
 fn refund_tx_impl(
     source: &str,
-    path_type: &str,
     raw_tx_hex: &str,
     input_index: usize,
+    refund_vout: u32,
     prevout_spk: &[u8],
     prevout_asset: &str,
     prevout_value: u64,
-    genesis_hash: &str,
-    maker_secret: &[u8; 32],
 ) -> Result<String> {
     use std::str::FromStr;
     use std::sync::Arc;
 
-    use secp256k1::{Keypair, Message, Secp256k1, SecretKey};
     use simplicity::elements::{
         confidential,
         encode::{deserialize, serialize_hex},
@@ -246,8 +217,6 @@ fn refund_tx_impl(
         ),
         value: confidential::Value::Explicit(prevout_value),
     };
-    let genesis =
-        BlockHash::from_str(genesis_hash).map_err(|e| anyhow::anyhow!("genesis hash: {e}"))?;
 
     let env = ElementsEnv::new(
         Arc::new(tx.clone()),
@@ -256,24 +225,12 @@ fn refund_tx_impl(
         cmr,
         control_block.clone(),
         None,
-        genesis,
+        BlockHash::all_zeros(),
     );
 
-    // The covenant's `jet::sig_all_hash` is exactly this `sig_all` sighash.
-    let sighash = env.c_tx_env().sighash_all();
-    let secp = Secp256k1::new();
-    let keypair = Keypair::from_secret_key(
-        &secp,
-        &SecretKey::from_slice(maker_secret).map_err(|e| anyhow::anyhow!("secret: {e}"))?,
-    );
-    let msg = Message::from_digest(sighash.to_byte_array());
-    let sig = secp.sign_schnorr_no_aux_rand(&msg, &keypair);
-
-    // Satisfy the REFUND path, then prune against this exact transaction.
-    let wit_json = format!(
-        r#"{{ "PATH": {{ "value": "Right(0x{})", "type": "{path_type}" }} }}"#,
-        hex::encode(sig.as_ref()),
-    );
+    // REFUND: PATH = Right(refund_vout). Prune against this exact transaction.
+    let wit_json =
+        format!(r#"{{ "PATH": {{ "value": "Right({refund_vout})", "type": "{PATH_TYPE}" }} }}"#);
     let witness_values: WitnessValues =
         serde_json::from_str(&wit_json).map_err(|e| anyhow::anyhow!("witness: {e}"))?;
     let satisfied = compiled
@@ -296,128 +253,6 @@ fn refund_tx_impl(
     Ok(serialize_hex(&tx))
 }
 
-/// A maker-signed quote — the per-fill price for a [`QuoteTessera`] covenant.
-///
-/// The maker signs `(asset_b ‖ amount_b ‖ valid_height)`; the covenant's SETTLE
-/// path re-hashes it and verifies the signature. `amount_b` is what the taker
-/// must pay; `valid_height` is the lower bound the spending tx's `nLockTime`
-/// must reach — the quote's freshness floor.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Quote {
-    /// Amount of `asset_b` the taker must pay the maker.
-    pub amount_b: u64,
-    /// Block height the spending transaction must lock to (the quote window).
-    pub valid_height: u32,
-}
-
-impl Quote {
-    /// SHA-256(`asset_b` ‖ `amount_b` ‖ `valid_height`), big-endian — the exact
-    /// digest the covenant re-computes with the `sha_256_ctx_8` jets.
-    pub fn hash(&self, asset_b: &[u8; 32]) -> [u8; 32] {
-        use sha2::{Digest, Sha256};
-        let mut h = Sha256::new();
-        h.update(asset_b);
-        h.update(self.amount_b.to_be_bytes());
-        h.update(self.valid_height.to_be_bytes());
-        h.finalize().into()
-    }
-
-    /// Sign this quote with the maker's secret key — the BIP-340 signature the
-    /// covenant's SETTLE path verifies against `maker_pk`.
-    pub fn sign(&self, asset_b: &[u8; 32], maker_secret: &[u8; 32]) -> Result<[u8; 64]> {
-        use secp256k1::{Keypair, Message, Secp256k1, SecretKey};
-        let secp = Secp256k1::new();
-        let keypair = Keypair::from_secret_key(
-            &secp,
-            &SecretKey::from_slice(maker_secret).map_err(|e| anyhow::anyhow!("secret: {e}"))?,
-        );
-        let sig = secp
-            .sign_schnorr_no_aux_rand(&Message::from_digest(self.hash(asset_b)), &keypair);
-        Ok(*sig.as_ref())
-    }
-}
-
-/// A Tessera whose SETTLE price is set per-fill by a maker-signed [`Quote`],
-/// not baked into the tapleaf. See `contracts/tessera-quote.simf`.
-///
-/// The four committed terms (`asset_b`, `maker_spk_hash`, `timeout`,
-/// `maker_pk`) still pin the asset, the payout script, the refund height and
-/// the maker key; only the amount becomes a per-fill signed quote.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct QuoteTessera {
-    /// Asset id (32 bytes) the maker wants to receive.
-    pub asset_b: [u8; 32],
-    /// SHA-256 of the maker's scriptPubKey — where the counter-payment goes.
-    pub maker_spk_hash: [u8; 32],
-    /// Block height after which the maker may take the REFUND path.
-    pub timeout: u32,
-    /// Maker BIP-340 x-only public key — verifies quotes and the REFUND.
-    pub maker_pk: [u8; 32],
-}
-
-impl QuoteTessera {
-    /// Render concrete SimplicityHL source with these terms substituted in.
-    pub fn render(&self) -> String {
-        render_template(TESSERA_QUOTE_SIMF, |name| match name {
-            "ASSET_B" => format!("0x{}", hex::encode(self.asset_b)),
-            "MAKER_SPK" => format!("0x{}", hex::encode(self.maker_spk_hash)),
-            "MAKER_PK" => format!("0x{}", hex::encode(self.maker_pk)),
-            "TIMEOUT" => self.timeout.to_string(),
-            other => panic!("unknown TESSERA_PARAM:{other} in tessera-quote.simf"),
-        })
-    }
-
-    /// Compile the covenant and return its Commitment Merkle Root.
-    pub fn compile(&self) -> Result<CompiledTessera> {
-        compile_cmr(&self.render())
-    }
-
-    /// Build the SETTLE witness for filling at `quote`, authorised by the
-    /// maker's signature `sig` over that quote.
-    pub fn settle_quote_witness(
-        &self,
-        settle_vout: u32,
-        quote: &Quote,
-        sig: &[u8; 64],
-    ) -> Result<TesseraWitness> {
-        build_witness(
-            &self.render(),
-            QUOTE_PATH_TYPE,
-            &format!(
-                "Left(({}, {}, {}, 0x{}))",
-                settle_vout,
-                quote.amount_b,
-                quote.valid_height,
-                hex::encode(sig),
-            ),
-        )
-    }
-
-    /// Build the complete REFUND transaction, signed and ready to broadcast.
-    pub fn build_refund_tx(
-        &self,
-        raw_tx_hex: &str,
-        input_index: usize,
-        prevout_spk: &[u8],
-        prevout_asset: &str,
-        prevout_value: u64,
-        genesis_hash: &str,
-        maker_secret: &[u8; 32],
-    ) -> Result<String> {
-        refund_tx_impl(
-            &self.render(),
-            QUOTE_PATH_TYPE,
-            raw_tx_hex,
-            input_index,
-            prevout_spk,
-            prevout_asset,
-            prevout_value,
-            genesis_hash,
-            maker_secret,
-        )
-    }
-}
-
 /// A compiled Tessera covenant.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CompiledTessera {
@@ -436,7 +271,6 @@ impl CompiledTessera {
     /// The covenant lives in a single Taproot leaf: the leaf script is the
     /// 32-byte CMR, the leaf version is the Simplicity version (`0xbe`). There
     /// is no key-path spend, so the internal key is the BIP-341 NUMS point.
-    /// Funding this address creates the offer's covenant UTXO.
     pub fn address(&self) -> Result<simplicityhl::elements::Address> {
         use simplicityhl::elements::{Address, AddressParams};
         let (spend_info, _) = taproot_spend_info(&self.cmr)?;
@@ -448,25 +282,11 @@ impl CompiledTessera {
     }
 }
 
-/// Derive the BIP-340 x-only public key (32 bytes) for a secret key.
-///
-/// Mosaik uses this to set a Tessera's `maker_pk` from the maker's secret, so
-/// the covenant's REFUND path verifies against the right key.
-pub fn x_only_pubkey(secret: &[u8; 32]) -> Result<[u8; 32]> {
-    use simplicityhl::elements::secp256k1_zkp::{Keypair, Secp256k1, SecretKey};
-
-    let secp = Secp256k1::new();
-    let sk = SecretKey::from_slice(secret).map_err(|e| anyhow::anyhow!("secret key: {e}"))?;
-    let keypair = Keypair::from_secret_key(&secp, &sk);
-    Ok(keypair.x_only_public_key().0.serialize())
-}
-
 /// Build the single-leaf Taproot for a covenant with the given CMR.
 ///
 /// The leaf script is the 32-byte CMR, the leaf version is the Simplicity
 /// version (`0xbe`), and the internal key is the BIP-341 NUMS point — provably
 /// no known discrete log, so the covenant can only be spent through the leaf.
-/// Returns the spend info and the leaf script.
 fn taproot_spend_info(
     cmr: &[u8; 32],
 ) -> Result<(
@@ -538,7 +358,6 @@ mod tests {
             amount_b: 50_000,
             maker_spk_hash: [0x22; 32],
             timeout: 200,
-            maker_pk: [0x33; 32],
         }
     }
 
@@ -552,25 +371,19 @@ mod tests {
     #[test]
     fn render_substitutes_every_term() {
         let rendered = sample_tessera().render();
-        // amount + timeout as decimal literals on their tagged lines
         assert!(rendered.contains("= 50000; // TESSERA_PARAM:AMOUNT_B"));
         assert!(rendered.contains("= 200; // TESSERA_PARAM:TIMEOUT"));
-        // 32-byte terms as 0x-hex literals
         assert!(rendered.contains(&format!("0x{}; // TESSERA_PARAM:ASSET_B", "11".repeat(32))));
         assert!(rendered.contains(&format!("0x{}; // TESSERA_PARAM:MAKER_SPK", "22".repeat(32))));
-        assert!(rendered.contains(&format!("0x{}; // TESSERA_PARAM:MAKER_PK", "33".repeat(32))));
         // no all-zero placeholder literal survives substitution
         assert!(!rendered.contains(&"0".repeat(64)));
-        // the program body is intact
         assert!(rendered.contains("fn main"));
         assert!(rendered.contains("fn settle"));
     }
 
     #[test]
     fn covenant_compiles_and_yields_a_cmr() {
-        let compiled = sample_tessera()
-            .compile()
-            .expect("the Tessera covenant must compile");
+        let compiled = sample_tessera().compile().expect("the covenant must compile");
         assert_ne!(compiled.cmr, [0u8; 32], "CMR must not be all-zero");
         assert_eq!(compiled.cmr_hex().len(), 64);
     }
@@ -579,44 +392,10 @@ mod tests {
     fn covenant_yields_a_taproot_address() {
         let compiled = sample_tessera().compile().expect("compile");
         let addr = compiled.address().expect("derive address");
-        // elementsregtest Taproot (bech32m) addresses start with `ert1p`.
         assert!(
             addr.to_string().starts_with("ert1p"),
             "expected an elementsregtest P2TR address, got {addr}"
         );
-    }
-
-    fn sample_quote_tessera() -> QuoteTessera {
-        QuoteTessera {
-            asset_b: [0x11; 32],
-            maker_spk_hash: [0x22; 32],
-            timeout: 200,
-            maker_pk: [0x33; 32],
-        }
-    }
-
-    #[test]
-    fn quote_tessera_compiles_and_yields_an_address() {
-        let compiled = sample_quote_tessera().compile().expect("quote covenant compiles");
-        assert_ne!(compiled.cmr, [0u8; 32]);
-        assert!(compiled.address().expect("address").to_string().starts_with("ert1p"));
-    }
-
-    #[test]
-    fn quote_hash_matches_a_known_layout() {
-        // SHA-256(asset_b ‖ amount_b_be ‖ valid_height_be) must be deterministic.
-        let quote = Quote { amount_b: 50_000, valid_height: 200 };
-        let h1 = quote.hash(&[0u8; 32]);
-        let h2 = quote.hash(&[0u8; 32]);
-        assert_eq!(h1, h2);
-        assert_ne!(h1, quote.hash(&[1u8; 32]), "the asset must affect the digest");
-    }
-
-    #[test]
-    fn quote_roundtrips_json() {
-        let quote = Quote { amount_b: 4_000_000_000, valid_height: 158 };
-        let back: Quote = serde_json::from_str(&serde_json::to_string(&quote).unwrap()).unwrap();
-        assert_eq!(quote, back);
     }
 
     #[test]
@@ -626,10 +405,8 @@ mod tests {
 
         assert!(!wit.program.is_empty(), "program must be non-empty");
         assert!(!wit.witness.is_empty(), "witness must be non-empty");
-        // the tapleaf script is exactly the 32-byte CMR
         assert_eq!(wit.leaf_script.len(), 32);
         assert_eq!(wit.leaf_script, tessera.compile().unwrap().cmr);
-        // a single-leaf Taproot control block is 33 bytes
         assert_eq!(wit.control_block.len(), 33);
         assert_eq!(wit.witness_stack().len(), 4);
     }

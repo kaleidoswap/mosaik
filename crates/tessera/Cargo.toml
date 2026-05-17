@@ -14,5 +14,6 @@ serde.workspace = true
 serde_json.workspace = true
 simplicityhl.workspace = true
 simplicity-lang = "0.7"
-secp256k1 = "0.29"
+
+[dev-dependencies]
 sha2 = "0.10"

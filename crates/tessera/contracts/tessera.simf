@@ -2,51 +2,47 @@
  * Mosaik — the Tessera covenant
  * =============================
  * A Tessera is one Mosaik swap offer: a Liquid UTXO holding asset A, spendable
- * two ways.
+ * two ways. The covenant is **keyless** — pure transaction introspection, no
+ * signatures anywhere.
  *
- *   SETTLE  — by ANYONE, but only if the spending transaction has an output
- *             paying exactly AMOUNT_B of ASSET_B to the maker (MAKER_SPK).
- *   REFUND  — by the MAKER, after block height TIMEOUT.
+ *   SETTLE  — by ANYONE, if the spending transaction has an output paying
+ *             exactly AMOUNT_B of ASSET_B to the maker (MAKER_SPK).
+ *   REFUND  — by ANYONE, after block height TIMEOUT, *if* the spend returns the
+ *             locked asset to the maker, less at most MAX_FEE (the sweep's
+ *             network fee). A skim larger than MAX_FEE is rejected, so the
+ *             worst a griefer can do is burn MAX_FEE to the miner.
  *
  * Written in SimplicityHL (github.com/BlockstreamResearch/SimplicityHL).
- * Compiled and CMR-checked by the `tessera` crate (see src/lib.rs, the
- * `covenant_compiles_and_yields_a_cmr` test).
+ * Compiled and CMR-checked by the `tessera` crate.
  *
- * The five offer terms are inline literals tagged `TESSERA_PARAM:<NAME>`. The
+ * The four offer terms are inline literals tagged `TESSERA_PARAM:<NAME>`. The
  * `tessera` crate substitutes them per offer (`Tessera::render`); because they
  * live in the program they live in the tapleaf, hence in the UTXO's address —
- * immutable once the offer is funded.
+ * immutable once the offer is funded. There is no maker key: the maker is
+ * identified purely by MAKER_SPK.
  *
- * v1 requires the maker's counter-payment output to be EXPLICIT (unblinded),
- * so the covenant can read its asset and amount. See docs/DESIGN.md §4.
+ * v1 requires the relevant outputs to be EXPLICIT (unblinded).
  */
 
 // ── helpers ────────────────────────────────────────────────────────────────
 
-// Verify a BIP-340 Schnorr signature over the standard "sig_all" sighash.
-fn checksig(pk: Pubkey, sig: Signature) {
-    let msg: u256 = jet::sig_all_hash();
-    jet::bip_0340_verify((pk, msg), sig);
-}
-
-// Assert an output asset is explicit (unblinded) and equals `expected`.
-fn assert_asset(asset: Asset1, expected: ExplicitAsset) {
+// Unwrap an explicit (unblinded) asset, or fail.
+fn explicit_asset(asset: Asset1) -> u256 {
     match asset {
-        Right(explicit: ExplicitAsset) => assert!(jet::eq_256(explicit, expected)),
+        Right(a: ExplicitAsset) => a,
         Left(_blinded: Confidential1) => panic!(), // blinded — v1 needs explicit
     }
 }
 
-// Assert an output amount is explicit (unblinded) and equals `expected`.
-fn assert_amount(amount: Amount1, expected: u64) {
+// Unwrap an explicit (unblinded) amount, or fail.
+fn explicit_amount(amount: Amount1) -> u64 {
     match amount {
-        Right(explicit: u64) => assert!(jet::eq_64(explicit, expected)),
+        Right(a: u64) => a,
         Left(_blinded: Confidential1) => panic!(),
     }
 }
 
-// Assert the output at `vout` pays the script `expected_spk`
-// (scriptPubKey is always unblinded, even on confidential outputs).
+// Assert the output at `vout` pays the script `expected_spk`.
 fn assert_script(vout: u32, expected_spk: u256) {
     match jet::output_script_hash(vout) {
         Some(spk: u256) => assert!(jet::eq_256(spk, expected_spk)),
@@ -54,24 +50,25 @@ fn assert_script(vout: u32, expected_spk: u256) {
     }
 }
 
+// The (asset, amount) pair of output `vout`, or fail if there is none.
+fn output_pair(vout: u32) -> (Asset1, Amount1) {
+    match jet::output_amount(vout) {
+        Some(p: (Asset1, Amount1)) => p,
+        None => panic!(),
+    }
+}
+
 // ── SETTLE path ─────────────────────────────────────────────────────────────
 //
-// Permissionless fill. `settle_vout` (from the witness) points at the output
-// that pays the maker; the covenant re-verifies asset, amount and script at
-// that index, so a wrong index simply fails the asserts.
+// Permissionless fill: `settle_vout` points at the output paying the maker.
 fn settle(settle_vout: u32) {
-    // asset + amount of the proposed maker output.
-    let pair: (Asset1, Amount1) = match jet::output_amount(settle_vout) {
-        Some(p: (Asset1, Amount1)) => p,
-        None => panic!(), // no output at settle_vout
-    };
-    let (out_asset, out_amount): (Asset1, Amount1) = pair;
+    let (out_asset, out_amount): (Asset1, Amount1) = output_pair(settle_vout);
 
-    let asset_b: ExplicitAsset = 0x0000000000000000000000000000000000000000000000000000000000000000; // TESSERA_PARAM:ASSET_B
-    assert_asset(out_asset, asset_b);
+    let asset_b: u256 = 0x0000000000000000000000000000000000000000000000000000000000000000; // TESSERA_PARAM:ASSET_B
+    assert!(jet::eq_256(explicit_asset(out_asset), asset_b));
 
     let amount_b: u64 = 0; // TESSERA_PARAM:AMOUNT_B
-    assert_amount(out_amount, amount_b);
+    assert!(jet::eq_64(explicit_amount(out_amount), amount_b));
 
     let maker_spk: u256 = 0x0000000000000000000000000000000000000000000000000000000000000000; // TESSERA_PARAM:MAKER_SPK
     assert_script(settle_vout, maker_spk)
@@ -79,22 +76,34 @@ fn settle(settle_vout: u32) {
 
 // ── REFUND path ─────────────────────────────────────────────────────────────
 //
-// The maker reclaims an unfilled offer once the timeout height is reached.
-fn refund(sig: Signature) {
+// Keyless. After TIMEOUT anyone may sweep the coin, but `refund_vout` must
+// return the locked asset to the maker, less at most MAX_FEE.
+fn refund(refund_vout: u32) {
     let timeout: Height = 0; // TESSERA_PARAM:TIMEOUT
     jet::check_lock_height(timeout);
 
-    let maker_pk: Pubkey = 0x0000000000000000000000000000000000000000000000000000000000000000; // TESSERA_PARAM:MAKER_PK
-    checksig(maker_pk, sig)
+    // What this covenant locks — its own input's asset and amount.
+    let (in_asset, in_amount): (Asset1, Amount1) = jet::current_amount();
+    let (out_asset, out_amount): (Asset1, Amount1) = output_pair(refund_vout);
+
+    // Same asset, and the maker receives at least `locked - MAX_FEE`:
+    //   out_amount + MAX_FEE >= in_amount
+    assert!(jet::eq_256(explicit_asset(in_asset), explicit_asset(out_asset)));
+    let max_fee: u64 = 5000;
+    let (_carry, out_plus_fee): (bool, u64) = jet::add_64(explicit_amount(out_amount), max_fee);
+    assert!(jet::le_64(explicit_amount(in_amount), out_plus_fee));
+
+    let maker_spk: u256 = 0x0000000000000000000000000000000000000000000000000000000000000000; // TESSERA_PARAM:MAKER_SPK
+    assert_script(refund_vout, maker_spk)
 }
 
 // ── entry point ─────────────────────────────────────────────────────────────
 //
-// The witness selects the path. `PATH` is an Either: Left = settle (carrying
-// the maker-output index), Right = refund (carrying the maker's signature).
+// PATH is an Either: Left = settle (maker-output index), Right = refund
+// (refund-output index). Neither path carries a signature.
 fn main() {
     match witness::PATH {
         Left(settle_vout: u32) => settle(settle_vout),
-        Right(maker_sig: Signature) => refund(maker_sig),
+        Right(refund_vout: u32) => refund(refund_vout),
     }
 }

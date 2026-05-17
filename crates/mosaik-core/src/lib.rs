@@ -55,10 +55,9 @@ pub fn lbtc_tessera(
     maker_address: &str,
     amount_b: u64,
     timeout: u32,
-    maker_pk: [u8; 32],
 ) -> Result<Tessera> {
     let lbtc = rpc.policy_asset()?;
-    tessera_for(rpc, maker_address, &lbtc, amount_b, timeout, maker_pk)
+    tessera_for(rpc, maker_address, &lbtc, amount_b, timeout)
 }
 
 /// Build a [`Tessera`] whose SETTLE path requires `amount_b` of `asset_b_display`
@@ -72,7 +71,6 @@ pub fn tessera_for(
     asset_b_display: &str,
     amount_b: u64,
     timeout: u32,
-    maker_pk: [u8; 32],
 ) -> Result<Tessera> {
     use sha2::{Digest, Sha256};
 
@@ -85,7 +83,7 @@ pub fn tessera_for(
         .try_into()
         .map_err(|_| anyhow::anyhow!("asset_b id is not 32 bytes"))?;
 
-    Ok(Tessera { asset_b, amount_b, maker_spk_hash, timeout, maker_pk })
+    Ok(Tessera { asset_b, amount_b, maker_spk_hash, timeout })
 }
 
 /// A maker that publishes offers against an Elements node.
@@ -426,32 +424,23 @@ fn hal_pset(args: &[&str]) -> Result<String> {
         .to_string())
 }
 
-/// The Mosaik demo maker secret key. A single fixed keypair stands in for the
-/// maker across the demo; a real deployment derives one key per offer.
-pub const DEMO_MAKER_SECRET: [u8; 32] = [7u8; 32];
-
-/// The x-only public key for [`DEMO_MAKER_SECRET`] — the Tessera `maker_pk`.
-pub fn demo_maker_pk() -> [u8; 32] {
-    tessera::x_only_pubkey(&DEMO_MAKER_SECRET).expect("valid demo maker secret")
-}
-
 /// Maker side — reclaim an unfilled offer after its timeout.
 pub trait ReclaimOffer {
-    /// Spend the covenant UTXO back to the maker via the REFUND path, signing
-    /// with `maker_secret` (whose x-only pubkey must equal the Tessera's
-    /// `maker_pk`). Returns the reclaim txid.
-    fn reclaim(&self, offer: &Offer, maker_secret: &[u8; 32]) -> Result<String>;
+    /// Spend the covenant UTXO back to the maker via the keyless REFUND path.
+    /// No key needed — the covenant only requires the sweep to return the
+    /// locked asset to the maker. Returns the reclaim txid.
+    fn reclaim(&self, offer: &Offer) -> Result<String>;
 }
 
 impl ReclaimOffer for MosaikMaker {
-    /// Build, finalise and broadcast the REFUND transaction.
+    /// Build, finalise and broadcast the keyless REFUND transaction.
     ///
-    /// REFUND spends the covenant UTXO back to the maker once the chain is at
-    /// or past `tessera.timeout`. The transaction sets `nLockTime = timeout`;
-    /// the maker signs the Simplicity `sig_all` hash (computed by
-    /// `hal-simplicity sighash`), and that signature goes into the covenant's
-    /// REFUND witness. Supports L-BTC-locked offers.
-    fn reclaim(&self, offer: &Offer, maker_secret: &[u8; 32]) -> Result<String> {
+    /// REFUND sweeps the covenant UTXO back to the maker once the chain is at
+    /// or past `tessera.timeout`. The transaction sets `nLockTime = timeout`
+    /// and pays the locked L-BTC (less the fee) to the maker. No signature —
+    /// the covenant enforces the destination and amount itself. L-BTC-locked
+    /// offers only.
+    fn reclaim(&self, offer: &Offer) -> Result<String> {
         let lbtc = self.rpc.policy_asset()?;
         if offer.asset_a != lbtc {
             anyhow::bail!(
@@ -499,18 +488,16 @@ impl ReclaimOffer for MosaikMaker {
         let compiled = offer.tessera.compile()?;
         let covenant_spk_bytes = compiled.address()?.script_pubkey().as_bytes().to_vec();
 
-        // Sign and finalise the REFUND spend in one step: the maker's signature
-        // and the pruned covenant program both bind to this exact transaction.
-        // One covenant input, no wallet inputs — no PSET round-trip needed.
-        let genesis = self.rpc.genesis_hash()?;
+        // Keyless: prune the covenant against this exact transaction and drop
+        // the witness onto the single covenant input — no signing, no PSET.
+        // The maker output is at index 0.
         let raw_tx = offer.tessera.build_refund_tx(
             &raw_hex,
+            0,
             0,
             &covenant_spk_bytes,
             &lbtc,
             amount_a,
-            &genesis,
-            maker_secret,
         )?;
 
         if std::env::var("MOSAIK_DEBUG_TX").is_ok() {
@@ -538,7 +525,6 @@ mod tests {
                 amount_b: 50_000,
                 maker_spk_hash: [0x22; 32],
                 timeout: 200,
-                maker_pk: [0x33; 32],
             },
             maker_address: "ert1qexampleexampleexampleexampleexampleex".into(),
         };

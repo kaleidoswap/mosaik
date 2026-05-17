@@ -22,8 +22,7 @@ use std::sync::Mutex;
 use anyhow::{anyhow, Result};
 use mosaik_core::rpc::ElementsRpc;
 use mosaik_core::{
-    demo_maker_pk, lbtc_tessera, tessera_for, Cheat, MakeOffer, MosaikMaker, MosaikTaker, Offer,
-    ReclaimOffer, DEMO_MAKER_SECRET,
+    lbtc_tessera, tessera_for, Cheat, MakeOffer, MosaikMaker, MosaikTaker, Offer, ReclaimOffer,
 };
 use serde_json::{json, Value};
 use tiny_http::{Header, Method, Request, Response, Server};
@@ -265,9 +264,9 @@ fn api_make_offer(req: &mut Request, state: &Mutex<AppState>) -> Result<Value> {
     // The covenant enforces the maker's counter-payment in the `want` asset.
     let want_id = label_to_id(&assets, want, &lbtc)?;
     let tessera = if want_id == lbtc {
-        lbtc_tessera(&maker, &maker_address, amount_b, timeout, demo_maker_pk())?
+        lbtc_tessera(&maker, &maker_address, amount_b, timeout)?
     } else {
-        tessera_for(&maker, &maker_address, &want_id, amount_b, timeout, demo_maker_pk())?
+        tessera_for(&maker, &maker_address, &want_id, amount_b, timeout)?
     };
 
     // `lock` is what the maker locks in the covenant UTXO.
@@ -347,7 +346,7 @@ fn api_reclaim(req: &mut Request, state: &Mutex<AppState>) -> Result<Value> {
         st.offers.get(index).cloned().ok_or_else(|| anyhow!("no offer #{index}"))?
     };
 
-    let txid = MosaikMaker::new(maker_rpc()).reclaim(&offer, &DEMO_MAKER_SECRET)?;
+    let txid = MosaikMaker::new(maker_rpc()).reclaim(&offer)?;
     treasury().generate(1)?; // confirm the reclaim
 
     let mut st = state.lock().unwrap();
