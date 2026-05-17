@@ -25,8 +25,19 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+# Source .env if present so ESPLORA_URL / ESPLORA_TOKEN / HAL_SIMPLICITY are
+# in the environment of both this script and the mosaik server it spawns.
+if [ -f "$ROOT/.env" ]; then
+    set -a; . "$ROOT/.env"; set +a
+fi
+
 HAL="${HAL_SIMPLICITY:-${HOME}/.cargo/bin/hal-simplicity}"
-ESPLORA="https://blockstream.info/liquidtestnet/api"
+ESPLORA="${ESPLORA_URL:-https://blockstream.info/liquidtestnet/api}"
+ESPLORA_BEARER=()
+if [ -n "${ESPLORA_TOKEN:-}" ]; then
+    ESPLORA_BEARER=(-H "Authorization: Bearer ${ESPLORA_TOKEN}")
+fi
 FAUCET="https://liquidtestnet.com/faucet"
 OFFER_DEFAULT="$ROOT/offer.json"
 UI_PORT="${MOSAIK_UI_PORT:-8081}"
@@ -58,7 +69,7 @@ wait_esplora() {
     yellow "Waiting for $txid on Esplora (Liquid testnet ~1 min per block)…"
     for _ in $(seq 1 120); do
         local data
-        data=$(curl -sS "$ESPLORA/tx/$txid" 2>/dev/null || true)
+        data=$(curl -sS "${ESPLORA_BEARER[@]}" "$ESPLORA/tx/$txid" 2>/dev/null || true)
         if echo "$data" | python3 -c \
             "import json,sys; d=json.load(sys.stdin); print(d['vout'][0])" \
             >/dev/null 2>&1; then
@@ -287,7 +298,7 @@ cmd_take_offer() {
 
     yellow "==> Step 6: Broadcast to Liquid testnet"
     local TXID
-    TXID=$(curl -sX POST "$ESPLORA/tx" -d "$RAW_TX")
+    TXID=$(curl -sX POST "${ESPLORA_BEARER[@]}" "$ESPLORA/tx" -d "$RAW_TX")
     if echo "$TXID" | grep -qE '^[0-9a-f]{64}$'; then
         green "✓ Broadcast successful!"
         green "  Settlement txid: $TXID"

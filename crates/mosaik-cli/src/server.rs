@@ -78,7 +78,11 @@ pub fn run(port: u16, net: Network) -> Result<()> {
     println!("Mosaik wallet UI  →  http://127.0.0.1:{port}  [{label}]");
     match net {
         Network::Regtest => println!("Backend: elementsd at {}", regtest_node_url()),
-        Network::Testnet => println!("Backend: Esplora at {} + public faucet", tn::ESPLORA_DEFAULT),
+        Network::Testnet => {
+            let esp = tn::Esplora::testnet();
+            let auth = if esp.has_token() { " (Bearer token set)" } else { "" };
+            println!("Backend: Esplora at {}{} + public faucet", esp.base_url(), auth);
+        }
     }
 
     for mut req in server.incoming_requests() {
