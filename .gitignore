@@ -22,3 +22,8 @@
 
 # Saved offer JSON produced by ./scripts/testnet.sh make-offer
 /offer.json
+
+# UI build artifacts
+ui/node_modules/
+ui/dist/
+ui/tsconfig.tsbuildinfo

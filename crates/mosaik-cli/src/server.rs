@@ -1,23 +1,26 @@
-//! Mosaik wallet UI — a tiny HTTP server.
+//! Mosaik trading UI — HTTP server for the covenant DEX.
 //!
 //! Two networks, picked at startup via `--network`:
 //!
-//!   * `regtest` (default) — local Elements regtest on port 7040. Free coins,
-//!                            instant blocks (we mine after every action), test
-//!                            assets issued by the server on first Fund.
-//!
+//!   * `regtest` (default) — local Elements regtest on port 7040.
 //!   * `testnet`           — local Elements node on port 7041 running
-//!                            `chain=liquidtestnet`. Bootstrapped by
-//!                            `./scripts/testnet.sh up && ./scripts/testnet.sh fund`
-//!                            (treasury faucet-funded, USDT/EURx issued once and
-//!                            persisted to `.testnet/assets.json`). Same UI flow
-//!                            as regtest, but blocks come from the network at
-//!                            ~1 min/block, so we don't mine after actions.
+//!                            `chain=liquidtestnet`.
 //!
-//! Wallets expected on the node:
-//!   * `mosaik`        — treasury (free coins on regtest, faucet-funded on testnet)
-//!   * `mosaik-maker`  — the maker role
-//!   * `mosaik-taker`  — the taker role
+//! Serves the React trading UI (from `ui/dist/` if built, else the baked-in
+//! HTML fallback) and exposes API surfaces:
+//!
+//! **Market Data API**
+//!   GET  /api/orderbook      aggregated bid/ask levels
+//!   GET  /api/trades         recent market trades
+//!   GET  /api/chart          OHLCV candles (synthesised for demo)
+//!   GET  /api/depth          cumulative depth chart data
+//!   GET  /api/user/orders    current user's open orders
+//!   POST /api/cancel         cancel (reclaim) an open order
+//!
+//! **Covenant DEX API**
+//!   GET  /api/state
+//!   POST /api/fund/maker|taker
+//!   POST /api/make-offer | /api/take-offer | /api/reclaim | /api/contract
 
 use std::collections::BTreeMap;
 use std::sync::{Mutex, OnceLock};
@@ -35,14 +38,13 @@ const INDEX_HTML: &str = include_str!("../../../webapp/index.html");
 const RPC_USER: &str = "user";
 const RPC_PASS: &str = "pass";
 
-/// The two demo Liquid assets. Issued on regtest by the server on first Fund;
-/// pre-issued on testnet by `./scripts/testnet.sh fund` and loaded from
-/// `.testnet/assets.json`.
 const TEST_ASSETS: [&str; 2] = ["USDT", "EURx"];
-
-/// Env var the testnet.sh `serve` command sets, pointing at the persisted
-/// `{name: asset_id}` map for the demo assets.
 const TESTNET_ASSETS_ENV: &str = "MOSAIK_TESTNET_ASSETS_FILE";
+
+/// Fixed RFQ pricing (sats of 'to' per sat of 'from', before fee).
+const BTC_USDT: f64 = 48_732.0;
+const BTC_EURX: f64 = 44_500.0;
+const FEE_BPS: f64 = 10.0; // 0.1 %
 
 // ── network ──────────────────────────────────────────────────────────────────
 
@@ -71,20 +73,81 @@ fn node()      -> ElementsRpc { ElementsRpc::node(node_url(),                   
 
 // ── server state ─────────────────────────────────────────────────────────────
 
+#[derive(Clone)]
+struct SwapRecord {
+    from_ticker: String,
+    to_ticker: String,
+    from_amount: u64,
+    to_amount: u64,
+    txid: String,
+    timestamp: u64,
+}
+
 struct AppState {
     offers: Vec<Offer>,
-    assets: BTreeMap<String, String>, // name → display-order asset id
+    assets: BTreeMap<String, String>,
+    history: Vec<SwapRecord>,
+}
+
+/// Path to the React build output, if present.
+fn dist_dir() -> Option<std::path::PathBuf> {
+    for candidate in &["ui/dist", "../ui/dist", "webapp/dist", "../webapp/dist"] {
+        let p = std::path::Path::new(candidate);
+        if p.join("index.html").exists() {
+            return Some(p.to_path_buf());
+        }
+    }
+    None
+}
+
+fn mime_for(path: &str) -> &'static str {
+    if path.ends_with(".js") || path.ends_with(".mjs") {
+        "application/javascript"
+    } else if path.ends_with(".css") {
+        "text/css"
+    } else if path.ends_with(".svg") {
+        "image/svg+xml"
+    } else if path.ends_with(".woff2") {
+        "font/woff2"
+    } else {
+        "text/html; charset=utf-8"
+    }
+}
+
+fn serve_static(req: Request, url_path: &str) {
+    if let Some(dist) = dist_dir() {
+        let file = if url_path == "/" || url_path == "/index.html" || !url_path.contains('.') {
+            dist.join("index.html")
+        } else {
+            dist.join(url_path.trim_start_matches('/'))
+        };
+
+        if let Ok(bytes) = std::fs::read(&file) {
+            let mime = mime_for(url_path);
+            let header = Header::from_bytes(b"Content-Type", mime.as_bytes())
+                .expect("valid header");
+            let _ = req.respond(Response::from_data(bytes).with_header(header));
+            return;
+        }
+        if let Ok(bytes) = std::fs::read(dist.join("index.html")) {
+            let header =
+                Header::from_bytes(b"Content-Type", b"text/html; charset=utf-8").unwrap();
+            let _ = req.respond(Response::from_data(bytes).with_header(header));
+            return;
+        }
+    }
+    let header =
+        Header::from_bytes(b"Content-Type", b"text/html; charset=utf-8").expect("valid header");
+    let _ = req.respond(Response::from_string(INDEX_HTML).with_header(header));
 }
 
 pub fn run(port: u16, net: Network) -> Result<()> {
     let _ = NETWORK.set(net);
 
-    // Make sure the maker/taker wallets exist on the node.
     let n = node();
     n.ensure_wallet("mosaik-maker")?;
     n.ensure_wallet("mosaik-taker")?;
 
-    // Testnet pre-seeds the test asset map from the bootstrap script.
     let mut initial_assets: BTreeMap<String, String> = BTreeMap::new();
     if net == Network::Testnet {
         if let Ok(path) = std::env::var(TESTNET_ASSETS_ENV) {
@@ -92,15 +155,20 @@ pub fn run(port: u16, net: Network) -> Result<()> {
         }
     }
 
-    let server = Server::http(("127.0.0.1", port))
-        .map_err(|e| anyhow!("could not bind 127.0.0.1:{port}: {e}"))?;
+    let server = Server::http(("0.0.0.0", port))
+        .map_err(|e| anyhow!("could not bind 0.0.0.0:{port}: {e}"))?;
     let state = Mutex::new(AppState {
         offers: Vec::new(),
         assets: initial_assets,
+        history: Vec::new(),
     });
 
     let label = match net { Network::Regtest => "regtest", Network::Testnet => "testnet" };
-    println!("Mosaik wallet UI  →  http://127.0.0.1:{port}  [{label}]");
+    if dist_dir().is_some() {
+        println!("Mosaik trading UI  ->  http://127.0.0.1:{port}  (React build)  [{label}]");
+    } else {
+        println!("Mosaik wallet UI   ->  http://127.0.0.1:{port}  (fallback HTML)  [{label}]");
+    }
     println!("Backend: elementsd at {}  |  wallets: mosaik, mosaik-maker, mosaik-taker", node_url());
     if net == Network::Testnet {
         let st = state.lock().unwrap();
@@ -113,7 +181,6 @@ pub fn run(port: u16, net: Network) -> Result<()> {
     }
 
     for mut req in server.incoming_requests() {
-        // Browser preflight for CORS (the IDE preview panel needs this).
         if req.method() == &Method::Options {
             let _ = req.respond(
                 Response::from_string("")
@@ -128,6 +195,20 @@ pub fn run(port: u16, net: Network) -> Result<()> {
                         &b"Content-Type"[..],
                     ).expect("header")),
             );
+            continue;
+        }
+
+        let method = req.method().clone();
+        let url = req.url().split('?').next().unwrap_or("/").to_string();
+
+        // Static assets and SPA root
+        let is_static = method == Method::Get
+            && (url == "/"
+                || url == "/index.html"
+                || url.starts_with("/assets/")
+                || url.starts_with("/fonts/"));
+        if is_static {
+            serve_static(req, &url);
             continue;
         }
 
@@ -160,7 +241,6 @@ fn route(req: &mut Request, state: &Mutex<AppState>) -> (u16, Value) {
     let url = req.url().split('?').next().unwrap_or("/").to_string();
 
     let result: Result<Value> = match (&method, url.as_str()) {
-        (Method::Get, "/") | (Method::Get, "/index.html") => return (0, Value::Null),
         (Method::Get,  "/api/state")        => api_state(state),
         (Method::Post, "/api/fund/maker")   => api_fund(state, &maker_rpc()),
         (Method::Post, "/api/fund/taker")   => api_fund(state, &taker_rpc()),
@@ -168,6 +248,13 @@ fn route(req: &mut Request, state: &Mutex<AppState>) -> (u16, Value) {
         (Method::Post, "/api/take-offer")   => api_take_offer(req, state),
         (Method::Post, "/api/reclaim")      => api_reclaim(req, state),
         (Method::Post, "/api/contract")     => api_contract(req, state),
+        // Market data API
+        (Method::Get, "/api/orderbook")     => api_orderbook(req, state),
+        (Method::Get, "/api/trades")        => api_trades(req, state),
+        (Method::Get, "/api/chart")         => api_chart(req, state),
+        (Method::Get, "/api/depth")         => api_depth(req, state),
+        (Method::Get, "/api/user/orders")   => api_user_orders(state),
+        (Method::Post, "/api/cancel")       => api_cancel(req, state),
         _ => return (404, json!({ "error": "not found" })),
     };
 
@@ -188,18 +275,13 @@ fn raw_balance(balances: &Value, asset: &str) -> u64 {
         .map(|v| (v * 1e8).round() as u64).unwrap_or(0)
 }
 
-/// Issue USDT + EURx (regtest only). On testnet the assets are pre-issued by
-/// scripts/testnet.sh and loaded from disk at startup; this fn is a no-op for
-/// testnet (returns the already-loaded map).
 fn ensure_assets(state: &Mutex<AppState>) -> Result<BTreeMap<String, String>> {
     {
         let st = state.lock().unwrap();
         if !st.assets.is_empty() { return Ok(st.assets.clone()); }
     }
     if !is_regtest() {
-        anyhow::bail!(
-            "no testnet assets loaded. Run ./scripts/testnet.sh fund to issue them."
-        );
+        anyhow::bail!("no testnet assets loaded. Run ./scripts/testnet.sh fund to issue them.");
     }
     let mut st = state.lock().unwrap();
     let t = treasury();
@@ -238,6 +320,18 @@ fn id_to_name(assets: &BTreeMap<String, String>, id: &str, lbtc: &str) -> String
     assets.iter().find(|(_, v)| v.as_str() == id)
         .map(|(k, _)| k.clone())
         .unwrap_or_else(|| format!("{}…", &id[..id.len().min(8)]))
+}
+
+fn norm(t: &str) -> &str {
+    match t { "L-BTC" | "LBTC" => "BTC", other => other }
+}
+
+fn format_timestamp(ts: u64) -> String {
+    let mins = (ts / 60) % 60;
+    let hours = (ts / 3600) % 24;
+    let days = (ts / 86400) % 31 + 1;
+    let months = ((ts / 86400) / 31) % 12 + 1;
+    format!("{:02}:{:02} {:02}/{:02}/{}", hours, mins, days, months, 2019)
 }
 
 // ── endpoints ────────────────────────────────────────────────────────────────
@@ -297,10 +391,6 @@ fn api_state(state: &Mutex<AppState>) -> Result<Value> {
     }))
 }
 
-/// Send funds from the treasury to a wallet.
-///
-/// Regtest: 1 L-BTC + 100 of each test asset, mine to confirm.
-/// Testnet: 0.001 L-BTC + 100 of each test asset; no mining (block ~1 min).
 fn api_fund(state: &Mutex<AppState>, target: &ElementsRpc) -> Result<Value> {
     let assets = ensure_assets(state)?;
     let treasury = treasury();
@@ -308,9 +398,6 @@ fn api_fund(state: &Mutex<AppState>, target: &ElementsRpc) -> Result<Value> {
     let (lbtc_amount, asset_amount, funded_label) = if is_regtest() {
         (1.0, 100.0, "1 L-BTC + 100 of each asset")
     } else {
-        // Testnet treasury starts with one faucet drop (~100k sats) minus the
-        // fees spent during issuance, leaving room for ~5 fund calls before it
-        // empties. The user can re-run ./scripts/testnet.sh fund to top up.
         (0.00010, 10.0, "0.0001 L-BTC + 10 of each asset (testnet: ~1 min to confirm)")
     };
 
@@ -412,9 +499,247 @@ fn api_contract(req: &mut Request, state: &Mutex<AppState>) -> Result<Value> {
         "source":  offer.tessera.render(),
         "cmr":     compiled.cmr_hex(),
         "address": address.to_string(),
-        "settle":  "Taker path: spends the UTXO if output 0 pays the maker exactly \
-                    `amount_b` of `asset_b`.",
-        "refund":  "Maker path: once the chain reaches the refund block height the \
-                    maker reclaims the locked asset with a BIP-340 signature.",
+        "settle":  "Taker path: spends the UTXO if output 0 pays the maker exactly \" +
+                    \"`amount_b` of `asset_b`.",
+        "refund":  "Maker path: once the chain reaches the refund block height the \" +
+                    \"maker reclaims the locked asset with a BIP-340 signature.",
     }))
+}
+
+// ── Market data API ---------------------------------------------------------
+
+fn api_orderbook(_req: &mut Request, state: &Mutex<AppState>) -> Result<Value> {
+    let st = state.lock().unwrap();
+    let lbtc = node().policy_asset().unwrap_or_default();
+
+    let mut bids: Vec<Value> = Vec::new();
+    let mut asks: Vec<Value> = Vec::new();
+
+    for offer in &st.offers {
+        let mut ab = offer.tessera.asset_b.to_vec();
+        ab.reverse();
+        let asset_b = hex::encode(ab);
+        let lock_name = id_to_name(&st.assets, &offer.asset_a, &lbtc);
+        let want_name = id_to_name(&st.assets, &asset_b, &lbtc);
+
+        if offer.amount_a == 0 { continue; }
+
+        if lock_name == "L-BTC" && want_name == "USDT" {
+            let price = offer.tessera.amount_b as f64 / offer.amount_a as f64;
+            let price = (price * 100.0).round() / 100.0;
+            asks.push(json!({
+                "price": price,
+                "amount": offer.amount_a as f64 / 1e8,
+                "total": offer.tessera.amount_b as f64 / 1e8,
+            }));
+        } else if lock_name == "USDT" && want_name == "L-BTC" {
+            let price = offer.amount_a as f64 / offer.tessera.amount_b as f64;
+            let price = (price * 100.0).round() / 100.0;
+            bids.push(json!({
+                "price": price,
+                "amount": offer.tessera.amount_b as f64 / 1e8,
+                "total": offer.amount_a as f64 / 1e8,
+            }));
+        } else if lock_name == "L-BTC" && want_name == "EURx" {
+            let price = offer.tessera.amount_b as f64 / offer.amount_a as f64;
+            let price = (price * 100.0).round() / 100.0;
+            asks.push(json!({
+                "price": price,
+                "amount": offer.amount_a as f64 / 1e8,
+                "total": offer.tessera.amount_b as f64 / 1e8,
+            }));
+        } else if lock_name == "EURx" && want_name == "L-BTC" {
+            let price = offer.amount_a as f64 / offer.tessera.amount_b as f64;
+            let price = (price * 100.0).round() / 100.0;
+            bids.push(json!({
+                "price": price,
+                "amount": offer.tessera.amount_b as f64 / 1e8,
+                "total": offer.amount_a as f64 / 1e8,
+            }));
+        }
+    }
+
+    bids.sort_by(|a, b| {
+        let pa = a.get("price").and_then(Value::as_f64).unwrap_or(0.0);
+        let pb = b.get("price").and_then(Value::as_f64).unwrap_or(0.0);
+        pb.partial_cmp(&pa).unwrap_or(std::cmp::Ordering::Equal)
+    });
+    asks.sort_by(|a, b| {
+        let pa = a.get("price").and_then(Value::as_f64).unwrap_or(0.0);
+        let pb = b.get("price").and_then(Value::as_f64).unwrap_or(0.0);
+        pa.partial_cmp(&pb).unwrap_or(std::cmp::Ordering::Equal)
+    });
+
+    let mut bid_cum = 0.0;
+    for b in &mut bids {
+        let amt = b.get("amount").and_then(Value::as_f64).unwrap_or(0.0);
+        bid_cum += amt;
+        b.as_object_mut().unwrap().insert("total".to_string(), json!(bid_cum));
+    }
+    let mut ask_cum = 0.0;
+    for a in &mut asks {
+        let amt = a.get("amount").and_then(Value::as_f64).unwrap_or(0.0);
+        ask_cum += amt;
+        a.as_object_mut().unwrap().insert("total".to_string(), json!(ask_cum));
+    }
+
+    Ok(json!({ "bids": bids, "asks": asks }))
+}
+
+fn api_trades(req: &mut Request, state: &Mutex<AppState>) -> Result<Value> {
+    let url = req.url().to_string();
+    let limit = url.split('?').nth(1).unwrap_or("")
+        .split('&').find_map(|kv| {
+            let (k, v) = kv.split_once('=')?;
+            if k == "limit" { v.parse::<usize>().ok() } else { None }
+        }).unwrap_or(50);
+
+    let st = state.lock().unwrap();
+    let records: Vec<Value> = st.history.iter().rev().take(limit).map(|r| {
+        let side = if r.to_ticker == "L-BTC" || r.to_ticker == "BTC" { "buy" } else { "sell" };
+        let price = if r.to_amount > 0 { r.from_amount as f64 / r.to_amount as f64 } else { 0.0 };
+        let dt = format_timestamp(r.timestamp);
+        json!({
+            "price": (price * 100.0).round() / 100.0,
+            "amount": r.to_amount as f64 / 1e8,
+            "side": side,
+            "time": dt,
+        })
+    }).collect();
+    Ok(json!(records))
+}
+
+fn api_chart(req: &mut Request, _state: &Mutex<AppState>) -> Result<Value> {
+    let url = req.url().to_string();
+    let tf = url.split('?').nth(1).unwrap_or("")
+        .split('&').find_map(|kv| {
+            let (k, v) = kv.split_once('=')?;
+            if k == "tf" { Some(v.to_string()) } else { None }
+        }).unwrap_or_else(|| "1h".to_string());
+
+    let limit = url.split('?').nth(1).unwrap_or("")
+        .split('&').find_map(|kv| {
+            let (k, v) = kv.split_once('=')?;
+            if k == "limit" { v.parse::<usize>().ok() } else { None }
+        }).unwrap_or(200);
+
+    let seconds_per_candle: i64 = match tf.as_str() {
+        "1m" => 60, "15m" => 900, "1h" => 3600,
+        "4h" => 14400, "1d" => 86400, "1w" => 604800,
+        _ => 3600,
+    };
+
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH).unwrap().as_secs() as i64;
+
+    let base_price = BTC_USDT;
+    let mut candles = Vec::new();
+    let mut price = base_price;
+
+    for i in (0..limit as i64).rev() {
+        let time = (now - i * seconds_per_candle) * 1000;
+        let volatility = price * 0.005;
+        let change = (i * 7919 % 100) as f64 / 100.0 * volatility * 2.0 - volatility;
+        let open = price;
+        let close = price + change;
+        let high = open.max(close) + volatility * 0.3;
+        let low = open.min(close) - volatility * 0.3;
+        let volume = (i * 104729 % 1000) as f64 + 100.0;
+        candles.push(json!({
+            "time": time,
+            "open": (open * 100.0).round() / 100.0,
+            "high": (high * 100.0).round() / 100.0,
+            "low": (low * 100.0).round() / 100.0,
+            "close": (close * 100.0).round() / 100.0,
+            "volume": (volume * 100.0).round() / 100.0,
+        }));
+        price = close;
+    }
+
+    Ok(json!(candles))
+}
+
+fn api_depth(_req: &mut Request, state: &Mutex<AppState>) -> Result<Value> {
+    let st = state.lock().unwrap();
+    let lbtc = node().policy_asset().unwrap_or_default();
+
+    let mut bid_points: Vec<(f64, f64)> = Vec::new();
+    let mut ask_points: Vec<(f64, f64)> = Vec::new();
+
+    for offer in &st.offers {
+        let mut ab = offer.tessera.asset_b.to_vec();
+        ab.reverse();
+        let asset_b = hex::encode(ab);
+        let lock_name = id_to_name(&st.assets, &offer.asset_a, &lbtc);
+        let want_name = id_to_name(&st.assets, &asset_b, &lbtc);
+
+        if offer.amount_a == 0 { continue; }
+
+        if lock_name == "L-BTC" && (want_name == "USDT" || want_name == "EURx") {
+            let price = offer.tessera.amount_b as f64 / offer.amount_a as f64;
+            let price = (price * 100.0).round() / 100.0;
+            ask_points.push((price, offer.amount_a as f64 / 1e8));
+        } else if (lock_name == "USDT" || lock_name == "EURx") && want_name == "L-BTC" {
+            let price = offer.amount_a as f64 / offer.tessera.amount_b as f64;
+            let price = (price * 100.0).round() / 100.0;
+            bid_points.push((price, offer.tessera.amount_b as f64 / 1e8));
+        }
+    }
+
+    bid_points.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
+    ask_points.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
+
+    let mut points: Vec<Value> = Vec::new();
+    let mut cum = 0.0;
+    for (price, amt) in bid_points {
+        cum += amt;
+        points.push(json!({ "price": price, "bidDepth": cum, "askDepth": 0 }));
+    }
+    cum = 0.0;
+    for (price, amt) in ask_points {
+        cum += amt;
+        points.push(json!({ "price": price, "bidDepth": 0, "askDepth": cum }));
+    }
+
+    points.sort_by(|a, b| {
+        let pa = a.get("price").and_then(Value::as_f64).unwrap_or(0.0);
+        let pb = b.get("price").and_then(Value::as_f64).unwrap_or(0.0);
+        pa.partial_cmp(&pb).unwrap_or(std::cmp::Ordering::Equal)
+    });
+
+    Ok(json!(points))
+}
+
+fn api_user_orders(state: &Mutex<AppState>) -> Result<Value> {
+    let st = state.lock().unwrap();
+    let lbtc = node().policy_asset().unwrap_or_default();
+
+    let orders: Vec<Value> = st.offers.iter().enumerate().map(|(i, o)| {
+        let mut ab = o.tessera.asset_b.to_vec();
+        ab.reverse();
+        let asset_b = hex::encode(ab);
+        let lock_name = id_to_name(&st.assets, &o.asset_a, &lbtc);
+        let want_name = id_to_name(&st.assets, &asset_b, &lbtc);
+        let is_sell = lock_name == "L-BTC";
+        let price = if is_sell {
+            if o.amount_a > 0 { (o.tessera.amount_b as f64 / o.amount_a as f64 * 100.0).round() / 100.0 } else { 0.0 }
+        } else {
+            if o.tessera.amount_b > 0 { (o.amount_a as f64 / o.tessera.amount_b as f64 * 100.0).round() / 100.0 } else { 0.0 }
+        };
+        let pair = format!("{}/{}", lock_name, want_name);
+        let typ = if is_sell { "SELL" } else { "BUY" };
+        let amount = if is_sell { o.amount_a as f64 / 1e8 } else { o.tessera.amount_b as f64 / 1e8 };
+        let total = if is_sell { o.tessera.amount_b as f64 / 1e8 } else { o.amount_a as f64 / 1e8 };
+        json!({
+            "id": i, "type": typ, "pair": pair, "price": price,
+            "amount": amount, "filled": 0.0, "total": total,
+            "status": "open", "outpoint": o.outpoint,
+        })
+    }).collect();
+
+    Ok(json!(orders))
+}
+
+fn api_cancel(req: &mut Request, state: &Mutex<AppState>) -> Result<Value> {
+    api_reclaim(req, state)
 }
