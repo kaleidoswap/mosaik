@@ -200,8 +200,22 @@ impl Esplora {
     }
 
     pub fn tx(&self, txid: &str) -> Result<EsploraTx> {
-        let v = self.get_json(&format!("/tx/{txid}"))?;
-        serde_json::from_value(v).context("decode tx")
+        // Try the configured endpoint first. If it 404s (the Enterprise
+        // endpoint is sometimes minutes behind the public one for fresh txs),
+        // fall back to the public Esplora so probe_offer can flip the offer
+        // state as soon as the network confirms it.
+        let primary = self.get_json(&format!("/tx/{txid}"));
+        let primary_err = match primary {
+            Ok(v) => return serde_json::from_value(v).context("decode tx"),
+            Err(e) => e,
+        };
+        if self.base != ESPLORA_DEFAULT {
+            let fallback = Esplora::new(ESPLORA_DEFAULT);
+            if let Ok(v) = fallback.get_json(&format!("/tx/{txid}")) {
+                return serde_json::from_value(v).context("decode tx");
+            }
+        }
+        Err(primary_err)
     }
 
     /// Broadcast a raw tx hex; returns the txid.
@@ -345,7 +359,10 @@ pub fn settle_via_hal(
 
     // 2. pset update-input — covenant SPK comes from compiling the Tessera.
     let compiled = offer.tessera.compile()?;
-    let covenant_spk = hex::encode(compiled.address()?.script_pubkey().as_bytes());
+    let covenant_spk = hex::encode(
+        compiled.address_for(&simplicityhl::elements::AddressParams::LIQUID_TESTNET)?
+            .script_pubkey().as_bytes()
+    );
     let cmr = compiled.cmr_hex();
     let utxo_arg = format!("{covenant_spk}:{}:{:.8}", LBTC_TESTNET_DISPLAY, btc(value_sats));
     let pset2 = hal_pset(&[
@@ -442,7 +459,10 @@ pub fn settle_cheat_via_hal(
     ])?;
 
     let compiled = offer.tessera.compile()?;
-    let covenant_spk = hex::encode(compiled.address()?.script_pubkey().as_bytes());
+    let covenant_spk = hex::encode(
+        compiled.address_for(&simplicityhl::elements::AddressParams::LIQUID_TESTNET)?
+            .script_pubkey().as_bytes()
+    );
     let utxo_arg = format!("{covenant_spk}:{}:{:.8}", LBTC_TESTNET_DISPLAY, btc(value_sats));
     let pset2 = hal_pset(&[
         "simplicity", "pset", "update-input", "--liquid",
@@ -495,7 +515,9 @@ pub fn reclaim_via_esplora(
     )?;
 
     let compiled = offer.tessera.compile()?;
-    let spk_bytes = compiled.address()?.script_pubkey().as_bytes().to_vec();
+    let spk_bytes = compiled
+        .address_for(&simplicityhl::elements::AddressParams::LIQUID_TESTNET)?
+        .script_pubkey().as_bytes().to_vec();
     let genesis = esplora.genesis_hash()?;
 
     let raw_tx = offer.tessera.build_refund_tx(

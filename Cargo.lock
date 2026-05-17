@@ -936,6 +936,7 @@ dependencies = [
  "mosaik-core",
  "mosaik-relay",
  "serde_json",
+ "simplicityhl",
  "tessera",
  "tiny_http",
  "tokio",
