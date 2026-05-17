@@ -7,6 +7,7 @@
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 
+pub mod lwk;
 pub mod rpc;
 
 pub use tessera::Tessera;
@@ -42,46 +43,53 @@ pub trait MakeOffer {
     ) -> Result<Offer>;
 }
 
+/// Build a [`Tessera`] from the maker scriptPubKey and terms.
+///
+/// `maker_spk` is the raw scriptPubKey bytes; `asset_b_display` is the asset id
+/// in RPC display order (reversed internally).
+pub fn build_tessera(
+    maker_spk: &[u8],
+    asset_b_display: &str,
+    amount_b: u64,
+    timeout: u32,
+    maker_pk: [u8; 32],
+) -> Result<Tessera> {
+    use sha2::{Digest, Sha256};
+    let maker_spk_hash: [u8; 32] = Sha256::digest(maker_spk).into();
+    let mut asset_b = hex::decode(asset_b_display)?;
+    asset_b.reverse();
+    let asset_b: [u8; 32] = asset_b
+        .try_into()
+        .map_err(|_| anyhow::anyhow!("asset_b id is not 32 bytes"))?;
+    Ok(Tessera { asset_b, amount_b, maker_spk_hash, timeout, maker_pk })
+}
+
 /// Build a Tessera whose terms match an L-BTC payment of `amount_b` to
 /// `maker_address`, so a Simplicity node accepts the settlement.
-///
-/// `maker_spk_hash` is the SHA-256 of the maker scriptPubKey; `asset_b` is the
-/// L-BTC asset id in tx / jet (internal) byte order, the reverse of the RPC
-/// display order.
 pub fn lbtc_tessera(
     rpc: &rpc::ElementsRpc,
     maker_address: &str,
     amount_b: u64,
     timeout: u32,
+    maker_pk: [u8; 32],
 ) -> Result<Tessera> {
     let lbtc = rpc.policy_asset()?;
-    tessera_for(rpc, maker_address, &lbtc, amount_b, timeout)
+    let spk = hex::decode(rpc.address_script_pubkey(maker_address)?)?;
+    build_tessera(&spk, &lbtc, amount_b, timeout, maker_pk)
 }
 
 /// Build a [`Tessera`] whose SETTLE path requires `amount_b` of `asset_b_display`
 /// (an asset id in RPC display order — e.g. an issued USDT) paid to the maker.
-///
-/// `maker_spk_hash` is the SHA-256 of the maker scriptPubKey; `asset_b` is stored
-/// in tx / jet (internal) byte order, the reverse of the RPC display order.
 pub fn tessera_for(
     rpc: &rpc::ElementsRpc,
     maker_address: &str,
     asset_b_display: &str,
     amount_b: u64,
     timeout: u32,
+    maker_pk: [u8; 32],
 ) -> Result<Tessera> {
-    use sha2::{Digest, Sha256};
-
     let spk = hex::decode(rpc.address_script_pubkey(maker_address)?)?;
-    let maker_spk_hash: [u8; 32] = Sha256::digest(&spk).into();
-
-    let mut asset_b = hex::decode(asset_b_display)?;
-    asset_b.reverse();
-    let asset_b: [u8; 32] = asset_b
-        .try_into()
-        .map_err(|_| anyhow::anyhow!("asset_b id is not 32 bytes"))?;
-
-    Ok(Tessera { asset_b, amount_b, maker_spk_hash, timeout })
+    build_tessera(&spk, asset_b_display, amount_b, timeout, maker_pk)
 }
 
 /// A maker that publishes offers against an Elements node.
@@ -178,7 +186,7 @@ fn address_params_for(rpc: &rpc::ElementsRpc) -> Result<&'static simplicityhl::e
 }
 
 /// Find the index of the output whose scriptPubKey hex matches `spk_hex`.
-fn find_output_index(tx: &serde_json::Value, spk_hex: &str) -> Option<u64> {
+pub fn find_output_index(tx: &serde_json::Value, spk_hex: &str) -> Option<u64> {
     tx.get("vout")?.as_array()?.iter().find_map(|out| {
         let hex = out.get("scriptPubKey")?.get("hex")?.as_str()?;
         (hex == spk_hex).then(|| out.get("n")?.as_u64()).flatten()
@@ -193,7 +201,7 @@ pub trait TakeOffer {
 }
 
 /// Network fee for the settlement transaction (satoshis).
-const SETTLE_FEE_SATS: u64 = 1_000;
+pub const SETTLE_FEE_SATS: u64 = 1_000;
 
 /// A taker that fills offers against an Elements node.
 pub struct MosaikTaker {
@@ -212,7 +220,7 @@ impl MosaikTaker {
 }
 
 /// The BIP-341 NUMS internal key the Tessera covenant uses (no key-path spend).
-const NUMS_INTERNAL_KEY: &str =
+pub const NUMS_INTERNAL_KEY: &str =
     "50929b74c1a04954b78b4b6035e97a5e078a5a0f28ec96d547bfee9ace803ac0";
 
 /// A deliberately-broken settlement, used to demonstrate that the covenant
@@ -409,7 +417,7 @@ impl MosaikTaker {
 }
 
 /// Run `hal-simplicity` with `args`, returning trimmed stdout.
-fn hal_run(args: &[&str]) -> Result<String> {
+pub fn hal_run(args: &[&str]) -> Result<String> {
     let bin = std::env::var("HAL_SIMPLICITY").unwrap_or_else(|_| "hal-simplicity".into());
     let out = std::process::Command::new(&bin)
         .args(args)
@@ -426,7 +434,7 @@ fn hal_run(args: &[&str]) -> Result<String> {
 }
 
 /// Run a `hal-simplicity` PSET command and return the `pset` field of its JSON.
-fn hal_pset(args: &[&str]) -> Result<String> {
+pub fn hal_pset(args: &[&str]) -> Result<String> {
     let output = hal_run(args)?;
     let v: serde_json::Value = serde_json::from_str(&output)
         .map_err(|e| anyhow::anyhow!("hal-simplicity output not JSON: {e}\n{output}"))?;
