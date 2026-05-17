@@ -34,13 +34,16 @@ pub const ESPLORA_TOKEN_ENV: &str = "ESPLORA_TOKEN";
 pub const LBTC_TESTNET_DISPLAY: &str =
     "144c654344aa716d6f3abcc1ca90e5641e4e2a7f633bc09fe3baf64585819a49";
 
-/// L-BTC testnet asset id in internal (tx/jet) byte order — the reverse.
-pub const LBTC_TESTNET_INTERNAL: [u8; 32] = [
-    0x49, 0x9a, 0x81, 0x85, 0x45, 0xf6, 0xba, 0xe3,
-    0xf5, 0xf6, 0x03, 0xb6, 0x37, 0xf2, 0xa4, 0xe1,
-    0xe6, 0x4e, 0x59, 0x0c, 0xac, 0x1b, 0xc3, 0xa6,
-    0xf6, 0xd7, 0x1a, 0xa4, 0x44, 0x36, 0x54, 0xc1,
-];
+/// L-BTC testnet asset id in internal (tx/jet) byte order — derived from the
+/// display-order hex by reversing the byte sequence. Don't hardcode this as a
+/// byte literal; the manual transcription bug is invisible (the covenant just
+/// silently rejects every settlement with a Jet panic).
+pub fn lbtc_testnet_internal() -> [u8; 32] {
+    let mut bytes = hex::decode(LBTC_TESTNET_DISPLAY)
+        .expect("LBTC_TESTNET_DISPLAY is valid hex");
+    bytes.reverse();
+    bytes.try_into().expect("32 bytes")
+}
 
 /// Demo maker address — also the Liquid testnet faucet return address.
 /// SHA-256 of its scriptPubKey is what the Tessera `maker_spk_hash` commits to.
@@ -290,7 +293,7 @@ pub fn demo_tessera(amount_b: u64, timeout: u32, maker_pk: [u8; 32]) -> Result<c
     let mut spk_hash = [0u8; 32];
     spk_hash.copy_from_slice(&hex::decode(DEMO_MAKER_SPK_HASH_HEX)?);
     Ok(crate::Tessera {
-        asset_b: LBTC_TESTNET_INTERNAL,
+        asset_b: lbtc_testnet_internal(),
         amount_b,
         maker_spk_hash: spk_hash,
         timeout,
@@ -376,12 +379,17 @@ pub fn settle_via_hal(
     // 3. settle witness
     let w = offer.tessera.settle_witness(0)?;
     let program_b64 = B64.encode(&w.program);
-    let witness_hex = hex::encode(&w.witness);
+    // Encode the witness as base64, NOT hex. hal-simplicity 0.2's `hex_or_base64`
+    // routes all-lowercase-hex strings to hex decoding; our SETTLE witnesses are
+    // usually short and zero-filled (`"0000000000"`) which fails its
+    // `is_ascii_lowercase()` check (digits aren't lowercase) — so it tries
+    // base64 and chokes with "Invalid padding". Base64 takes the safe path.
+    let witness_b64 = B64.encode(&w.witness);
 
     // 4. pset finalize
     let pset3 = hal_pset(&[
         "simplicity", "pset", "finalize", "--liquid",
-        &pset2, "0", &program_b64, &witness_hex,
+        &pset2, "0", &program_b64, &witness_b64,
     ])?;
 
     // 5. pset extract → raw tx
@@ -475,7 +483,7 @@ pub fn settle_cheat_via_hal(
     let w = offer.tessera.settle_witness(0)?;
     let pset3 = hal_pset(&[
         "simplicity", "pset", "finalize", "--liquid",
-        &pset2, "0", &B64.encode(&w.program), &hex::encode(&w.witness),
+        &pset2, "0", &B64.encode(&w.program), &B64.encode(&w.witness),
     ])?;
 
     let raw_tx = hal_extract(&pset3)?;
