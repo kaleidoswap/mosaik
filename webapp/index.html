@@ -93,6 +93,16 @@
   .toast.ok{border-color:var(--ok);} .toast.err{border-color:var(--bad);}
   .toast code{font-family:ui-monospace,Menlo,monospace;color:var(--accent);}
   .note{font-size:11.5px;color:var(--muted);margin-top:8px;}
+  .pill{display:inline-block;font-size:10px;text-transform:uppercase;
+    letter-spacing:.1em;padding:2px 8px;border-radius:999px;
+    border:1px solid var(--line);color:var(--muted);margin-left:10px;
+    vertical-align:middle;font-weight:700;}
+  .pill.warn{color:var(--warn);border-color:var(--warn);}
+  .pill.ok{color:var(--ok);border-color:var(--ok);}
+  .offer.pending{opacity:.7;border-left-color:var(--warn);}
+  .testnet-hide{display:none;}
+  .explorer-link{color:var(--accent);text-decoration:none;}
+  .explorer-link:hover{text-decoration:underline;}
 </style>
 </head>
 <body>
@@ -100,7 +110,7 @@
 
 <header>
   <div>
-    <div class="eyebrow">Mosaik</div>
+    <div class="eyebrow" id="eyebrow">Mosaik</div>
     <h1>Covenant DEX wallet</h1>
     <div class="sub">Two wallets, one covenant. Lock any Liquid asset; the
       covenant releases it only to a transaction that pays the maker. Works for
@@ -130,7 +140,7 @@
 <h2>Maker — make an offer</h2>
 <div class="card maker">
   <div class="row">
-    <div>
+    <div id="lockAssetRow">
       <label>Lock asset</label>
       <select id="lockAsset"></select>
     </div>
@@ -138,7 +148,7 @@
       <label>Lock amount</label>
       <input id="amountA" type="number" value="0.01" min="0" step="any">
     </div>
-    <div>
+    <div id="wantAssetRow">
       <label>Want asset</label>
       <select id="wantAsset"></select>
     </div>
@@ -154,9 +164,9 @@
   <div class="btnrow">
     <button class="maker" id="makeOffer">Fund covenant &amp; publish offer</button>
   </div>
-  <div class="note">Amounts are in whole units (L-BTC, USDT, EURx). The maker's
-    asset is locked in a covenant UTXO that only releases on payment of the
-    requested asset.</div>
+  <div class="note" id="makeNote">Amounts are in whole units (L-BTC, USDT, EURx).
+    The maker's asset is locked in a covenant UTXO that only releases on payment
+    of the requested asset.</div>
 </div>
 
 <h2>Open offers — taker fills, covenant enforces</h2>
@@ -167,7 +177,7 @@
 
 <script>
 const $ = id => document.getElementById(id);
-let state = { assets: [], offers: [], block_count: 0 };
+let state = { assets: [], offers: [], block_count: 0, network: 'regtest' };
 const esc = s => String(s == null ? '' : s)
   .replace(/[&<>]/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;' }[c]));
 // Every asset (L-BTC and the test assets) uses 8 decimals.
@@ -183,12 +193,22 @@ function toast(msg, kind) {
   setTimeout(() => t.classList.remove('show'), 5500);
 }
 
+// When opened over file:// (e.g. the IDE preview panel), relative URLs can't
+// be parsed — fall back to the local testnet UI on 8081. Override at runtime
+// with ?api=http://host:port.
+const API_BASE = (() => {
+  const q = new URLSearchParams(location.search).get('api');
+  if (q) return q.replace(/\/+$/, '');
+  if (location.protocol === 'http:' || location.protocol === 'https:') return '';
+  return 'http://127.0.0.1:8081';
+})();
+
 async function api(path, body) {
   const opt = path === '/api/state'
     ? { method: 'GET' }
     : { method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body || {}) };
-  const res = await fetch(path, opt);
+  const res = await fetch(API_BASE + path, opt);
   const data = await res.json();
   if (!res.ok || data.error) throw new Error(data.error || ('HTTP ' + res.status));
   return data;
@@ -222,12 +242,20 @@ function renderOffers() {
     box.innerHTML = '<div class="empty">No offers yet. Fund the maker, then make one above.</div>';
     return;
   }
-  box.innerHTML = state.offers.map(o => `
-      <div class="offer">
+  box.innerHTML = state.offers.map(o => {
+    const pending = o.status === 'pending_faucet';
+    const statusBadge = pending
+      ? `<span class="pill warn">faucet pending · ${esc(o.faucet_txid || '?').slice(0, 12)}…</span>`
+      : (o.status === 'settled'
+          ? '<span class="pill ok">settled</span>'
+          : '<span class="pill ok">ready</span>');
+    return `
+      <div class="offer${pending ? ' pending' : ''}">
         <div class="trade">
           <span class="a">${fmtAmt(o.amount_a, esc(o.lock_name))}</span>
           &nbsp;-&gt;&nbsp; wants
           <span class="b">${fmtAmt(o.amount_b, esc(o.want_name))}</span>
+          ${statusBadge}
         </div>
         <div class="meta">
           <span>covenant address</span><code>${esc(o.covenant_address)}</code>
@@ -235,11 +263,12 @@ function renderOffers() {
           <span>CMR</span><code>${esc(o.cmr)}</code>
           <span>maker paid to</span><code>${esc(o.maker_address)}</code>
           <span>refund height</span><code>${o.timeout}</code>
+          ${o.value_sats != null ? `<span>covenant value</span><code>${o.value_sats} sats</code>` : ''}
         </div>
         <div class="act">
-          <button data-take="${o.index}">Take offer (settle covenant)</button>
+          <button data-take="${o.index}" ${pending ? 'disabled title="waiting for faucet tx to confirm"' : ''}>Take offer (settle covenant)</button>
           <button class="maker" data-reclaim="${o.index}"
-            ${state.block_count >= o.timeout ? '' : 'disabled'}
+            ${state.block_count >= o.timeout && !pending ? '' : 'disabled'}
             title="${state.block_count >= o.timeout
               ? 'Maker reclaims via the REFUND path'
               : 'REFUND unlocks at height ' + o.timeout}">Reclaim (REFUND)</button>
@@ -252,7 +281,8 @@ function renderOffers() {
           <button class="bad" data-cheat="wrong_index" data-idx="${o.index}">Hide maker output</button>
         </div>
         <div class="contract" id="contract-${o.index}"></div>
-      </div>`).join('');
+      </div>`;
+  }).join('');
   box.querySelectorAll('button[data-take]').forEach(b => {
     b.onclick = () => takeOffer(Number(b.dataset.take), b);
   });
@@ -267,18 +297,41 @@ function renderOffers() {
   });
 }
 
+function applyNetwork(net, assets) {
+  if (net === 'testnet') {
+    // L-BTC only on testnet — hide the asset selectors.
+    $('lockAssetRow').classList.add('testnet-hide');
+    $('wantAssetRow').classList.add('testnet-hide');
+    $('amountA').value = '0.001';   // ~100k sats — what the faucet drops
+    $('wantAmount').value = '0.000995';   // 99,500 sats, leaves 500 for fee
+    $('timeout').value = '2500000';
+    $('makeNote').innerHTML = '<b>Liquid testnet:</b> L-BTC only. ' +
+      'Clicking <b>Fund covenant</b> hits the public faucet directly on the ' +
+      'covenant address (~100k sats, ~1 min to confirm). The covenant then ' +
+      'releases that L-BTC to the maker when settled. ' +
+      'Faucet is rate-limited.';
+  } else {
+    $('lockAssetRow').classList.remove('testnet-hide');
+    $('wantAssetRow').classList.remove('testnet-hide');
+    fillSelect($('lockAsset'), 'L-BTC');
+    fillSelect($('wantAsset'), assets.length ? assets[0] : 'L-BTC');
+    $('makeNote').textContent = 'Amounts are in whole units (L-BTC, USDT, EURx). ' +
+      "The maker's asset is locked in a covenant UTXO that only releases on " +
+      'payment of the requested asset.';
+  }
+}
+
 async function refresh() {
   try {
     const s = await api('/api/state');
-    const firstLoad = !state.assets.length;
+    const firstLoad = state.network !== s.network;
     state.assets = s.assets;
     state.offers = s.offers;
     state.block_count = s.block_count;
+    state.network = s.network || 'regtest';
     $('height').textContent = s.block_count;
-    if (firstLoad && s.assets.length) {
-      fillSelect($('lockAsset'), 'L-BTC');
-      fillSelect($('wantAsset'), s.assets[0]);
-    }
+    $('eyebrow').textContent = 'Mosaik · ' + state.network;
+    if (firstLoad) applyNetwork(state.network, s.assets);
     renderWallet('m', s.maker);
     renderWallet('t', s.taker);
     renderOffers();
@@ -301,16 +354,20 @@ $('fundTaker').onclick = e =>
   action(e.target, '/api/fund/taker', {}, r => 'Taker funded — ' + r.funded);
 
 $('makeOffer').onclick = e => {
-  const lock = $('lockAsset').value === 'L-BTC' ? 'BTC' : $('lockAsset').value;
-  const want = $('wantAsset').value === 'L-BTC' ? 'BTC' : $('wantAsset').value;
-  if (lock === want) { toast('Lock and want assets must differ', 'err'); return; }
+  const lock = state.network === 'testnet' ? 'BTC'
+    : ($('lockAsset').value === 'L-BTC' ? 'BTC' : $('lockAsset').value);
+  const want = state.network === 'testnet' ? 'BTC'
+    : ($('wantAsset').value === 'L-BTC' ? 'BTC' : $('wantAsset').value);
+  if (lock === want && state.network !== 'testnet') { toast('Lock and want assets must differ', 'err'); return; }
   // Every asset is 8-decimal, so amounts go to raw units the same way.
   action(e.target, '/api/make-offer', {
     lock, want,
     amount_a: Math.round(Number($('amountA').value) * 1e8),
     amount_b: Math.round(Number($('wantAmount').value) * 1e8),
     timeout: Number($('timeout').value),
-  }, r => 'Offer #' + r.index + ' funded — covenant <code>' + r.outpoint + '</code>');
+  }, r => state.network === 'testnet'
+    ? 'Offer #' + r.index + ' — faucet hit. Covenant: <code>' + r.covenant_address + '</code>. Wait ~1 min.'
+    : 'Offer #' + r.index + ' funded — covenant <code>' + r.outpoint + '</code>');
 };
 
 async function takeOffer(index, btn) {
@@ -367,7 +424,9 @@ async function viewContract(index) {
 }
 
 refresh();
-setInterval(refresh, 12000);
+// Testnet reads from Esplora and confirms ~1 min/block; poll slower so we
+// don't hammer the public API. Regtest mines after every action; quick poll OK.
+setInterval(refresh, state.network === 'testnet' ? 20000 : 12000);
 </script>
 </body>
 </html>
