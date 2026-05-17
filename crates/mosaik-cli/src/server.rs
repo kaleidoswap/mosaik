@@ -215,7 +215,7 @@ fn api_state_testnet(state: &Mutex<AppState>) -> Result<Value> {
         "block_count": height,
         "assets":      Vec::<String>::new(),
         "maker":       wallet_snapshot_testnet(&esplora, tn::DEMO_MAKER_ADDRESS),
-        "taker":       wallet_snapshot_testnet(&esplora, tn::DEMO_TAKER_ADDRESS),
+        "taker":       wallet_snapshot_testnet(&esplora, tn::demo_taker_address()),
         "offers":      offers,
     }))
 }
@@ -312,7 +312,7 @@ fn api_fund_regtest(state: &Mutex<AppState>, target: &ElementsRpc) -> Result<Val
 }
 
 fn api_fund_testnet(taker: bool) -> Result<Value> {
-    let address = if taker { tn::DEMO_TAKER_ADDRESS } else { tn::DEMO_MAKER_ADDRESS };
+    let address = if taker { tn::demo_taker_address() } else { tn::DEMO_MAKER_ADDRESS };
     let faucet = tn::Faucet::testnet();
     let txid = faucet.request_lbtc(address)?;
     Ok(json!({

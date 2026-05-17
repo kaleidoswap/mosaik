@@ -40,10 +40,27 @@ pub const DEMO_MAKER_ADDRESS: &str = "tex1qkkxzy9glfws4nc392an5w2kgjym7sxpshuwkj
 pub const DEMO_MAKER_SPK_HASH_HEX: &str =
     "bcfbe70502021903755bb406a7c4681817be317affc7d1120de2041a9e06cfc5";
 
-/// A second fixed demo address — used as the "taker" address in the UI.
-/// On testnet the taker plays no signing role for an L-BTC→L-BTC SETTLE, so this
-/// is mostly decorative. It's a well-formed bech32 testnet address.
-pub const DEMO_TAKER_ADDRESS: &str = "tex1q4f9q57v6e0vc4l0qy7gha2akz6kw2ekfk22dum";
+/// Test-only private key for the demo taker. On testnet the taker plays no
+/// signing role for an L-BTC→L-BTC SETTLE, so this is only used to derive a
+/// distinct receiving address from the maker's.
+pub const DEMO_TAKER_SECRET: [u8; 32] = [8u8; 32];
+
+/// The demo taker's unconfidential P2WPKH testnet address, derived from
+/// [`DEMO_TAKER_SECRET`]. Returns the same string on every call.
+pub fn demo_taker_address() -> &'static str {
+    use std::sync::OnceLock;
+    static ADDR: OnceLock<String> = OnceLock::new();
+    ADDR.get_or_init(|| {
+        use simplicityhl::elements::secp256k1_zkp::{PublicKey, Secp256k1, SecretKey};
+        use simplicityhl::elements::{Address, AddressParams};
+        let secp = Secp256k1::new();
+        let sk = SecretKey::from_slice(&DEMO_TAKER_SECRET).expect("valid test secret");
+        let pk = PublicKey::from_secret_key(&secp, &sk);
+        // Convert secp256k1 PublicKey → elements::bitcoin::PublicKey wrapper.
+        let elements_pk = simplicityhl::elements::bitcoin::PublicKey::new(pk);
+        Address::p2wpkh(&elements_pk, None, &AddressParams::LIQUID_TESTNET).to_string()
+    })
+}
 
 /// BIP-341 NUMS unspendable internal key (same as the tessera crate).
 pub const NUMS_INTERNAL_KEY_HEX: &str =
@@ -350,7 +367,7 @@ pub fn settle_cheat_via_hal(
         _ => amount_b,
     };
     let recipient = match cheat {
-        crate::Cheat::WrongRecipient => DEMO_TAKER_ADDRESS,
+        crate::Cheat::WrongRecipient => demo_taker_address(),
         _ => offer.maker_address.as_str(),
     };
 
