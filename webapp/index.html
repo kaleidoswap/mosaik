@@ -143,8 +143,12 @@
       <select id="wantAsset"></select>
     </div>
     <div>
-      <label>Want amount</label>
+      <label>Base amount</label>
       <input id="wantAmount" type="number" value="50" min="0" step="any">
+    </div>
+    <div>
+      <label>Spread %</label>
+      <input id="spread" type="number" value="1" min="0" step="any">
     </div>
     <div>
       <label>Refund height</label>
@@ -154,9 +158,9 @@
   <div class="btnrow">
     <button class="maker" id="makeOffer">Fund covenant &amp; publish offer</button>
   </div>
-  <div class="note">Amounts are in whole units (L-BTC, USDT, EURx). The maker's
-    asset is locked in a covenant UTXO that only releases on payment of the
-    requested asset.</div>
+  <div class="note">The covenant is price-less. The maker prices each fill with
+    a signed quote — <strong>base amount + spread</strong> — at take time. Amounts
+    are in whole units (L-BTC, USDT, EURx).</div>
 </div>
 
 <h2>Open offers — taker fills, covenant enforces</h2>
@@ -226,10 +230,12 @@ function renderOffers() {
       <div class="offer">
         <div class="trade">
           <span class="a">${fmtAmt(o.amount_a, esc(o.lock_name))}</span>
-          &nbsp;-&gt;&nbsp; wants
+          &nbsp;-&gt;&nbsp; quoted
           <span class="b">${fmtAmt(o.amount_b, esc(o.want_name))}</span>
         </div>
         <div class="meta">
+          <span>price</span><code>${fmtAmt(o.base_amount_b, esc(o.want_name))} base
+            + ${(Number(o.spread) * 100).toFixed(2)}% spread</code>
           <span>covenant address</span><code>${esc(o.covenant_address)}</code>
           <span>covenant UTXO</span><code>${esc(o.outpoint)}</code>
           <span>CMR</span><code>${esc(o.cmr)}</code>
@@ -309,6 +315,7 @@ $('makeOffer').onclick = e => {
     lock, want,
     amount_a: Math.round(Number($('amountA').value) * 1e8),
     amount_b: Math.round(Number($('wantAmount').value) * 1e8),
+    spread: Number($('spread').value) / 100,
     timeout: Number($('timeout').value),
   }, r => 'Offer #' + r.index + ' funded — covenant <code>' + r.outpoint + '</code>');
 };
