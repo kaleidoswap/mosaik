@@ -33,7 +33,7 @@
   html { min-height: 100%; background: var(--bg); }
 
   body {
-    height: 100vh;
+    min-height: 100vh;
     margin: 0;
     color: var(--ink);
     background:
@@ -41,7 +41,7 @@
       linear-gradient(225deg, rgba(0, 208, 156, 0.11), transparent 24%),
       linear-gradient(180deg, var(--bg-2), var(--bg) 34%, #06090f);
     font: 13px/1.4 var(--sans);
-    overflow: hidden;
+    overflow-x: hidden;
   }
 
   button, input, select { font: inherit; }
@@ -115,21 +115,18 @@
 
   .app-shell {
     width: min(1580px, 100%);
-    height: 100vh;
+    min-height: 100vh;
     margin: 0 auto;
-    padding: 9px 12px;
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
+    padding: 10px 12px;
   }
 
   .topbar {
-    flex-shrink: 0;
     display: grid;
     grid-template-columns: minmax(210px, 1fr) auto minmax(210px, 1fr);
     gap: 14px;
     align-items: center;
     min-height: 58px;
+    margin-bottom: 8px;
     border: 1px solid var(--line);
     border-radius: 8px;
     background: rgba(11, 17, 28, 0.86);
@@ -230,11 +227,11 @@
   }
 
   .ticker-strip {
-    flex-shrink: 0;
     display: grid;
     grid-template-columns: 1.2fr repeat(5, minmax(110px, 1fr));
     gap: 1px;
     overflow: hidden;
+    margin-bottom: 8px;
     border: 1px solid var(--line);
     border-radius: 8px;
     background: var(--line);
@@ -264,11 +261,9 @@
   .ticker-cell.nostr .v { color: var(--purple-2); font-size: 13px; }
 
   .dex-grid {
-    flex: 1;
-    min-height: 0;
     display: grid;
     grid-template-columns: minmax(236px, 0.74fr) minmax(420px, 1.7fr) minmax(320px, 0.9fr);
-    grid-template-rows: minmax(0, 1.25fr) minmax(0, 1fr) minmax(0, 1fr);
+    grid-auto-rows: minmax(min-content, auto);
     grid-template-areas:
       "book chart ticket"
       "book depth trades"
@@ -279,7 +274,6 @@
   .panel {
     display: flex;
     flex-direction: column;
-    min-height: 0;
     border: 1px solid var(--line);
     border-radius: 8px;
     background: rgba(16, 24, 39, 0.94);
@@ -287,12 +281,12 @@
     overflow: hidden;
   }
 
-  /* every panel body scrolls inside its own cell — the page never scrolls */
+  /* panel bodies grow with their content and stretch to fill the row —
+     the page scrolls, panels never get their own scrollbar */
   .book-table, .chart-stage, .ticket-body, .depth-stage,
   .wallet-side, #offers, .trade-list {
-    flex: 1;
-    min-height: 0;
-    overflow: auto;
+    flex: 1 1 auto;
+    overflow: visible;
   }
 
   .panel-head {
@@ -393,7 +387,7 @@
     background-size: 100% 62px, 82px 100%;
   }
 
-  .chart-svg { display: block; width: 100%; flex: 1; min-height: 90px; }
+  .chart-svg { display: block; width: 100%; flex: 1 1 auto; min-height: 200px; }
 
   .ticket { grid-area: ticket; }
 
