@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Mosaik — the covenant orderbook</title>
+<title>Mosaik — covenant DEX wallet</title>
 <style>
   :root{
     --bg:#0c0e14; --panel:#151823; --panel2:#1c2030; --ink:#e8eaf2;
@@ -13,219 +13,343 @@
   *{box-sizing:border-box;}
   body{margin:0;background:var(--bg);color:var(--ink);
     font:15px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;}
-  .wrap{max-width:940px;margin:0 auto;padding:40px 24px 80px;}
-  header{border-bottom:1px solid var(--line);padding-bottom:22px;margin-bottom:24px;}
+  .wrap{max-width:980px;margin:0 auto;padding:38px 24px 90px;}
+  header{border-bottom:1px solid var(--line);padding-bottom:18px;margin-bottom:8px;
+    display:flex;justify-content:space-between;align-items:flex-end;gap:16px;}
   .eyebrow{text-transform:uppercase;letter-spacing:.18em;font-size:11px;
     color:var(--accent);font-weight:700;}
-  h1{font-size:34px;margin:8px 0 4px;letter-spacing:-.02em;
+  h1{font-size:30px;margin:8px 0 4px;letter-spacing:-.02em;
     background:linear-gradient(100deg,var(--accent),var(--accent2));
     -webkit-background-clip:text;background-clip:text;color:transparent;}
-  .sub{color:var(--muted);font-size:15px;}
-  .bar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:18px 0;}
-  input,textarea{background:var(--panel2);border:1px solid var(--line);
-    border-radius:8px;color:var(--ink);padding:9px 12px;font-size:13.5px;
-    font-family:inherit;}
-  input:focus,textarea:focus{outline:1px solid var(--accent);}
-  .relay-in{flex:1;min-width:220px;font-family:ui-monospace,Menlo,monospace;}
-  button{background:var(--accent);color:#0c0e14;border:0;border-radius:8px;
-    padding:9px 16px;font-size:13.5px;font-weight:700;cursor:pointer;}
-  button:hover{filter:brightness(1.08);}
-  .dot{width:9px;height:9px;border-radius:50%;background:var(--bad);
-    display:inline-block;}
-  .dot.on{background:var(--ok);}
-  .status{font-size:12.5px;color:var(--muted);display:flex;align-items:center;gap:7px;}
+  .sub{color:var(--muted);font-size:14px;}
+  .height{font-size:12px;color:var(--muted);white-space:nowrap;}
+  .height b{color:var(--ink);font-size:15px;}
   h2{font-size:12px;text-transform:uppercase;letter-spacing:.14em;
-    color:var(--accent);margin:34px 0 14px;font-weight:700;}
+    color:var(--accent);margin:30px 0 12px;font-weight:700;}
+  .cols{display:grid;grid-template-columns:1fr 1fr;gap:14px;}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:14px;
+    padding:18px 20px;}
+  .card.maker{border-top:3px solid var(--accent2);}
+  .card.taker{border-top:3px solid var(--accent);}
+  .role{font-size:12px;text-transform:uppercase;letter-spacing:.12em;
+    font-weight:700;margin-bottom:12px;}
+  .card.maker .role{color:var(--accent2);}
+  .card.taker .role{color:var(--accent);}
+  .bals{display:flex;gap:18px;flex-wrap:wrap;margin-bottom:12px;}
+  .bals .k{font-size:10px;text-transform:uppercase;letter-spacing:.1em;
+    color:var(--muted);}
+  .bals .v{font-size:18px;font-weight:700;margin-top:2px;}
+  .bals .v small{font-size:11px;color:var(--muted);font-weight:500;}
+  .addr{font-family:ui-monospace,Menlo,monospace;font-size:11px;color:#cdd1e0;
+    word-break:break-all;background:var(--panel2);border:1px solid var(--line);
+    border-radius:8px;padding:7px 9px;margin-bottom:12px;}
+  label{font-size:11px;text-transform:uppercase;letter-spacing:.08em;
+    color:var(--muted);display:block;margin-bottom:4px;}
+  input,select{background:var(--panel2);border:1px solid var(--line);
+    border-radius:8px;color:var(--ink);padding:9px 11px;font-size:13.5px;
+    font-family:inherit;width:100%;}
+  input:focus,select:focus{outline:1px solid var(--accent);}
+  .row{display:flex;gap:10px;flex-wrap:wrap;}
+  .row > div{flex:1;min-width:104px;}
+  button{background:var(--accent);color:#0c0e14;border:0;border-radius:8px;
+    padding:9px 16px;font-size:13px;font-weight:700;cursor:pointer;}
+  button:hover{filter:brightness(1.08);}
+  button:disabled{opacity:.4;cursor:not-allowed;}
+  button.maker{background:var(--accent2);}
+  button.ghost{background:var(--panel2);color:var(--ink);
+    border:1px solid var(--line);}
+  .btnrow{display:flex;gap:10px;flex-wrap:wrap;margin-top:10px;}
   .offer{background:var(--panel);border:1px solid var(--line);border-radius:12px;
-    padding:16px 18px;margin-bottom:12px;border-left:3px solid var(--accent);}
-  .offer.cancelled,.offer.expired{border-left-color:var(--bad);opacity:.7;}
-  .offer .trade{font-size:17px;font-weight:700;}
+    padding:14px 16px;margin-bottom:10px;border-left:3px solid var(--accent);}
+  .offer .trade{font-size:16px;font-weight:700;}
   .offer .trade .a{color:var(--accent2);} .offer .trade .b{color:var(--accent);}
-  .offer .meta{margin-top:8px;display:grid;grid-template-columns:auto 1fr;
-    gap:3px 14px;font-size:12.5px;color:var(--muted);}
+  .offer .meta{margin-top:7px;display:grid;grid-template-columns:auto 1fr;
+    gap:2px 14px;font-size:11.5px;color:var(--muted);}
   .offer .meta code{font-family:ui-monospace,Menlo,monospace;color:#cdd1e0;
     word-break:break-all;}
-  .badge{font-size:10.5px;font-weight:700;padding:2px 8px;border-radius:6px;
-    text-transform:uppercase;letter-spacing:.06em;}
-  .badge.active{background:rgba(106,214,200,.16);color:var(--ok);}
-  .badge.cancelled,.badge.expired{background:rgba(240,166,200,.16);color:var(--bad);}
-  .row{display:flex;justify-content:space-between;align-items:center;gap:12px;}
-  .empty{color:var(--muted);text-align:center;padding:40px;border:1px dashed var(--line);
-    border-radius:12px;}
-  details{background:var(--panel);border:1px solid var(--line);border-radius:12px;
-    padding:14px 18px;margin-top:8px;}
-  summary{cursor:pointer;font-weight:700;font-size:13.5px;color:var(--accent);}
-  textarea{width:100%;min-height:120px;margin-top:12px;
-    font-family:ui-monospace,Menlo,monospace;font-size:12px;}
-  .pubrow{display:flex;gap:10px;margin-top:10px;flex-wrap:wrap;align-items:center;}
-  .pubrow input{width:160px;}
-  .note{font-size:12px;color:var(--muted);margin-top:8px;}
-  .muted{color:var(--muted);}
+  .offer .act{margin-top:10px;display:flex;gap:10px;flex-wrap:wrap;}
+  .cheats{margin-top:10px;padding-top:10px;border-top:1px dashed var(--line);
+    display:flex;gap:8px;flex-wrap:wrap;align-items:center;}
+  .cheats .lbl{font-size:11px;color:var(--bad);text-transform:uppercase;
+    letter-spacing:.08em;font-weight:700;}
+  button.bad{background:transparent;color:var(--bad);
+    border:1px solid var(--bad);padding:6px 11px;font-size:12px;}
+  .contract{margin-top:10px;background:var(--panel2);border:1px solid var(--line);
+    border-radius:10px;padding:12px 14px;font-size:12px;display:none;}
+  .contract.show{display:block;}
+  .contract pre{font-family:ui-monospace,Menlo,monospace;font-size:11px;
+    background:var(--bg);border:1px solid var(--line);border-radius:8px;
+    padding:10px;overflow:auto;color:#cdd1e0;max-height:240px;}
+  .contract .path{margin-top:8px;}
+  .contract .path b{color:var(--accent);}
+  .contract .path.refund b{color:var(--warn);}
+  .empty{color:var(--muted);text-align:center;padding:34px;
+    border:1px dashed var(--line);border-radius:12px;}
+  .toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);
+    background:var(--panel2);border:1px solid var(--line);border-radius:10px;
+    padding:11px 18px;font-size:13px;max-width:90vw;box-shadow:0 8px 30px #0008;
+    opacity:0;transition:opacity .2s;pointer-events:none;}
+  .toast.show{opacity:1;}
+  .toast.ok{border-color:var(--ok);} .toast.err{border-color:var(--bad);}
+  .toast code{font-family:ui-monospace,Menlo,monospace;color:var(--accent);}
+  .note{font-size:11.5px;color:var(--muted);margin-top:8px;}
 </style>
 </head>
 <body>
 <div class="wrap">
 
 <header>
-  <div class="eyebrow">Mosaik</div>
-  <h1>The covenant orderbook</h1>
-  <div class="sub">Tessera offers on Liquid, discovered over Nostr. No server, no account.</div>
+  <div>
+    <div class="eyebrow">Mosaik</div>
+    <h1>Covenant DEX wallet</h1>
+    <div class="sub">Two wallets, one covenant. Lock any Liquid asset; the
+      covenant releases it only to a transaction that pays the maker. Works for
+      L-BTC/asset and asset/asset, both directions.</div>
+  </div>
+  <div class="height">block height<br><b id="height">—</b></div>
 </header>
 
-<div class="bar">
-  <input id="relay" class="relay-in" value="ws://127.0.0.1:7777" spellcheck="false">
-  <button id="connect">Connect</button>
-  <span class="status"><span id="dot" class="dot"></span><span id="statusText">disconnected</span></span>
+<h2>Wallets</h2>
+<div class="cols">
+  <div class="card maker">
+    <div class="role">● Maker</div>
+    <div class="bals" id="m-bals"></div>
+    <label>Address</label>
+    <div class="addr" id="m-addr">—</div>
+    <div class="btnrow"><button class="maker" id="fundMaker">+ Fund maker</button></div>
+  </div>
+  <div class="card taker">
+    <div class="role">● Taker</div>
+    <div class="bals" id="t-bals"></div>
+    <label>Address</label>
+    <div class="addr" id="t-addr">—</div>
+    <div class="btnrow"><button id="fundTaker">+ Fund taker</button></div>
+  </div>
 </div>
 
-<h2>Live offers</h2>
+<h2>Maker — make an offer</h2>
+<div class="card maker">
+  <div class="row">
+    <div>
+      <label>Lock asset</label>
+      <select id="lockAsset"></select>
+    </div>
+    <div>
+      <label>Lock amount</label>
+      <input id="amountA" type="number" value="0.01" min="0" step="any">
+    </div>
+    <div>
+      <label>Want asset</label>
+      <select id="wantAsset"></select>
+    </div>
+    <div>
+      <label>Want amount</label>
+      <input id="wantAmount" type="number" value="50" min="0" step="any">
+    </div>
+    <div>
+      <label>Refund height</label>
+      <input id="timeout" type="number" value="500" min="1">
+    </div>
+  </div>
+  <div class="btnrow">
+    <button class="maker" id="makeOffer">Fund covenant &amp; publish offer</button>
+  </div>
+  <div class="note">Amounts are in whole units (L-BTC, USDT, EURx). The maker's
+    asset is locked in a covenant UTXO that only releases on payment of the
+    requested asset.</div>
+</div>
+
+<h2>Open offers — taker fills, covenant enforces</h2>
 <div id="offers"></div>
 
-<details>
-  <summary>Publish an offer</summary>
-  <div class="note">Paste an offer JSON (as printed by <code>mosaik make-offer</code>). It is
-    signed in-browser with an ephemeral Nostr key and published to the relay.</div>
-  <textarea id="offerJson" spellcheck="false" placeholder='{ "outpoint": "...:0", "asset_a": "BTC", "amount_a": 1000000, "tessera": { ... }, "maker_address": "ert1q..." }'></textarea>
-  <div class="pubrow">
-    <input id="orderId" placeholder="order id" value="mosaik-offer">
-    <input id="ttl" type="number" placeholder="ttl (s)" value="3600">
-    <button id="publish">Publish to Nostr</button>
-    <span id="pubResult" class="note"></span>
-  </div>
-</details>
+</div>
+<div class="toast" id="toast"></div>
 
-<p class="note" style="margin-top:26px">
-  Offers are <strong>discovery hints</strong>. The chain is the truth: to fill one,
-  a taker re-derives the covenant address and verifies the on-chain UTXO, then
-  runs <code>mosaik take-offer</code>, where the Liquid node executes and enforces
-  the Simplicity covenant.
-</p>
-
-<script type="module">
-import { SimplePool, generateSecretKey, finalizeEvent }
-  from 'https://esm.sh/nostr-tools@2';
-
-const KIND = 30050;
-const pool = new SimplePool();
-let sub = null;
-const offers = new Map();         // order_id -> { created_at, parsed }
-
+<script>
 const $ = id => document.getElementById(id);
+let state = { assets: [], offers: [] };
+const esc = s => String(s == null ? '' : s)
+  .replace(/[&<>]/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;' }[c]));
+// Every asset (L-BTC and the test assets) uses 8 decimals.
+const units = raw => Number(raw || 0) / 1e8;
+const fmt = n => Number(n || 0).toLocaleString(undefined, { maximumFractionDigits: 8 });
+// raw amount + asset name -> "1.5 USDT"
+const fmtAmt = (raw, name) => fmt(units(raw)) + ' ' + name;
 
-// Escape every value drawn from an (untrusted) Nostr event before it reaches
-// innerHTML. Numbers are coerced; arrays are hex-encoded defensively.
-const esc = s => String(s).replace(/[&<>"']/g,
-  c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
-const num = n => Number.isFinite(Number(n)) ? Number(n) : 0;
-const hex = a => Array.isArray(a)
-  ? a.map(b => (num(b) & 255).toString(16).padStart(2, '0')).join('') : '';
-
-function setStatus(on, text) {
-  $('dot').classList.toggle('on', on);
-  $('statusText').textContent = text;
+function toast(msg, kind) {
+  const t = $('toast');
+  t.className = 'toast show ' + (kind || '');
+  t.innerHTML = msg;
+  setTimeout(() => t.classList.remove('show'), 5500);
 }
 
-function render() {
+async function api(path, body) {
+  const opt = path === '/api/state'
+    ? { method: 'GET' }
+    : { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body || {}) };
+  const res = await fetch(path, opt);
+  const data = await res.json();
+  if (!res.ok || data.error) throw new Error(data.error || ('HTTP ' + res.status));
+  return data;
+}
+
+function assetOptions() {
+  // L-BTC first, then every issued test asset.
+  return ['L-BTC', ...state.assets];
+}
+
+function fillSelect(sel, selected) {
+  const opts = assetOptions();
+  sel.innerHTML = opts.map(a => `<option value="${a}">${a}</option>`).join('');
+  if (selected && opts.includes(selected)) sel.value = selected;
+}
+
+function renderWallet(p, w) {
+  const parts = [`<div><div class="k">L-BTC</div>
+    <div class="v">${fmt(units(w.lbtc_sats))}<small> L-BTC</small></div></div>`];
+  for (const name of state.assets) {
+    parts.push(`<div><div class="k">${esc(name)}</div>
+      <div class="v">${fmt(units(w.assets[name]))}</div></div>`);
+  }
+  $(p + '-bals').innerHTML = parts.join('');
+  $(p + '-addr').textContent = w.address;
+}
+
+function renderOffers() {
   const box = $('offers');
-  const list = [...offers.values()].sort((a, b) => b.created_at - a.created_at);
-  if (!list.length) {
-    box.innerHTML = '<div class="empty">No offers yet. Connect to a relay, or publish one below.</div>';
+  if (!state.offers.length) {
+    box.innerHTML = '<div class="empty">No offers yet. Fund the maker, then make one above.</div>';
     return;
   }
-  box.innerHTML = list.map(o => {
-    const t = o.parsed, of = t.offer || {}, te = of.tessera || {};
-    const expired = Date.now() / 1000 >= num(t.expiry);
-    const state = t.status === 'cancelled' ? 'cancelled' : (expired ? 'expired' : 'active');
-    const expiryTxt = num(t.expiry)
-      ? new Date(num(t.expiry) * 1000).toLocaleString() : 'n/a';
-    return `
-      <div class="offer ${state}">
-        <div class="row">
-          <div class="trade">
-            <span class="a">${num(of.amount_a).toLocaleString()}</span> ${esc(of.asset_a || '?')}
-            &nbsp;-&gt;&nbsp; wants
-            <span class="b">${num(te.amount_b).toLocaleString()}</span> of ${esc(hex(te.asset_b).slice(0,12))}...
-          </div>
-          <span class="badge ${state}">${state}</span>
+  box.innerHTML = state.offers.map(o => `
+      <div class="offer">
+        <div class="trade">
+          <span class="a">${fmtAmt(o.amount_a, esc(o.lock_name))}</span>
+          &nbsp;-&gt;&nbsp; wants
+          <span class="b">${fmtAmt(o.amount_b, esc(o.want_name))}</span>
         </div>
         <div class="meta">
-          <span>order</span><code>${esc(t.order_id)}</code>
-          <span>covenant UTXO</span><code>${esc(of.outpoint || '?')}</code>
-          <span>maker pays to</span><code>${esc(of.maker_address || '?')}</code>
-          <span>refund height</span><code>${num(te.timeout)}</code>
-          <span>expiry</span><code>${esc(expiryTxt)}</code>
+          <span>covenant address</span><code>${esc(o.covenant_address)}</code>
+          <span>covenant UTXO</span><code>${esc(o.outpoint)}</code>
+          <span>CMR</span><code>${esc(o.cmr)}</code>
+          <span>maker paid to</span><code>${esc(o.maker_address)}</code>
+          <span>refund height</span><code>${o.timeout}</code>
         </div>
-      </div>`;
-  }).join('');
+        <div class="act">
+          <button data-take="${o.index}">Take offer (settle covenant)</button>
+          <button class="ghost" data-contract="${o.index}">View covenant</button>
+        </div>
+        <div class="cheats">
+          <span class="lbl">Attack the covenant</span>
+          <button class="bad" data-cheat="underpay" data-idx="${o.index}">Underpay maker</button>
+          <button class="bad" data-cheat="wrong_recipient" data-idx="${o.index}">Pay wrong address</button>
+          <button class="bad" data-cheat="wrong_index" data-idx="${o.index}">Hide maker output</button>
+        </div>
+        <div class="contract" id="contract-${o.index}"></div>
+      </div>`).join('');
+  box.querySelectorAll('button[data-take]').forEach(b => {
+    b.onclick = () => takeOffer(Number(b.dataset.take), b);
+  });
+  box.querySelectorAll('button[data-contract]').forEach(b => {
+    b.onclick = () => viewContract(Number(b.dataset.contract));
+  });
+  box.querySelectorAll('button[data-cheat]').forEach(b => {
+    b.onclick = () => cheatOffer(Number(b.dataset.idx), b.dataset.cheat, b);
+  });
 }
 
-function ingest(ev) {
+async function refresh() {
   try {
-    const parsed = JSON.parse(ev.content);
-    if (!parsed.order_id || !parsed.offer) return;
-    const prev = offers.get(parsed.order_id);
-    if (prev && prev.created_at > ev.created_at) return;   // keep the newest
-    offers.set(parsed.order_id, { created_at: ev.created_at, parsed });
-    render();
-  } catch (_) { /* not a Mosaik offer */ }
+    const s = await api('/api/state');
+    const firstLoad = !state.assets.length;
+    state.assets = s.assets;
+    state.offers = s.offers;
+    $('height').textContent = s.block_count;
+    if (firstLoad && s.assets.length) {
+      fillSelect($('lockAsset'), 'L-BTC');
+      fillSelect($('wantAsset'), s.assets[0]);
+    }
+    renderWallet('m', s.maker);
+    renderWallet('t', s.taker);
+    renderOffers();
+  } catch (e) {
+    toast('Cannot reach the node: ' + e.message, 'err');
+  }
 }
 
-$('connect').onclick = () => {
-  const relay = $('relay').value.trim();
-  if (sub) sub.close();
-  offers.clear();
-  render();
-  setStatus(false, 'connecting...');
-  try {
-    sub = pool.subscribeMany([relay], [{ kinds: [KIND] }], {
-      onevent: ingest,
-      oneose: () => setStatus(true, 'connected - ' + relay),
-    });
-    setStatus(true, 'connected - ' + relay);
-  } catch (e) {
-    setStatus(false, 'error: ' + e.message);
-  }
+async function action(btn, path, body, okMsg) {
+  btn.disabled = true;
+  try { const r = await api(path, body); toast(okMsg(r), 'ok'); }
+  catch (e) { toast(e.message, 'err'); }
+  btn.disabled = false;
+  await refresh();
+}
+
+$('fundMaker').onclick = e =>
+  action(e.target, '/api/fund/maker', {}, r => 'Maker funded — ' + r.funded);
+$('fundTaker').onclick = e =>
+  action(e.target, '/api/fund/taker', {}, r => 'Taker funded — ' + r.funded);
+
+$('makeOffer').onclick = e => {
+  const lock = $('lockAsset').value === 'L-BTC' ? 'BTC' : $('lockAsset').value;
+  const want = $('wantAsset').value === 'L-BTC' ? 'BTC' : $('wantAsset').value;
+  if (lock === want) { toast('Lock and want assets must differ', 'err'); return; }
+  // Every asset is 8-decimal, so amounts go to raw units the same way.
+  action(e.target, '/api/make-offer', {
+    lock, want,
+    amount_a: Math.round(Number($('amountA').value) * 1e8),
+    amount_b: Math.round(Number($('wantAmount').value) * 1e8),
+    timeout: Number($('timeout').value),
+  }, r => 'Offer #' + r.index + ' funded — covenant <code>' + r.outpoint + '</code>');
 };
 
-$('publish').onclick = async () => {
-  const relay = $('relay').value.trim();
-  const out = $('pubResult');
-  let offer;
+async function takeOffer(index, btn) {
+  btn.disabled = true; btn.textContent = 'Settling…';
   try {
-    offer = JSON.parse($('offerJson').value);
-  } catch (e) {
-    out.textContent = 'invalid offer JSON';
-    return;
-  }
-  const tesseraOffer = {
-    order_id: $('orderId').value.trim() || 'mosaik-offer',
-    offer,
-    expiry: Math.floor(Date.now() / 1000) + (parseInt($('ttl').value) || 3600),
-    status: 'active',
-  };
-  const sk = generateSecretKey();
-  const ev = finalizeEvent({
-    kind: KIND,
-    created_at: Math.floor(Date.now() / 1000),
-    tags: [
-      ['d', tesseraOffer.order_id],
-      ['status', 'active'],
-      ['asset_from', offer.asset_a || ''],
-      ['asset_to', offer.tessera ? hex(offer.tessera.asset_b) : ''],
-      ['covenant_utxo', offer.outpoint || ''],
-    ],
-    content: JSON.stringify(tesseraOffer),
-  }, sk);
-  try {
-    await Promise.any(pool.publish([relay], ev));
-    out.textContent = 'published - event ' + ev.id.slice(0, 16) + '...';
-  } catch (e) {
-    out.textContent = 'publish failed: ' + e.message;
-  }
-};
+    const r = await api('/api/take-offer', { index });
+    toast('Settled — the node executed the covenant. tx <code>' + r.txid + '</code>', 'ok');
+  } catch (e) { toast(e.message, 'err'); }
+  refresh();
+}
 
-render();
+async function cheatOffer(index, cheat, btn) {
+  btn.disabled = true;
+  const was = btn.textContent;
+  btn.textContent = 'Attacking…';
+  try {
+    const r = await api('/api/take-offer', { index, cheat });
+    if (r.covenant_bug) {
+      toast('⚠ COVENANT BUG — a fraudulent fill was accepted! tx <code>'
+        + r.txid + '</code>', 'err');
+    } else if (r.rejected) {
+      toast('Covenant rejected the attack ✓ — ' + esc(r.reason), 'ok');
+    } else {
+      toast('Unexpected: ' + JSON.stringify(r), 'err');
+    }
+  } catch (e) { toast(e.message, 'err'); }
+  btn.disabled = false;
+  btn.textContent = was;
+  refresh();
+}
+
+async function viewContract(index) {
+  const box = $('contract-' + index);
+  if (box.classList.contains('show')) { box.classList.remove('show'); return; }
+  try {
+    const c = await api('/api/contract', { index });
+    box.innerHTML = `
+      <div><b>Compiled covenant.</b> CMR <code>${esc(c.cmr)}</code></div>
+      <div class="path"><b>SETTLE</b> — ${esc(c.settle)}</div>
+      <div class="path refund"><b>REFUND</b> — ${esc(c.refund)}</div>
+      <div style="margin-top:8px">SimplicityHL source:</div>
+      <pre>${esc(c.source)}</pre>`;
+    box.classList.add('show');
+  } catch (e) { toast(e.message, 'err'); }
+}
+
+refresh();
+setInterval(refresh, 12000);
 </script>
-</div>
 </body>
 </html>

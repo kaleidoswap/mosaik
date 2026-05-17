@@ -13,6 +13,8 @@ use anyhow::Result;
 use clap::{Parser, Subcommand};
 use tessera::Tessera;
 
+mod server;
+
 #[derive(Parser)]
 #[command(name = "mosaik")]
 #[command(about = "Mosaik — a DEX on Liquid where every order is a Tessera, a self-enforcing Simplicity covenant")]
@@ -28,9 +30,13 @@ enum Command {
         /// Sats of L-BTC the maker locks in the covenant.
         #[arg(long)]
         amount_a: u64,
-        /// Sats of L-BTC the covenant requires the taker to pay the maker.
+        /// Raw units of `asset_b` the covenant requires the taker to pay the maker.
         #[arg(long)]
         amount_b: u64,
+        /// Asset id (RPC display order) the maker wants to be paid in.
+        /// Defaults to L-BTC (the network policy asset).
+        #[arg(long)]
+        asset_b: Option<String>,
         /// Block height after which the maker may reclaim (REFUND).
         #[arg(long, default_value_t = 500)]
         timeout: u32,
@@ -115,6 +121,11 @@ enum Command {
         #[arg(long, default_value_t = 7777)]
         port: u16,
     },
+    /// Serve the browser wallet UI for funding, making, and taking offers.
+    ServeWallet {
+        #[arg(long, default_value_t = 8080)]
+        port: u16,
+    },
 }
 
 fn parse_32(label: &str, s: &str) -> Result<[u8; 32]> {
@@ -148,8 +159,9 @@ fn main() -> Result<()> {
         Command::MakeOffer {
             amount_a,
             amount_b,
+            asset_b,
             timeout,
-        } => make_offer(amount_a, amount_b, timeout),
+        } => make_offer(amount_a, amount_b, asset_b.as_deref(), timeout),
         Command::TakeOffer { offer } => take_offer(&offer),
         Command::Reclaim { offer } => {
             println!("Reclaiming offer from {offer}");
@@ -209,16 +221,25 @@ fn main() -> Result<()> {
         Command::ServeRelay { port } => {
             block_on(mosaik_relay::run_local_relay(port))
         }
+        Command::ServeWallet { port } => server::run(port),
     }
 }
 
 /// Maker: fund a covenant UTXO on the regtest, print the offer JSON to stdout.
-fn make_offer(amount_a: u64, amount_b: u64, timeout: u32) -> Result<()> {
-    use mosaik_core::{lbtc_tessera, rpc::ElementsRpc, MakeOffer, MosaikMaker};
+fn make_offer(
+    amount_a: u64,
+    amount_b: u64,
+    asset_b: Option<&str>,
+    timeout: u32,
+) -> Result<()> {
+    use mosaik_core::{lbtc_tessera, rpc::ElementsRpc, tessera_for, MakeOffer, MosaikMaker};
 
     let rpc = ElementsRpc::regtest_wallet();
     let maker_address = rpc.new_unconfidential_address()?;
-    let tessera = lbtc_tessera(&rpc, &maker_address, amount_b, timeout, [0x11; 32])?;
+    let tessera = match asset_b {
+        Some(asset) => tessera_for(&rpc, &maker_address, asset, amount_b, timeout, [0x11; 32])?,
+        None => lbtc_tessera(&rpc, &maker_address, amount_b, timeout, [0x11; 32])?,
+    };
     let offer = MosaikMaker::regtest().make_offer("BTC", amount_a, &tessera, &maker_address)?;
 
     // Human-readable summary to stderr; the offer JSON to stdout (pipe it).
