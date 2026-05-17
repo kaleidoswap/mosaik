@@ -219,104 +219,64 @@ cargo run -p mosaik-cli -- take-offer --offer offer.json
 cargo run -p mosaik-cli -- serve-relay --port 7777   # local Nostr orderbook
 ```
 
-## Run — Liquid testnet (no local node)
+## Run — Liquid testnet (local node, full demo)
 
-Mirrors the [Blockstream simplicity-codespace](https://github.com/Blockstream/simplicity-codespace)
-philosophy: **no local `elementsd`, no local wallet**. The public Liquid
-testnet faucet funds covenant addresses directly; the public Esplora reads
-chain state and broadcasts; `hal-simplicity` builds PSETs; the Mosaik CLI
-compiles the Tessera covenant and assembles its witness.
+The same UI as regtest, pointed at a local Liquid testnet `elementsd`. The
+treasury is bootstrapped from the public testnet faucet; the demo assets
+(USDT, EURx) are issued once and persisted to `.testnet/assets.json`. From
+then on, the experience is identical to regtest — except blocks arrive on
+their own schedule (~1 min/block) instead of being mined on demand.
 
-**Prerequisites**
-
-| Tool | Install |
-|---|---|
-| Rust toolchain | `curl https://sh.rustup.rs -sSf \| sh` |
-| `hal-simplicity` | `cargo install hal-simplicity` (lands in `~/.cargo/bin`) |
-| `curl`, `python3` | system package manager |
-
-No `elementsd` and no `tools/` directory are needed for the testnet path.
-
-### Option A — Wallet UI on port 8081 (mirrors the regtest demo)
+### One-time bootstrap
 
 ```sh
-# 1. Start the testnet UI. Reads from public Esplora; no node required.
+# 1. Start elementsd on liquidtestnet and create the three wallets.
+#    Idempotent — re-run to recheck sync progress. First sync takes 15–30 min.
+export ELEMENTSD_EXEC="$PWD/tools/elementsd"
+./scripts/testnet.sh up
+
+# 2. Once the chain is synced, hit the faucet for the treasury wallet,
+#    then issue the demo test assets (USDT, EURx).
+./scripts/testnet.sh fund
+```
+
+`fund` is idempotent: it tops up the treasury with one faucet drop (~100k
+sats of L-BTC), then issues USDT/EURx **only on first run** and persists the
+resulting asset ids to `.testnet/assets.json`. Subsequent runs just refill
+the treasury.
+
+### Running the demo
+
+```sh
+# Serve the UI on http://127.0.0.1:8081
 ./scripts/testnet.sh serve
 
-# 2. Open it in a browser.
+# Open it in a browser
 open http://127.0.0.1:8081
 ```
 
-What to do in the UI:
+The flow is identical to regtest (Fund maker / Fund taker / Make offer /
+Take offer / Attack / Reclaim / View covenant), with two notes:
 
-1. **Fund maker / Fund taker** — each button hits the public faucet on the
-   shown demo address (`tex1qkkx…` for the maker, `tex1q4f9…` for the taker).
-   The faucet sends ~100,000 sats per request and is rate-limited; the toast
-   shows the funding txid.
-2. **Make an offer** — L-BTC only on testnet. Set the want-amount (default
-   `0.000995` L-BTC = 99,500 sats, leaving 500 sats for the settlement fee on
-   a 100k-sat faucet drop) and click **Fund covenant & publish offer**. The
-   server compiles the Tessera, derives the covenant address, and **hits the
-   faucet on the covenant address directly** — no maker UTXO is spent. The
-   offer appears with a `faucet pending` pill.
-3. **Wait ~1 min** for the faucet tx to confirm on Liquid testnet. The pill
-   flips to `ready` and the **Take offer** button enables.
-4. **Take offer** — the server builds a settlement PSET (`hal-simplicity
-   simplicity pset create / update-input / finalize / extract`), attaches the
-   SETTLE witness, and broadcasts via Esplora. The covenant is enforced by
-   the network's Simplicity-capable validators.
-5. **Attack the covenant** — the red buttons build deliberately-broken
-   settlement PSETs (underpay, wrong recipient, hidden maker output) and
-   broadcast them. The testnet validators reject each one with the
-   covenant's error; the toast surfaces it. A green toast here means the
-   covenant did its job.
-6. **Reclaim (REFUND)** — enabled once the chain reaches `refund height`.
-   Builds the refund tx in-process (`tessera::build_refund_tx` signs with the
-   demo maker key) and broadcasts via Esplora.
-7. **View covenant** — shows the compiled SimplicityHL source, the CMR, and
-   the covenant Taproot address. Purely local; no chain query.
+- **Funding sends smaller amounts.** The treasury only holds one faucet drop,
+  so Fund maker / Fund taker each move 0.001 L-BTC + 100 USDT + 100 EURx
+  (vs 1 L-BTC + 100 of each on regtest).
+- **Wait for confirmations.** Every action takes ~1 min to confirm on testnet
+  because the network mines, not us. The wallet UI polls every 15s and
+  balances update once the tx confirms.
 
-Stop the UI with `pkill -f 'mosaik serve-wallet'`.
-
-### Option B — CLI demo (one Tessera, end-to-end)
-
-This mirrors a codespace `exercises/*/demo.sh` — a single Tessera, funded by
-the faucet, settled by the same shell pipeline.
+### Other commands
 
 ```sh
-# Step 1 — compile the covenant, hit the faucet, wait for confirmation, save offer.json
-./scripts/testnet.sh make-offer
-
-# Step 2 — build the settlement PSET and broadcast
-./scripts/testnet.sh take-offer
+./scripts/testnet.sh cli getblockchaininfo   # passthrough to elements-cli
+./scripts/testnet.sh down                    # stop the node
 ```
-
-`make-offer` compiles a Tessera with the hardcoded demo keys, derives the
-Taproot covenant address, hits the public Liquid testnet faucet, polls
-Esplora until the tx confirms, and writes `offer.json`.
-
-`take-offer` reads `offer.json`, builds the PSET via `hal-simplicity`,
-attaches the SETTLE witness produced by `mosaik settle-json`, extracts the
-raw tx, and POSTs it to Esplora.
-
-```sh
-# Override defaults: amount_b_sats=50000, timeout=1000, offer file path
-./scripts/testnet.sh make-offer 50000 1000 my-offer.json
-./scripts/testnet.sh take-offer my-offer.json
-
-# Print the hardcoded demo key constants
-./scripts/testnet.sh testnet-constants
-```
-
-The Simplicity contract source lives at
-[`crates/tessera/contracts/tessera.simf`](crates/tessera/contracts/tessera.simf).
 
 ### Faucet hints
 
-The Liquid testnet faucet at `https://liquidtestnet.com/faucet` is shared
-infrastructure. If a `Fund …` or `Make offer` action errors out, the faucet
-is most likely rate-limiting your IP. Visit the URL in a browser to confirm,
-or wait a few minutes and retry.
+`https://liquidtestnet.com/faucet` is shared infrastructure. If `fund`
+errors out, the faucet is likely rate-limiting your IP. Visit the URL in a
+browser to confirm, then retry.
 
 ## References
 

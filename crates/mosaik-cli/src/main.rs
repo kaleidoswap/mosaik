@@ -95,40 +95,6 @@ enum Command {
         #[arg(long, default_value_t = 0)]
         settle_vout: u32,
     },
-    /// Output compiled Tessera as JSON {cmr, program} where program is base64.
-    /// Consumed by `hal-simplicity simplicity info` and `pset finalize`.
-    TesseraJson {
-        #[arg(long)]
-        asset_b: String,
-        #[arg(long)]
-        amount_b: u64,
-        #[arg(long)]
-        maker_pk: String,
-        #[arg(long)]
-        maker_spk_hash: String,
-        #[arg(long)]
-        timeout: u32,
-    },
-    /// Output the SETTLE witness as JSON {program, witness} for `hal-simplicity pset finalize`.
-    /// program is base64; witness is hex.
-    SettleJson {
-        #[arg(long)]
-        asset_b: String,
-        #[arg(long)]
-        amount_b: u64,
-        #[arg(long)]
-        maker_pk: String,
-        #[arg(long)]
-        maker_spk_hash: String,
-        #[arg(long)]
-        timeout: u32,
-        #[arg(long, default_value_t = 0)]
-        settle_vout: u32,
-    },
-    /// Print the demo maker's constants for the Liquid testnet demo script.
-    /// Outputs JSON with privkey, maker_pk, maker_address, maker_spk_hash,
-    /// and the Liquid testnet L-BTC asset id in internal (tx/jet) byte order.
-    TestnetConstants,
     /// Maker: publish a funded offer to the Nostr orderbook.
     PublishOffer {
         /// Path to the offer JSON (as printed by `make-offer`).
@@ -244,28 +210,6 @@ fn main() -> Result<()> {
             println!("  control_block: {}", hex::encode(&wit.control_block));
             Ok(())
         }
-        Command::TesseraJson {
-            asset_b,
-            amount_b,
-            maker_pk,
-            maker_spk_hash,
-            timeout,
-        } => {
-            let tessera = build_tessera(&asset_b, amount_b, &maker_pk, &maker_spk_hash, timeout)?;
-            tessera_json(&tessera)
-        }
-        Command::SettleJson {
-            asset_b,
-            amount_b,
-            maker_pk,
-            maker_spk_hash,
-            timeout,
-            settle_vout,
-        } => {
-            let tessera = build_tessera(&asset_b, amount_b, &maker_pk, &maker_spk_hash, timeout)?;
-            settle_json(&tessera, settle_vout)
-        }
-        Command::TestnetConstants => testnet_constants(),
         Command::PublishOffer {
             offer,
             relay,
@@ -282,56 +226,6 @@ fn main() -> Result<()> {
             server::run(port, net)
         }
     }
-}
-
-fn tessera_json(tessera: &Tessera) -> Result<()> {
-    use base64::{engine::general_purpose::STANDARD as B64, Engine as _};
-    // settle_witness(0) gives us the compiled program bytes (same for any settle_vout).
-    let wit = tessera.settle_witness(0)?;
-    let cmr = tessera.compile()?.cmr_hex();
-    println!(
-        "{}",
-        serde_json::json!({ "cmr": cmr, "program": B64.encode(&wit.program) })
-    );
-    Ok(())
-}
-
-fn settle_json(tessera: &Tessera, settle_vout: u32) -> Result<()> {
-    use base64::{engine::general_purpose::STANDARD as B64, Engine as _};
-    let wit = tessera.settle_witness(settle_vout)?;
-    println!(
-        "{}",
-        serde_json::json!({
-            "program": B64.encode(&wit.program),
-            "witness": hex::encode(&wit.witness),
-        })
-    );
-    Ok(())
-}
-
-fn testnet_constants() -> Result<()> {
-    use mosaik_core::DEMO_MAKER_SECRET;
-    // Liquid testnet L-BTC asset in internal (tx/jet) byte order — display order reversed.
-    // Display: 144c654344aa716d6f3abcc1ca90e5641e4e2a7f633bc09fe3baf64585819a49
-    const LBTC_INTERNAL: &str =
-        "499a818545f6bae39fc03b637f2a4e1e64e590cac1bc3a6f6d71aa4443654c14";
-    // Faucet return address (well-known, unconfidential) and its scriptPubKey hash.
-    const MAKER_ADDRESS: &str = "tex1qkkxzy9glfws4nc392an5w2kgjym7sxpshuwkjy";
-    const MAKER_SPK_HASH: &str =
-        "bcfbe70502021903755bb406a7c4681817be317affc7d1120de2041a9e06cfc5";
-
-    let maker_pk = mosaik_core::demo_maker_pk();
-    println!(
-        "{}",
-        serde_json::json!({
-            "privkey":         hex::encode(DEMO_MAKER_SECRET),
-            "maker_pk":        hex::encode(maker_pk),
-            "maker_address":   MAKER_ADDRESS,
-            "maker_spk_hash":  MAKER_SPK_HASH,
-            "lbtc_asset":      LBTC_INTERNAL,
-        })
-    );
-    Ok(())
 }
 
 /// Maker: fund a covenant UTXO on the regtest, print the offer JSON to stdout.

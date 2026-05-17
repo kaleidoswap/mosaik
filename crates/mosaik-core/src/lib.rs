@@ -10,7 +10,6 @@ use anyhow::Result;
 use serde::{Deserialize, Serialize};
 
 pub mod rpc;
-pub mod testnet;
 
 pub use tessera::Tessera;
 
@@ -135,9 +134,12 @@ impl MakeOffer for MosaikMaker {
         let lbtc = self.rpc.policy_asset()?;
         let asset_a_id = resolve_asset(&self.rpc, asset_a)?;
 
-        // Compile the covenant and derive its Taproot address.
+        // Compile the covenant and derive its Taproot address. The bech32
+        // prefix (ert1p / tex1p / lq1p) must match the chain the node is on,
+        // otherwise sendtoaddress rejects it as "Invalid Bitcoin address".
         let compiled = tessera.compile()?;
-        let address = compiled.address()?;
+        let params = address_params_for(&self.rpc)?;
+        let address = compiled.address_for(params)?;
         let spk_hex = hex::encode(address.script_pubkey().as_bytes());
 
         // Fund the covenant UTXO with `asset_a` and confirm it. A P2TR address
@@ -165,6 +167,18 @@ impl MakeOffer for MosaikMaker {
             maker_address: maker_address.to_string(),
         })
     }
+}
+
+/// Pick the right Liquid address params from the node's reported chain.
+/// Falls back to elementsregtest (`ert…`) if the chain is unknown.
+fn address_params_for(rpc: &rpc::ElementsRpc) -> Result<&'static simplicityhl::elements::AddressParams> {
+    use simplicityhl::elements::AddressParams;
+    let info = rpc.call("getblockchaininfo", serde_json::json!([]))?;
+    Ok(match info.get("chain").and_then(serde_json::Value::as_str) {
+        Some("liquidtestnet") => &AddressParams::LIQUID_TESTNET,
+        Some("liquidv1") => &AddressParams::LIQUID,
+        _ => &AddressParams::ELEMENTS,
+    })
 }
 
 /// Find the index of the output whose scriptPubKey hex matches `spk_hex`.
