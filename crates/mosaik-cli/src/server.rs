@@ -452,6 +452,7 @@ fn api_fund(state: &Mutex<AppState>, target_name: &str) -> Result<Value> {
                 } else { e }
             })?;
         for id in assets.values() {
+            lwk.treasury.sync().ok();
             let a = target.unconfidential_address()?;
             lwk.treasury.send_to_address(&a, asset_amount, Some(id))?;
         }

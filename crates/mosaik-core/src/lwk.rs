@@ -146,6 +146,16 @@ impl LwkWallet {
         Ok((asset_id, token_id, txid.to_string()))
     }
 
+    pub fn sync(&self) -> Result<()> {
+        let mut client = EsploraClient::new(ESPLORA_URL, ElementsNetwork::LiquidTestnet)
+            .map_err(|e| anyhow!("esplora: {e}"))?;
+        let mut w = self.wollet.lock().unwrap();
+        if let Some(update) = client.full_scan(&*w).map_err(|e| anyhow!("scan: {e}"))? {
+            w.apply_update(update).map_err(|e| anyhow!("apply update: {e}"))?;
+        }
+        Ok(())
+    }
+
     pub fn sign_pset(&self, pset_b64: &str) -> Result<String> {
         let mut pset: PartiallySignedTransaction = pset_b64.parse()
             .map_err(|e| anyhow!("pset parse: {e}"))?;
@@ -302,15 +312,16 @@ impl<'a> LwkTaker<'a> {
         let (b_txid, b_vout, b_amount) = self.wallet.unspent_of_asset(&asset_b, amount_b)?
             .ok_or_else(|| anyhow!("taker has no {asset_b} UTXO of at least {amount_b}"))?;
 
-        let lbtc_in = if asset_a == lbtc { amount_a } else { 0 } + if asset_b == lbtc { b_amount } else { 0 };
+        // Fee must be covered by wallet L-BTC inputs only (covenant value is locked).
+        let wallet_lbtc = if asset_b == lbtc { b_amount } else { 0 };
         let mut wallet_utxos = vec![OutPoint::new(Txid::from_str(&b_txid)?, b_vout as u32)];
-        let mut lbtc_utxo = None;
-        if lbtc_in < fee || (asset_a != lbtc && asset_b != lbtc) {
-            let need = if lbtc_in < fee { fee - lbtc_in } else { fee };
-            let (l_txid, l_vout, _) = self.wallet.unspent_of_asset(&lbtc, need)?
+        let mut extra_lbtc_amount: Option<u64> = None;
+        if wallet_lbtc < fee || (asset_a != lbtc && asset_b != lbtc) {
+            let need = fee.saturating_sub(wallet_lbtc);
+            let (l_txid, l_vout, l_amount) = self.wallet.unspent_of_asset(&lbtc, need)?
                 .ok_or_else(|| anyhow!("taker has no L-BTC for fee"))?;
             wallet_utxos.push(OutPoint::new(Txid::from_str(&l_txid)?, l_vout as u32));
-            lbtc_utxo = Some((l_txid, l_vout));
+            extra_lbtc_amount = Some(l_amount);
         }
 
         let taker = self.wallet.unconfidential_address()?;
@@ -347,20 +358,39 @@ impl<'a> LwkTaker<'a> {
             .set_wallet_utxos(wallet_utxos);
 
         let maker_addr: lwk_wollet::elements::Address = maker_recipient.parse()?;
-        builder = builder.add_recipient(&maker_addr, maker_pay, asset_b_id)
-            .map_err(|e| anyhow!("maker recipient: {e}"))?;
-
         let taker_addr: lwk_wollet::elements::Address = taker.parse()?;
-        builder = builder.add_recipient(&taker_addr, amount_a, asset_a_id)
-            .map_err(|e| anyhow!("taker a: {e}"))?;
 
-        let b_change = b_amount.saturating_sub(maker_pay);
-        if b_change > 0 {
-            builder = builder.add_recipient(&taker_addr, b_change, asset_b_id)
-                .map_err(|e| anyhow!("taker b: {e}"))?;
+        // WrongIndex: put the taker output at index 0 so the covenant checks the wrong output.
+        if cheat == Cheat::WrongIndex {
+            builder = builder.add_recipient(&taker_addr, amount_a, asset_a_id)
+                .map_err(|e| anyhow!("taker a: {e}"))?;
+            builder = builder.add_recipient(&maker_addr, maker_pay, asset_b_id)
+                .map_err(|e| anyhow!("maker recipient: {e}"))?;
+        } else {
+            builder = builder.add_recipient(&maker_addr, maker_pay, asset_b_id)
+                .map_err(|e| anyhow!("maker recipient: {e}"))?;
+            builder = builder.add_recipient(&taker_addr, amount_a, asset_a_id)
+                .map_err(|e| anyhow!("taker a: {e}"))?;
         }
-        if let Some((_, _)) = lbtc_utxo {
-            let lbtc_change = lbtc_in.saturating_sub(fee);
+
+        // Change for asset_b (only when it's NOT L-BTC; L-BTC change handled below)
+        if asset_b != lbtc {
+            let b_change = b_amount.saturating_sub(maker_pay);
+            if b_change > 0 {
+                builder = builder.add_recipient(&taker_addr, b_change, asset_b_id)
+                    .map_err(|e| anyhow!("taker b: {e}"))?;
+            }
+        }
+
+        // L-BTC change from wallet inputs only (covenant value is consumed by the taker output)
+        if asset_b == lbtc {
+            let lbtc_change = b_amount.saturating_sub(maker_pay + fee);
+            if lbtc_change > 0 {
+                builder = builder.add_recipient(&taker_addr, lbtc_change, lbtc_id)
+                    .map_err(|e| anyhow!("taker lbtc: {e}"))?;
+            }
+        } else if let Some(l_amount) = extra_lbtc_amount {
+            let lbtc_change = l_amount.saturating_sub(fee);
             if lbtc_change > 0 {
                 builder = builder.add_recipient(&taker_addr, lbtc_change, lbtc_id)
                     .map_err(|e| anyhow!("taker lbtc: {e}"))?;
@@ -396,8 +426,8 @@ impl<'a> LwkTaker<'a> {
 }
 
 fn find_output_index(tx: &Value, spk_hex: &str) -> Option<u64> {
-    tx.get("vout")?.as_array()?.iter().find_map(|out| {
+    tx.get("vout")?.as_array()?.iter().enumerate().find_map(|(i, out)| {
         let hex = out.get("scriptpubkey")?.as_str()?;
-        (hex == spk_hex).then(|| out.get("vout")?.as_u64()).flatten()
+        (hex == spk_hex).then_some(i as u64)
     })
 }
