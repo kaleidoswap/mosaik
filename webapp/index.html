@@ -3,184 +3,557 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Mosaik — covenant DEX wallet</title>
+<title>Mosaik — Covenant DEX</title>
 <style>
-  :root{
-    --bg:#0c0e14; --panel:#151823; --panel2:#1c2030; --ink:#e8eaf2;
-    --muted:#9aa0b4; --line:#2a2f42; --accent:#6ad6c8; --accent2:#c8a8ff;
-    --ok:#6ad6c8; --warn:#ffcf6a; --bad:#f0a6c8;
-  }
-  *{box-sizing:border-box;}
-  body{margin:0;background:var(--bg);color:var(--ink);
-    font:15px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;}
-  .wrap{max-width:980px;margin:0 auto;padding:38px 24px 90px;}
-  header{border-bottom:1px solid var(--line);padding-bottom:18px;margin-bottom:8px;
-    display:flex;justify-content:space-between;align-items:flex-end;gap:16px;}
-  .eyebrow{text-transform:uppercase;letter-spacing:.18em;font-size:11px;
-    color:var(--accent);font-weight:700;}
-  h1{font-size:30px;margin:8px 0 4px;letter-spacing:-.02em;
-    background:linear-gradient(100deg,var(--accent),var(--accent2));
-    -webkit-background-clip:text;background-clip:text;color:transparent;}
-  .sub{color:var(--muted);font-size:14px;}
-  .height{font-size:12px;color:var(--muted);white-space:nowrap;}
-  .height b{color:var(--ink);font-size:15px;}
-  h2{font-size:12px;text-transform:uppercase;letter-spacing:.14em;
-    color:var(--accent);margin:30px 0 12px;font-weight:700;}
-  .cols{display:grid;grid-template-columns:1fr 1fr;gap:14px;}
-  .card{background:var(--panel);border:1px solid var(--line);border-radius:14px;
-    padding:18px 20px;}
-  .card.maker{border-top:3px solid var(--accent2);}
-  .card.taker{border-top:3px solid var(--accent);}
-  .role{font-size:12px;text-transform:uppercase;letter-spacing:.12em;
-    font-weight:700;margin-bottom:12px;}
-  .card.maker .role{color:var(--accent2);}
-  .card.taker .role{color:var(--accent);}
-  .bals{display:flex;gap:18px;flex-wrap:wrap;margin-bottom:12px;}
-  .bals .k{font-size:10px;text-transform:uppercase;letter-spacing:.1em;
-    color:var(--muted);}
-  .bals .v{font-size:18px;font-weight:700;margin-top:2px;}
-  .bals .v small{font-size:11px;color:var(--muted);font-weight:500;}
-  .addr{font-family:ui-monospace,Menlo,monospace;font-size:11px;color:#cdd1e0;
-    word-break:break-all;background:var(--panel2);border:1px solid var(--line);
-    border-radius:8px;padding:7px 9px;margin-bottom:12px;}
-  label{font-size:11px;text-transform:uppercase;letter-spacing:.08em;
-    color:var(--muted);display:block;margin-bottom:4px;}
-  input,select{background:var(--panel2);border:1px solid var(--line);
-    border-radius:8px;color:var(--ink);padding:9px 11px;font-size:13.5px;
-    font-family:inherit;width:100%;}
-  input:focus,select:focus{outline:1px solid var(--accent);}
-  .row{display:flex;gap:10px;flex-wrap:wrap;}
-  .row > div{flex:1;min-width:104px;}
-  button{background:var(--accent);color:#0c0e14;border:0;border-radius:8px;
-    padding:9px 16px;font-size:13px;font-weight:700;cursor:pointer;}
-  button:hover{filter:brightness(1.08);}
-  button:disabled{opacity:.4;cursor:not-allowed;}
-  button.maker{background:var(--accent2);}
-  button.ghost{background:var(--panel2);color:var(--ink);
-    border:1px solid var(--line);}
-  .btnrow{display:flex;gap:10px;flex-wrap:wrap;margin-top:10px;}
-  .offer{background:var(--panel);border:1px solid var(--line);border-radius:12px;
-    padding:14px 16px;margin-bottom:10px;border-left:3px solid var(--accent);}
-  .offer .trade{font-size:16px;font-weight:700;}
-  .offer .trade .a{color:var(--accent2);} .offer .trade .b{color:var(--accent);}
-  .offer .meta{margin-top:7px;display:grid;grid-template-columns:auto 1fr;
-    gap:2px 14px;font-size:11.5px;color:var(--muted);}
-  .offer .meta code{font-family:ui-monospace,Menlo,monospace;color:#cdd1e0;
-    word-break:break-all;}
-  .offer .act{margin-top:10px;display:flex;gap:10px;flex-wrap:wrap;}
-  .cheats{margin-top:10px;padding-top:10px;border-top:1px dashed var(--line);
-    display:flex;gap:8px;flex-wrap:wrap;align-items:center;}
-  .cheats .lbl{font-size:11px;color:var(--bad);text-transform:uppercase;
-    letter-spacing:.08em;font-weight:700;}
-  button.bad{background:transparent;color:var(--bad);
-    border:1px solid var(--bad);padding:6px 11px;font-size:12px;}
-  .contract{margin-top:10px;background:var(--panel2);border:1px solid var(--line);
-    border-radius:10px;padding:12px 14px;font-size:12px;display:none;}
-  .contract.show{display:block;}
-  .contract pre{font-family:ui-monospace,Menlo,monospace;font-size:11px;
-    background:var(--bg);border:1px solid var(--line);border-radius:8px;
-    padding:10px;overflow:auto;color:#cdd1e0;max-height:240px;}
-  .contract .path{margin-top:8px;}
-  .contract .path b{color:var(--accent);}
-  .contract .path.refund b{color:var(--warn);}
-  .empty{color:var(--muted);text-align:center;padding:34px;
-    border:1px dashed var(--line);border-radius:12px;}
-  .toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);
-    background:var(--panel2);border:1px solid var(--line);border-radius:10px;
-    padding:11px 18px;font-size:13px;max-width:90vw;box-shadow:0 8px 30px #0008;
-    opacity:0;transition:opacity .2s;pointer-events:none;}
-  .toast.show{opacity:1;}
-  .toast.ok{border-color:var(--ok);} .toast.err{border-color:var(--bad);}
-  .toast code{font-family:ui-monospace,Menlo,monospace;color:var(--accent);}
-  .note{font-size:11.5px;color:var(--muted);margin-top:8px;}
+:root {
+  --bg:       #09090f;
+  --surface:  #11131c;
+  --surface2: #181b27;
+  --surface3: #1e2233;
+  --border:   #232738;
+  --border2:  #2d3248;
+  --ink:      #dde1f2;
+  --muted:    #6b7391;
+  --dim:      #40475e;
+
+  --teal:        #3ecfbe;
+  --teal-dim:    rgba(62,207,190,.1);
+  --teal-border: rgba(62,207,190,.28);
+  --purple:      #a97fff;
+  --purple-dim:  rgba(169,127,255,.1);
+  --purple-border: rgba(169,127,255,.28);
+  --green:       #4cc870;
+  --green-dim:   rgba(76,200,112,.1);
+  --warn:        #f5b731;
+  --warn-dim:    rgba(245,183,49,.1);
+  --red:         #e0487a;
+  --red-dim:     rgba(224,72,122,.08);
+  --red-border:  rgba(224,72,122,.3);
+
+  --sidebar: 310px;
+  --r: 12px;
+  --r-sm: 8px;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  background: var(--bg);
+  color: var(--ink);
+  font: 13.5px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  height: 100vh;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ── Header ── */
+.header {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 20px;
+  height: 52px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.brand { display: flex; align-items: center; gap: 10px; }
+
+.logo {
+  width: 30px; height: 30px;
+  background: linear-gradient(135deg, var(--teal) 0%, var(--purple) 100%);
+  border-radius: 7px;
+  display: grid; place-items: center;
+  font-size: 15px; font-weight: 900; color: #09090f;
+  flex-shrink: 0;
+}
+
+.brand-name {
+  font-size: 16px; font-weight: 800; letter-spacing: -.025em;
+  background: linear-gradient(90deg, var(--teal), var(--purple));
+  -webkit-background-clip: text; background-clip: text; color: transparent;
+}
+
+.brand-tag { font-size: 11px; color: var(--muted); margin-left: 4px; }
+
+.header-right { display: flex; align-items: center; gap: 8px; }
+
+.pill {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 4px 10px; border-radius: 20px;
+  font-size: 11.5px; font-weight: 600; border: 1px solid;
+}
+
+.pill.net  { color: var(--warn); border-color: rgba(245,183,49,.3); background: var(--warn-dim); }
+.pill.blk  { color: var(--muted); border-color: var(--border2); background: var(--surface2);
+              font-family: ui-monospace, monospace; }
+
+.live-dot {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: var(--green); animation: blink 2.4s ease-in-out infinite;
+}
+@keyframes blink { 0%,100%{opacity:1} 50%{opacity:.3} }
+
+/* ── Layout ── */
+.layout {
+  flex: 1;
+  display: grid;
+  grid-template-columns: var(--sidebar) 1fr;
+  min-height: 0;
+}
+
+.sidebar {
+  border-right: 1px solid var(--border);
+  overflow-y: auto;
+  padding: 16px 14px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.main {
+  overflow-y: auto;
+  padding: 20px 22px 40px;
+}
+
+/* ── Section labels ── */
+.sec-label {
+  font-size: 10px; font-weight: 700; text-transform: uppercase;
+  letter-spacing: .14em; color: var(--dim); margin-bottom: 9px;
+}
+
+/* ── Wallet cards ── */
+.wallet {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  overflow: hidden;
+}
+
+.wallet-bar {
+  height: 2px;
+}
+.wallet.maker .wallet-bar { background: var(--purple); }
+.wallet.taker .wallet-bar { background: var(--teal); }
+
+.wallet-inner { padding: 12px 14px; }
+
+.wallet-head {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 10px;
+}
+
+.wallet-role {
+  display: flex; align-items: center; gap: 6px;
+  font-size: 10.5px; font-weight: 700; text-transform: uppercase;
+  letter-spacing: .1em;
+}
+.wallet-role .r-dot {
+  width: 7px; height: 7px; border-radius: 50%;
+}
+.wallet.maker .wallet-role { color: var(--purple); }
+.wallet.maker .r-dot       { background: var(--purple); }
+.wallet.taker .wallet-role { color: var(--teal); }
+.wallet.taker .r-dot       { background: var(--teal); }
+
+.bals { display: flex; flex-direction: column; gap: 5px; margin-bottom: 10px; }
+
+.bal {
+  display: flex; justify-content: space-between; align-items: baseline;
+}
+.bal .a { font-size: 10px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+.bal .v { font-family: ui-monospace, monospace; font-size: 12px; color: var(--ink); }
+
+.addr {
+  font-family: ui-monospace, monospace; font-size: 9.5px;
+  color: var(--dim); word-break: break-all;
+  background: var(--surface2); border: 1px solid var(--border);
+  border-radius: 6px; padding: 5px 7px;
+}
+
+/* ── New offer form ── */
+.form-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  padding: 14px;
+}
+
+.field { margin-bottom: 8px; }
+
+.field label {
+  display: block; font-size: 10px; font-weight: 600;
+  text-transform: uppercase; letter-spacing: .08em;
+  color: var(--muted); margin-bottom: 4px;
+}
+
+.field input, .field select {
+  width: 100%;
+  background: var(--surface2); border: 1px solid var(--border);
+  border-radius: var(--r-sm); color: var(--ink);
+  padding: 8px 10px; font-size: 13px; font-family: inherit;
+  transition: border-color .15s, box-shadow .15s;
+}
+
+.field input:focus, .field select:focus {
+  outline: none;
+  border-color: var(--purple);
+  box-shadow: 0 0 0 2px var(--purple-dim);
+}
+
+.field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; }
+
+.swap-arrow {
+  text-align: center; color: var(--dim);
+  font-size: 13px; margin: 2px 0 6px;
+  user-select: none;
+}
+
+/* ── Buttons ── */
+button {
+  background: var(--teal); color: #09090f;
+  border: 0; border-radius: var(--r-sm);
+  padding: 9px 16px; font-size: 13px; font-weight: 700;
+  cursor: pointer; font-family: inherit;
+  transition: filter .15s, opacity .15s;
+}
+button:hover:not(:disabled) { filter: brightness(1.1); }
+button:disabled { opacity: .38; cursor: not-allowed; }
+
+button.pu  { background: var(--purple); }
+button.sm  { padding: 5px 11px; font-size: 11.5px; }
+button.w   { width: 100%; }
+
+button.ghost {
+  background: transparent; color: var(--muted);
+  border: 1px solid var(--border2); font-weight: 600;
+}
+button.ghost:hover:not(:disabled) { color: var(--ink); border-color: var(--muted); filter: none; }
+
+button.atk {
+  background: transparent; color: var(--red);
+  border: 1px solid var(--red-border); font-size: 12px;
+  padding: 5px 11px;
+}
+button.atk:hover:not(:disabled) { background: var(--red-dim); border-color: var(--red); filter: none; }
+
+/* ── Market header ── */
+.mkt-head {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 16px;
+}
+.mkt-title { font-size: 15px; font-weight: 700; letter-spacing: -.01em; }
+.cnt-badge {
+  font-size: 11.5px; color: var(--muted);
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 20px; padding: 3px 10px;
+}
+
+.empty {
+  text-align: center; padding: 56px 20px;
+  color: var(--muted); border: 1px dashed var(--border2);
+  border-radius: var(--r);
+}
+.empty .ico { font-size: 28px; margin-bottom: 10px; opacity: .35; }
+.empty p { font-size: 12.5px; }
+
+/* ── Offer card ── */
+.offer-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  margin-bottom: 10px;
+  overflow: hidden;
+  transition: border-color .15s;
+}
+.offer-card:hover { border-color: var(--border2); }
+
+.offer-top {
+  padding: 14px 16px;
+  display: flex; align-items: flex-start; gap: 14px;
+  flex-wrap: wrap;
+}
+
+.pair-col { flex: 0 0 auto; }
+
+.pair-label {
+  display: flex; align-items: center; gap: 6px;
+  margin-bottom: 4px;
+}
+.asset-tag {
+  display: inline-block; padding: 2px 8px;
+  border-radius: 5px; font-size: 11.5px; font-weight: 700;
+  letter-spacing: .04em;
+}
+.asset-tag.sell {
+  color: var(--purple); background: var(--purple-dim);
+  border: 1px solid var(--purple-border);
+}
+.asset-tag.buy {
+  color: var(--teal); background: var(--teal-dim);
+  border: 1px solid var(--teal-border);
+}
+.pa { color: var(--dim); font-size: 12px; }
+
+.rate-line { font-size: 11px; color: var(--muted); }
+
+.offer-mid { flex: 1; }
+
+.offer-amts {
+  font-size: 14px; font-weight: 700; margin-bottom: 2px; line-height: 1.4;
+}
+.offer-amts .sell { color: var(--purple); }
+.offer-amts .buy  { color: var(--teal); }
+
+.offer-note { font-size: 11px; color: var(--muted); }
+
+.offer-badges {
+  flex-shrink: 0; display: flex; align-items: flex-start;
+  gap: 6px; flex-direction: column; align-items: flex-end;
+}
+
+.status-badge {
+  font-size: 11px; font-weight: 700;
+  padding: 3px 8px; border-radius: 5px; border: 1px solid;
+}
+.status-badge.open {
+  color: var(--green); border-color: rgba(76,200,112,.3);
+  background: var(--green-dim);
+}
+.status-badge.claimable {
+  color: var(--warn); border-color: rgba(245,183,49,.3);
+  background: var(--warn-dim);
+}
+
+.ht-badge {
+  font-size: 10.5px; color: var(--muted);
+  background: var(--surface2); border: 1px solid var(--border);
+  border-radius: 5px; padding: 2px 7px;
+  font-family: ui-monospace, monospace;
+}
+
+/* ── Actions row ── */
+.offer-acts {
+  padding: 0 16px 12px;
+  display: flex; gap: 7px; flex-wrap: wrap;
+}
+
+/* ── Covenant details (collapsible) ── */
+.toggle-row {
+  display: flex; align-items: center; gap: 6px;
+  width: 100%; padding: 9px 16px;
+  border-top: 1px solid var(--border);
+  background: none; border-radius: 0; font-weight: 500;
+  color: var(--muted); font-size: 11.5px;
+  text-align: left; cursor: pointer;
+  transition: color .15s;
+}
+.toggle-row:hover:not(:disabled) { color: var(--ink); filter: none; }
+.toggle-row .ch { font-size: 8px; margin-left: auto; transition: transform .2s; }
+.toggle-row.open .ch { transform: rotate(90deg); }
+
+.toggle-body {
+  display: none; padding: 10px 16px 14px;
+  border-top: 1px solid var(--border);
+}
+.toggle-body.show { display: block; }
+
+.meta-grid {
+  display: grid; grid-template-columns: auto 1fr;
+  gap: 3px 12px; font-size: 11px; margin-bottom: 10px;
+}
+.meta-grid .k { color: var(--muted); white-space: nowrap; }
+.meta-grid .v {
+  font-family: ui-monospace, monospace; font-size: 10.5px;
+  color: #c5cce0; word-break: break-all;
+}
+
+.code-block {
+  background: var(--bg); border: 1px solid var(--border);
+  border-radius: var(--r-sm); padding: 10px;
+  font-family: ui-monospace, monospace; font-size: 10.5px;
+  color: #c5cce0; max-height: 200px; overflow-y: auto;
+  white-space: pre;
+}
+
+.path-row { font-size: 11px; padding: 3px 0; }
+.path-row .settle { color: var(--teal); font-weight: 600; }
+.path-row .refund { color: var(--warn); font-weight: 600; }
+
+/* ── Security demo panel ── */
+.sec-toggle {
+  display: flex; align-items: center; gap: 7px;
+  width: 100%; padding: 9px 16px;
+  border-top: 1px dashed rgba(224,72,122,.22);
+  background: none; border-radius: 0; font-weight: 600;
+  color: var(--red); font-size: 11.5px; opacity: .75;
+  text-align: left; cursor: pointer;
+  transition: opacity .15s;
+}
+.sec-toggle:hover:not(:disabled) { opacity: 1; filter: none; }
+.sec-toggle .ch { font-size: 8px; margin-left: auto; transition: transform .2s; }
+.sec-toggle.open .ch { transform: rotate(90deg); }
+
+.sec-panel {
+  display: none; padding: 12px 16px 14px;
+  background: var(--red-dim);
+  border-top: 1px dashed rgba(224,72,122,.18);
+}
+.sec-panel.show { display: block; }
+
+.sec-desc {
+  font-size: 11.5px; color: var(--muted); margin-bottom: 10px; line-height: 1.55;
+}
+.sec-desc strong { color: var(--red); }
+
+.atk-row { display: flex; gap: 7px; flex-wrap: wrap; }
+
+/* ── Toast ── */
+.toast {
+  position: fixed; left: 50%; bottom: 22px;
+  transform: translateX(-50%) translateY(6px);
+  background: var(--surface2); border: 1px solid var(--border2);
+  border-radius: 10px; padding: 11px 18px;
+  font-size: 13px; max-width: min(92vw, 500px);
+  box-shadow: 0 8px 32px rgba(0,0,0,.55);
+  opacity: 0; transition: opacity .2s, transform .2s;
+  pointer-events: none; z-index: 200;
+}
+.toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+.toast.ok  { border-color: var(--teal); }
+.toast.err { border-color: var(--red); }
+.toast code {
+  font-family: ui-monospace, monospace; font-size: 11px;
+  color: var(--teal); background: var(--surface);
+  padding: 1px 5px; border-radius: 3px;
+}
+
+::-webkit-scrollbar { width: 4px; height: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 99px; }
 </style>
 </head>
 <body>
-<div class="wrap">
 
-<header>
-  <div>
-    <div class="eyebrow">Mosaik</div>
-    <h1>Covenant DEX wallet</h1>
-    <div class="sub">Two wallets, one covenant. Lock any Liquid asset; the
-      covenant releases it only to a transaction that pays the maker. Works for
-      L-BTC/asset and asset/asset, both directions.</div>
+<header class="header">
+  <div class="brand">
+    <div class="logo">◈</div>
+    <span class="brand-name">Mosaik</span>
+    <span class="brand-tag">Covenant DEX on Liquid</span>
   </div>
-  <div class="height">block height<br><b id="height">—</b></div>
+  <div class="header-right">
+    <span class="pill net">⬡ Regtest</span>
+    <span class="pill blk"><span class="live-dot"></span>block <b id="height">—</b></span>
+  </div>
 </header>
 
-<h2>Wallets</h2>
-<div class="cols">
-  <div class="card maker">
-    <div class="role">● Maker</div>
-    <div class="bals" id="m-bals"></div>
-    <label>Address</label>
-    <div class="addr" id="m-addr">—</div>
-    <div class="btnrow"><button class="maker" id="fundMaker">+ Fund maker</button></div>
-  </div>
-  <div class="card taker">
-    <div class="role">● Taker</div>
-    <div class="bals" id="t-bals"></div>
-    <label>Address</label>
-    <div class="addr" id="t-addr">—</div>
-    <div class="btnrow"><button id="fundTaker">+ Fund taker</button></div>
-  </div>
+<div class="layout">
+
+  <!-- ── Sidebar ── -->
+  <aside class="sidebar">
+
+    <div>
+      <div class="sec-label">Wallets</div>
+      <div style="display:flex;flex-direction:column;gap:8px">
+
+        <div class="wallet maker">
+          <div class="wallet-bar"></div>
+          <div class="wallet-inner">
+            <div class="wallet-head">
+              <div class="wallet-role"><span class="r-dot"></span>Maker</div>
+              <button class="sm pu" id="fundMaker">+ Fund</button>
+            </div>
+            <div class="bals" id="m-bals"></div>
+            <div class="addr" id="m-addr">—</div>
+          </div>
+        </div>
+
+        <div class="wallet taker">
+          <div class="wallet-bar"></div>
+          <div class="wallet-inner">
+            <div class="wallet-head">
+              <div class="wallet-role"><span class="r-dot"></span>Taker</div>
+              <button class="sm" id="fundTaker">+ Fund</button>
+            </div>
+            <div class="bals" id="t-bals"></div>
+            <div class="wallet-addr" id="t-addr">—</div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <div>
+      <div class="sec-label">Create Offer</div>
+      <div class="form-card">
+
+        <div class="field-row">
+          <div class="field">
+            <label>Sell asset</label>
+            <select id="lockAsset"></select>
+          </div>
+          <div class="field">
+            <label>Amount</label>
+            <input id="amountA" type="number" value="0.01" min="0" step="any">
+          </div>
+        </div>
+
+        <div class="swap-arrow">↓</div>
+
+        <div class="field-row">
+          <div class="field">
+            <label>Buy asset</label>
+            <select id="wantAsset"></select>
+          </div>
+          <div class="field">
+            <label>Amount</label>
+            <input id="wantAmount" type="number" value="50" min="0" step="any">
+          </div>
+        </div>
+
+        <div class="field">
+          <label>Refund height</label>
+          <input id="timeout" type="number" value="500" min="1">
+        </div>
+
+        <button class="pu w" id="makeOffer">Lock in Covenant &amp; Publish</button>
+      </div>
+    </div>
+
+  </aside>
+
+  <!-- ── Marketplace ── -->
+  <main class="main">
+    <div class="mkt-head">
+      <div class="mkt-title">Open Offers</div>
+      <span class="cnt-badge" id="offer-count">0 offers</span>
+    </div>
+    <div id="offers"></div>
+  </main>
+
 </div>
 
-<h2>Maker — make an offer</h2>
-<div class="card maker">
-  <div class="row">
-    <div>
-      <label>Lock asset</label>
-      <select id="lockAsset"></select>
-    </div>
-    <div>
-      <label>Lock amount</label>
-      <input id="amountA" type="number" value="0.01" min="0" step="any">
-    </div>
-    <div>
-      <label>Want asset</label>
-      <select id="wantAsset"></select>
-    </div>
-    <div>
-      <label>Want amount</label>
-      <input id="wantAmount" type="number" value="50" min="0" step="any">
-    </div>
-    <div>
-      <label>Refund height</label>
-      <input id="timeout" type="number" value="500" min="1">
-    </div>
-  </div>
-  <div class="btnrow">
-    <button class="maker" id="makeOffer">Fund covenant &amp; publish offer</button>
-  </div>
-  <div class="note">Amounts are in whole units (L-BTC, USDT, EURx). The maker's
-    asset is locked in a covenant UTXO that only releases on payment of the
-    requested asset.</div>
-</div>
-
-<h2>Open offers — taker fills, covenant enforces</h2>
-<div id="offers"></div>
-
-</div>
 <div class="toast" id="toast"></div>
 
 <script>
 const $ = id => document.getElementById(id);
 let state = { assets: [], offers: [], block_count: 0 };
+
 const esc = s => String(s == null ? '' : s)
-  .replace(/[&<>]/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;' }[c]));
-// Every asset (L-BTC and the test assets) uses 8 decimals.
+  .replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
 const units = raw => Number(raw || 0) / 1e8;
-const fmt = n => Number(n || 0).toLocaleString(undefined, { maximumFractionDigits: 8 });
-// raw amount + asset name -> "1.5 USDT"
-const fmtAmt = (raw, name) => fmt(units(raw)) + ' ' + name;
+const fmt   = n   => Number(n || 0).toLocaleString(undefined, { maximumFractionDigits: 8 });
+const fmtA  = (raw, name) => fmt(units(raw)) + ' ' + name;
 
 function toast(msg, kind) {
   const t = $('toast');
   t.className = 'toast show ' + (kind || '');
   t.innerHTML = msg;
-  setTimeout(() => t.classList.remove('show'), 5500);
+  clearTimeout(t._t);
+  t._t = setTimeout(() => t.classList.remove('show'), 5500);
 }
 
 async function api(path, body) {
@@ -188,16 +561,13 @@ async function api(path, body) {
     ? { method: 'GET' }
     : { method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body || {}) };
-  const res = await fetch(path, opt);
+  const res  = await fetch(path, opt);
   const data = await res.json();
   if (!res.ok || data.error) throw new Error(data.error || ('HTTP ' + res.status));
   return data;
 }
 
-function assetOptions() {
-  // L-BTC first, then every issued test asset.
-  return ['L-BTC', ...state.assets];
-}
+function assetOptions() { return ['L-BTC', ...state.assets]; }
 
 function fillSelect(sel, selected) {
   const opts = assetOptions();
@@ -205,77 +575,138 @@ function fillSelect(sel, selected) {
   if (selected && opts.includes(selected)) sel.value = selected;
 }
 
-function renderWallet(p, w) {
-  const parts = [`<div><div class="k">L-BTC</div>
-    <div class="v">${fmt(units(w.lbtc_sats))}<small> L-BTC</small></div></div>`];
+function renderWallet(prefix, w) {
+  const parts = [`<div class="bal">
+    <span class="a">L-BTC</span>
+    <span class="v">${fmt(units(w.lbtc_sats))}</span>
+  </div>`];
   for (const name of state.assets) {
-    parts.push(`<div><div class="k">${esc(name)}</div>
-      <div class="v">${fmt(units(w.assets[name]))}</div></div>`);
+    parts.push(`<div class="bal">
+      <span class="a">${esc(name)}</span>
+      <span class="v">${fmt(units(w.assets[name]))}</span>
+    </div>`);
   }
-  $(p + '-bals').innerHTML = parts.join('');
-  $(p + '-addr').textContent = w.address;
+  $(prefix + '-bals').innerHTML = parts.join('');
+  const addrEl = $(prefix + '-addr') || $(prefix.replace('m','m') + '-addr');
+  if (addrEl) addrEl.textContent = w.address;
+}
+
+function rateLine(o) {
+  const a = units(o.amount_a), b = units(o.amount_b);
+  if (!a) return '';
+  const r = b / a;
+  return `1 ${esc(o.lock_name)} ≈ ${fmt(r)} ${esc(o.want_name)}`;
 }
 
 function renderOffers() {
   const box = $('offers');
+  $('offer-count').textContent = state.offers.length + ' offer' + (state.offers.length === 1 ? '' : 's');
+
   if (!state.offers.length) {
-    box.innerHTML = '<div class="empty">No offers yet. Fund the maker, then make one above.</div>';
+    box.innerHTML = `<div class="empty">
+      <div class="ico">◈</div>
+      <p>No open offers yet.<br>Fund the maker wallet, then create one.</p>
+    </div>`;
     return;
   }
-  box.innerHTML = state.offers.map(o => `
-      <div class="offer">
-        <div class="trade">
-          <span class="a">${fmtAmt(o.amount_a, esc(o.lock_name))}</span>
-          &nbsp;-&gt;&nbsp; wants
-          <span class="b">${fmtAmt(o.amount_b, esc(o.want_name))}</span>
+
+  box.innerHTML = state.offers.map(o => {
+    const expired  = state.block_count >= o.timeout;
+    const statusCls   = expired ? 'claimable' : 'open';
+    const statusLabel = expired ? 'Reclaimable' : 'Open';
+    return `
+    <div class="offer-card">
+
+      <div class="offer-top">
+        <div class="pair-col">
+          <div class="pair-label">
+            <span class="asset-tag sell">${esc(o.lock_name)}</span>
+            <span class="pa">→</span>
+            <span class="asset-tag buy">${esc(o.want_name)}</span>
+          </div>
+          <div class="rate-line">${rateLine(o)}</div>
         </div>
-        <div class="meta">
-          <span>covenant address</span><code>${esc(o.covenant_address)}</code>
-          <span>covenant UTXO</span><code>${esc(o.outpoint)}</code>
-          <span>CMR</span><code>${esc(o.cmr)}</code>
-          <span>maker paid to</span><code>${esc(o.maker_address)}</code>
-          <span>refund height</span><code>${o.timeout}</code>
+
+        <div class="offer-mid">
+          <div class="offer-amts">
+            <span class="sell">${fmtA(o.amount_a, esc(o.lock_name))}</span>
+            <span style="color:var(--dim);font-size:12px"> for </span>
+            <span class="buy">${fmtA(o.amount_b, esc(o.want_name))}</span>
+          </div>
+          <div class="offer-note">Covenant UTXO · #${o.index}</div>
         </div>
-        <div class="act">
-          <button data-take="${o.index}">Take offer (settle covenant)</button>
-          <button class="maker" data-reclaim="${o.index}"
-            ${state.block_count >= o.timeout ? '' : 'disabled'}
-            title="${state.block_count >= o.timeout
-              ? 'Maker reclaims via the REFUND path'
-              : 'REFUND unlocks at height ' + o.timeout}">Reclaim (REFUND)</button>
-          <button class="ghost" data-contract="${o.index}">View covenant</button>
+
+        <div class="offer-badges">
+          <span class="status-badge ${statusCls}">${statusLabel}</span>
+          <span class="ht-badge">⏱ refund @ ${o.timeout}</span>
         </div>
-        <div class="cheats">
-          <span class="lbl">Attack the covenant</span>
-          <button class="bad" data-cheat="underpay" data-idx="${o.index}">Underpay maker</button>
-          <button class="bad" data-cheat="wrong_recipient" data-idx="${o.index}">Pay wrong address</button>
-          <button class="bad" data-cheat="wrong_index" data-idx="${o.index}">Hide maker output</button>
+      </div>
+
+      <div class="offer-acts">
+        <button data-take="${o.index}">Settle Covenant</button>
+        <button class="pu" data-reclaim="${o.index}"
+          ${expired ? '' : 'disabled'}
+          title="${expired ? 'Maker reclaims via the REFUND path' : 'REFUND unlocks at block ' + o.timeout}">
+          Reclaim
+        </button>
+        <button class="ghost" data-contract="${o.index}">View Covenant</button>
+      </div>
+
+      <button class="toggle-row" data-tog="cov-${o.index}">
+        <span>Covenant details</span>
+        <span class="ch">▶</span>
+      </button>
+      <div class="toggle-body" id="cov-${o.index}">
+        <div class="meta-grid" id="meta-${o.index}"></div>
+      </div>
+
+      <button class="sec-toggle" data-tog="atk-${o.index}">
+        <span>⚡ Covenant Security Demo</span>
+        <span class="ch">▶</span>
+      </button>
+      <div class="sec-panel" id="atk-${o.index}">
+        <p class="sec-desc">
+          Try to cheat the maker. The covenant inspects every spend —
+          <strong>any deviation from the exact terms is rejected by the node.</strong>
+        </p>
+        <div class="atk-row">
+          <button class="atk" data-cheat="underpay"        data-idx="${o.index}">Underpay maker</button>
+          <button class="atk" data-cheat="wrong_recipient" data-idx="${o.index}">Pay wrong address</button>
+          <button class="atk" data-cheat="wrong_index"     data-idx="${o.index}">Hide maker output</button>
         </div>
-        <div class="contract" id="contract-${o.index}"></div>
-      </div>`).join('');
-  box.querySelectorAll('button[data-take]').forEach(b => {
-    b.onclick = () => takeOffer(Number(b.dataset.take), b);
+      </div>
+
+    </div>`;
+  }).join('');
+
+  /* toggle rows */
+  box.querySelectorAll('[data-tog]').forEach(btn => {
+    btn.onclick = () => {
+      const body = $(btn.dataset.tog);
+      if (!body) return;
+      const open = body.classList.toggle('show');
+      btn.classList.toggle('open', open);
+    };
   });
-  box.querySelectorAll('button[data-reclaim]').forEach(b => {
-    b.onclick = () => reclaimOffer(Number(b.dataset.reclaim), b);
-  });
-  box.querySelectorAll('button[data-contract]').forEach(b => {
-    b.onclick = () => viewContract(Number(b.dataset.contract));
-  });
-  box.querySelectorAll('button[data-cheat]').forEach(b => {
-    b.onclick = () => cheatOffer(Number(b.dataset.idx), b.dataset.cheat, b);
-  });
+
+  /* action buttons */
+  box.querySelectorAll('[data-take]').forEach(b =>
+    b.onclick = () => takeOffer(Number(b.dataset.take), b));
+  box.querySelectorAll('[data-reclaim]').forEach(b =>
+    b.onclick = () => reclaimOffer(Number(b.dataset.reclaim), b));
+  box.querySelectorAll('[data-contract]').forEach(b =>
+    b.onclick = () => viewContract(Number(b.dataset.contract)));
+  box.querySelectorAll('[data-cheat]').forEach(b =>
+    b.onclick = () => cheatOffer(Number(b.dataset.idx), b.dataset.cheat, b));
 }
 
 async function refresh() {
   try {
     const s = await api('/api/state');
-    const firstLoad = !state.assets.length;
-    state.assets = s.assets;
-    state.offers = s.offers;
-    state.block_count = s.block_count;
+    const first = !state.assets.length;
+    state = { assets: s.assets, offers: s.offers, block_count: s.block_count };
     $('height').textContent = s.block_count;
-    if (firstLoad && s.assets.length) {
+    if (first && s.assets.length) {
       fillSelect($('lockAsset'), 'L-BTC');
       fillSelect($('wantAsset'), s.assets[0]);
     }
@@ -283,7 +714,7 @@ async function refresh() {
     renderWallet('t', s.taker);
     renderOffers();
   } catch (e) {
-    toast('Cannot reach the node: ' + e.message, 'err');
+    toast('Cannot reach node: ' + e.message, 'err');
   }
 }
 
@@ -303,66 +734,83 @@ $('fundTaker').onclick = e =>
 $('makeOffer').onclick = e => {
   const lock = $('lockAsset').value === 'L-BTC' ? 'BTC' : $('lockAsset').value;
   const want = $('wantAsset').value === 'L-BTC' ? 'BTC' : $('wantAsset').value;
-  if (lock === want) { toast('Lock and want assets must differ', 'err'); return; }
-  // Every asset is 8-decimal, so amounts go to raw units the same way.
+  if (lock === want) { toast('Sell and buy assets must differ', 'err'); return; }
   action(e.target, '/api/make-offer', {
     lock, want,
     amount_a: Math.round(Number($('amountA').value) * 1e8),
     amount_b: Math.round(Number($('wantAmount').value) * 1e8),
-    timeout: Number($('timeout').value),
-  }, r => 'Offer #' + r.index + ' funded — covenant <code>' + r.outpoint + '</code>');
+    timeout:  Number($('timeout').value),
+  }, r => 'Offer #' + r.index + ' published — covenant <code>' + r.outpoint + '</code>');
 };
 
 async function takeOffer(index, btn) {
+  const was = btn.textContent;
   btn.disabled = true; btn.textContent = 'Settling…';
   try {
     const r = await api('/api/take-offer', { index });
-    toast('Settled — the node executed the covenant. tx <code>' + r.txid + '</code>', 'ok');
+    toast('Settled ✓ — node executed the covenant. tx <code>' + r.txid + '</code>', 'ok');
   } catch (e) { toast(e.message, 'err'); }
+  btn.textContent = was; btn.disabled = false;
   refresh();
 }
 
 async function reclaimOffer(index, btn) {
+  const was = btn.textContent;
   btn.disabled = true; btn.textContent = 'Reclaiming…';
   try {
     const r = await api('/api/reclaim', { index });
-    toast('Reclaimed via the covenant REFUND path. tx <code>' + r.txid + '</code>', 'ok');
+    toast('Reclaimed via REFUND path ✓ tx <code>' + r.txid + '</code>', 'ok');
   } catch (e) { toast(e.message, 'err'); }
+  btn.textContent = was; btn.disabled = false;
   refresh();
 }
 
 async function cheatOffer(index, cheat, btn) {
-  btn.disabled = true;
   const was = btn.textContent;
-  btn.textContent = 'Attacking…';
+  btn.disabled = true; btn.textContent = 'Attacking…';
   try {
     const r = await api('/api/take-offer', { index, cheat });
     if (r.covenant_bug) {
-      toast('⚠ COVENANT BUG — a fraudulent fill was accepted! tx <code>'
-        + r.txid + '</code>', 'err');
+      toast('⚠ COVENANT BUG — fraudulent fill accepted! tx <code>' + r.txid + '</code>', 'err');
     } else if (r.rejected) {
       toast('Covenant rejected the attack ✓ — ' + esc(r.reason), 'ok');
     } else {
       toast('Unexpected: ' + JSON.stringify(r), 'err');
     }
   } catch (e) { toast(e.message, 'err'); }
-  btn.disabled = false;
-  btn.textContent = was;
+  btn.textContent = was; btn.disabled = false;
   refresh();
 }
 
 async function viewContract(index) {
-  const box = $('contract-' + index);
-  if (box.classList.contains('show')) { box.classList.remove('show'); return; }
+  const body = $('cov-' + index);
+  const btn  = document.querySelector(`[data-contract="${index}"]`);
+  const togBtn = document.querySelector(`[data-tog="cov-${index}"]`);
+
+  if (!body.classList.contains('show')) {
+    body.classList.add('show');
+    if (togBtn) togBtn.classList.add('open');
+  }
+
+  const meta = $('meta-' + index);
+  if (meta.dataset.loaded) return;
+
   try {
     const c = await api('/api/contract', { index });
-    box.innerHTML = `
-      <div><b>Compiled covenant.</b> CMR <code>${esc(c.cmr)}</code></div>
-      <div class="path"><b>SETTLE</b> — ${esc(c.settle)}</div>
-      <div class="path refund"><b>REFUND</b> — ${esc(c.refund)}</div>
-      <div style="margin-top:8px">SimplicityHL source:</div>
-      <pre>${esc(c.source)}</pre>`;
-    box.classList.add('show');
+    const o = state.offers.find(x => x.index === index) || {};
+    meta.dataset.loaded = '1';
+    meta.innerHTML = `
+      <span class="k">Covenant address</span><span class="v">${esc(o.covenant_address || '')}</span>
+      <span class="k">UTXO</span><span class="v">${esc(o.outpoint || '')}</span>
+      <span class="k">Maker address</span><span class="v">${esc(o.maker_address || '')}</span>
+      <span class="k">CMR</span><span class="v">${esc(c.cmr)}</span>`;
+    const paths = document.createElement('div');
+    paths.innerHTML = `
+      <div class="path-row"><span class="settle">SETTLE</span> — ${esc(c.settle)}</div>
+      <div class="path-row"><span class="refund">REFUND</span> — ${esc(c.refund)}</div>
+      <div style="margin:8px 0 4px;font-size:11px;color:var(--muted)">SimplicityHL source</div>
+      <div class="code-block">${esc(c.source)}</div>`;
+    body.appendChild(paths);
   } catch (e) { toast(e.message, 'err'); }
 }
 
