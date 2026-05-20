@@ -29,8 +29,8 @@ use anyhow::{anyhow, Result};
 use mosaik_core::lwk::{LwkMaker, LwkNode, LwkTaker, LwkWallet};
 use mosaik_core::rpc::ElementsRpc;
 use mosaik_core::{
-    demo_maker_pk, lbtc_tessera, tessera_for, Cheat, MakeOffer, MosaikMaker, MosaikTaker, Offer,
-    ReclaimOffer, DEMO_MAKER_SECRET,
+    lbtc_tessera, tessera_for, Cheat, MakeOffer, MosaikMaker, MosaikTaker, Offer,
+    ReclaimOffer,
 };
 use serde_json::{json, Value};
 use tiny_http::{Header, Method, Request, Response, Server};
@@ -150,7 +150,7 @@ pub fn run(port: u16, net: Network) -> Result<()> {
     let lwk = if net == Network::Testnet {
         println!("Initializing LWK wallets for Liquid testnet…");
         let node = LwkNode::testnet()?;
-        println!("Syncing wallets with Esplora…");
+        println!("Syncing LWK wallets with Esplora…");
         node.sync()?;
         println!("Treasury address: {}", node.treasury.address()?);
         if let Ok(path) = std::env::var(TESTNET_ASSETS_ENV) {
@@ -295,7 +295,8 @@ fn ensure_assets(state: &Mutex<AppState>) -> Result<BTreeMap<String, String>> {
         if !st.assets.is_empty() { return Ok(st.assets.clone()); }
     }
     if !is_regtest() {
-        anyhow::bail!("no testnet assets loaded. Fund treasury and restart, or set MOSAIK_TESTNET_ASSETS_FILE.");
+        // Testnet: return empty assets map so L-BTC-only flows work
+        return Ok(BTreeMap::new());
     }
     let mut st = state.lock().unwrap();
     let t = treasury();
@@ -386,12 +387,14 @@ fn api_state(state: &Mutex<AppState>) -> Result<Value> {
         let lbtc = lwk.policy_asset()?;
         let maker = wallet_snapshot_lwk(&lwk.maker, &lbtc, &assets)?;
         let taker = wallet_snapshot_lwk(&lwk.taker, &lbtc, &assets)?;
-        (lbtc, lwk.block_count()?, maker, taker)
+        let block_count = lwk.block_count().unwrap_or(0);
+        (lbtc, block_count, maker, taker)
     } else {
         let lbtc = node().policy_asset()?;
         let maker = wallet_snapshot_rpc(&maker_rpc(), &assets)?;
         let taker = wallet_snapshot_rpc(&taker_rpc(), &assets)?;
-        (lbtc, node().block_count()?, maker, taker)
+        let block_count = node().block_count().unwrap_or(0);
+        (lbtc, block_count, maker, taker)
     };
 
     let offers: Vec<Value> = offers.iter().enumerate().map(|(i, o)| {
@@ -444,7 +447,8 @@ fn api_fund(state: &Mutex<AppState>, target_name: &str) -> Result<Value> {
             "taker" => &lwk.taker,
             _ => anyhow::bail!("unknown wallet"),
         };
-        let addr = target.unconfidential_address()?;
+        lwk.treasury.sync().ok();
+        let addr = target.address()?;
         let lbtc_txid = lwk.treasury.send_to_address(&addr, lbtc_amount, None)
             .map_err(|e| {
                 if e.to_string().contains("Insufficient funds") {
@@ -453,7 +457,7 @@ fn api_fund(state: &Mutex<AppState>, target_name: &str) -> Result<Value> {
             })?;
         for id in assets.values() {
             lwk.treasury.sync().ok();
-            let a = target.unconfidential_address()?;
+            let a = target.address()?;
             lwk.treasury.send_to_address(&a, asset_amount, Some(id))?;
         }
         lwk.sync().ok();
@@ -488,9 +492,7 @@ fn api_make_offer(req: &mut Request, state: &Mutex<AppState>) -> Result<Value> {
     let timeout  = b.get("timeout").and_then(Value::as_u64).unwrap_or(500) as u32;
     let lock = b.get("lock").and_then(Value::as_str).unwrap_or("BTC");
     let want = b.get("want").and_then(Value::as_str).unwrap_or("USDT");
-    if lock == want {
-        anyhow::bail!("lock and want assets must differ");
-    }
+    // Note: lock == want is allowed for testnet L-BTC-only covenant testing
 
     let st = state.lock().unwrap();
     let assets = st.assets.clone();
@@ -505,7 +507,7 @@ fn api_make_offer(req: &mut Request, state: &Mutex<AppState>) -> Result<Value> {
             .map_err(|e| anyhow!("invalid maker address: {e}"))?;
         let script = addr.script_pubkey();
         let spk = script.as_bytes();
-        let tessera = mosaik_core::build_tessera(spk, &want_id, amount_b, timeout, demo_maker_pk())?;
+        let tessera = mosaik_core::build_tessera(spk, &want_id, amount_b, timeout)?;
         let lock_label = if lock == "BTC" { "BTC".to_string() } else { label_to_id(&assets, lock, &lbtc)? };
         LwkMaker::new(&lwk.maker, lwk).make_offer(&lock_label, amount_a, &tessera, &maker_address)?
     } else {
@@ -514,9 +516,9 @@ fn api_make_offer(req: &mut Request, state: &Mutex<AppState>) -> Result<Value> {
         let maker_address = maker.new_unconfidential_address()?;
         let want_id = label_to_id(&assets, want, &lbtc)?;
         let tessera = if want_id == lbtc {
-            lbtc_tessera(&maker, &maker_address, amount_b, timeout, demo_maker_pk())?
+            lbtc_tessera(&maker, &maker_address, amount_b, timeout)?
         } else {
-            tessera_for(&maker, &maker_address, &want_id, amount_b, timeout, demo_maker_pk())?
+            tessera_for(&maker, &maker_address, &want_id, amount_b, timeout)?
         };
         let lock_label = if lock == "BTC" { "BTC".to_string() } else { label_to_id(&assets, lock, &lbtc)? };
         MosaikMaker::new(maker).make_offer(&lock_label, amount_a, &tessera, &maker_address)?
@@ -567,9 +569,9 @@ fn api_reclaim(req: &mut Request, state: &Mutex<AppState>) -> Result<Value> {
 
     let lwk = state.lock().unwrap().lwk.clone();
     let txid = if let Some(ref lwk) = lwk {
-        LwkMaker::new(&lwk.maker, lwk).reclaim(&offer, &DEMO_MAKER_SECRET)?
+        LwkMaker::new(&lwk.maker, lwk).reclaim(&offer)?
     } else {
-        MosaikMaker::new(maker_rpc()).reclaim(&offer, &DEMO_MAKER_SECRET)?
+        MosaikMaker::new(maker_rpc()).reclaim(&offer)?
     };
 
     if is_regtest() { treasury().generate(1)?; }

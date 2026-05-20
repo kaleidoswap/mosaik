@@ -19,7 +19,7 @@ use std::sync::{Arc, Mutex};
 
 const TESTNET_LBTC: &str = "144c654344aa716d6f3abcc1ca90e5641e4e2a7f633bc09fe3baf64585819a49";
 const TESTNET_GENESIS: &str = "9f87eb580b9e5f14dc794e4c723c5348b4e58c65e0bf5d2d74a6e5a1d991dd48";
-const ESPLORA_URL: &str = "https://blockstream.info/liquidtestnet/api";
+const ESPLORA_URL: &str = "https://liquid.network/liquidtestnet/api";
 
 const TREASURY_MNEMONIC: &str = "remind length crumble example secret cost ticket access decrease syrup match check";
 const MAKER_MNEMONIC: &str = "fetch wrap tongue good expect excuse breeze inflict alcohol avoid try usual";
@@ -208,8 +208,16 @@ impl LwkNode {
 
     pub fn send_raw_transaction(&self, tx_hex: &str) -> Result<String> {
         let url = format!("{ESPLORA_URL}/tx");
-        let resp = ureq::post(&url).send_string(tx_hex)?;
-        Ok(resp.into_string()?.trim().to_string())
+        let resp = ureq::post(&url).send_string(tx_hex);
+        match resp {
+            Ok(r) => Ok(r.into_string()?.trim().to_string()),
+            Err(ureq::Error::Status(code, r)) => {
+                let body = r.into_string().unwrap_or_default();
+                eprintln!("Broadcast error: status={code}, body={body}");
+                anyhow::bail!("broadcast failed: status {code}, body: {body}")
+            }
+            Err(e) => anyhow::bail!("broadcast request failed: {e}"),
+        }
     }
 
     pub fn raw_transaction(&self, txid: &str) -> Result<Value> {
@@ -234,13 +242,33 @@ impl<'a> MakeOffer for LwkMaker<'a> {
         let compiled = tessera.compile()?;
         let address = compiled.address_for(&AddressParams::LIQUID_TESTNET)?;
         let spk_hex = hex::encode(address.script_pubkey().as_bytes());
-        let amount = amount_a as f64 / 1e8;
-        let txid = if asset_a_id == lbtc {
-            self.wallet.send_to_address(&address.to_string(), amount, None)?
-        } else {
-            self.wallet.send_to_address(&address.to_string(), amount, Some(&asset_a_id))?
+        let sats = amount_a;
+        let asset = AssetId::from_str(if asset_a_id == lbtc { TESTNET_LBTC } else { &asset_a_id })?;
+
+        let w = self.wallet.wollet.lock().unwrap();
+        let mut pset = w.tx_builder()
+            .add_explicit_recipient(&address, sats, asset)
+            .map_err(|e| anyhow!("tx builder: {e}"))?
+            .finish().map_err(|e| anyhow!("finish: {e}"))?;
+        drop(w);
+        self.wallet.signer.sign(&mut pset).map_err(|e| anyhow!("sign: {e}"))?;
+        let w = self.wallet.wollet.lock().unwrap();
+        w.finalize(&mut pset).map_err(|e| anyhow!("finalize: {e}"))?;
+        let tx = pset.extract_tx().map_err(|e| anyhow!("extract: {e}"))?;
+        let client = EsploraClient::new(ESPLORA_URL, ElementsNetwork::LiquidTestnet)?;
+        let txid = client.broadcast(&tx).map_err(|e| anyhow!("broadcast: {e}"))?;
+        let txid = txid.to_string();
+        let tx = {
+            let mut tx = None;
+            for _ in 0..10 {
+                if let Ok(t) = self.node.raw_transaction(&txid) {
+                    tx = Some(t);
+                    break;
+                }
+                std::thread::sleep(std::time::Duration::from_secs(1));
+            }
+            tx.ok_or_else(|| anyhow!("tx {txid} not found on Esplora after broadcast"))?
         };
-        let tx = self.node.raw_transaction(&txid)?;
         let vout = find_output_index(&tx, &spk_hex)
             .ok_or_else(|| anyhow!("funding output for {txid} not found"))?;
         Ok(Offer { outpoint: format!("{txid}:{vout}"), asset_a: asset_a_id, amount_a, tessera: tessera.clone(), maker_address: maker_address.to_string() })
@@ -248,7 +276,7 @@ impl<'a> MakeOffer for LwkMaker<'a> {
 }
 
 impl<'a> ReclaimOffer for LwkMaker<'a> {
-    fn reclaim(&self, offer: &Offer, maker_secret: &[u8; 32]) -> Result<String> {
+    fn reclaim(&self, offer: &Offer) -> Result<String> {
         let lbtc = self.node.policy_asset()?;
         if offer.asset_a != lbtc { anyhow::bail!("reclaim supports L-BTC only; offer locks {}", offer.asset_a); }
         let (txid, vout_str) = offer.outpoint.split_once(':').ok_or_else(|| anyhow!("bad outpoint"))?;
@@ -284,7 +312,7 @@ impl<'a> ReclaimOffer for LwkMaker<'a> {
         let compiled = offer.tessera.compile()?;
         let covenant_spk_bytes = compiled.address()?.script_pubkey().as_bytes().to_vec();
         let genesis = self.node.genesis_hash()?;
-        let raw_tx = offer.tessera.build_refund_tx(&raw_hex, 0, &covenant_spk_bytes, &lbtc, amount_a, &genesis, maker_secret)?;
+        let raw_tx = offer.tessera.build_refund_tx(&raw_hex, 0, 0, &covenant_spk_bytes, &lbtc, amount_a)?;
         self.node.send_raw_transaction(&raw_tx)
     }
 }
@@ -307,8 +335,7 @@ impl<'a> LwkTaker<'a> {
         let asset_a = offer.asset_a.clone();
         let mut asset_b = offer.tessera.asset_b.to_vec(); asset_b.reverse();
         let asset_b = hex::encode(asset_b);
-        if asset_a == asset_b { anyhow::bail!("asset_a and asset_b must differ"); }
-
+        
         let (b_txid, b_vout, b_amount) = self.wallet.unspent_of_asset(&asset_b, amount_b)?
             .ok_or_else(|| anyhow!("taker has no {asset_b} UTXO of at least {amount_b}"))?;
 
@@ -324,7 +351,7 @@ impl<'a> LwkTaker<'a> {
             extra_lbtc_amount = Some(l_amount);
         }
 
-        let taker = self.wallet.unconfidential_address()?;
+        let taker = self.wallet.address()?;
         let maker_pay = if cheat == Cheat::Underpay { amount_b.saturating_sub(1) } else { amount_b };
         let cheat_addr = if cheat == Cheat::WrongRecipient { self.wallet.unconfidential_address()? } else { String::new() };
         let maker_recipient: &str = if cheat == Cheat::WrongRecipient { &cheat_addr } else { &offer.maker_address };
@@ -355,7 +382,8 @@ impl<'a> LwkTaker<'a> {
         let w = self.wallet.wollet.lock().unwrap();
         let mut builder = w.tx_builder()
             .add_external_utxos(vec![covenant_utxo]).map_err(|e| anyhow!("external: {e}"))?
-            .set_wallet_utxos(wallet_utxos);
+            .set_wallet_utxos(wallet_utxos)
+            .fee_rate(Some(1000.0));
 
         let maker_addr: lwk_wollet::elements::Address = maker_recipient.parse()?;
         let taker_addr: lwk_wollet::elements::Address = taker.parse()?;
@@ -364,10 +392,10 @@ impl<'a> LwkTaker<'a> {
         if cheat == Cheat::WrongIndex {
             builder = builder.add_recipient(&taker_addr, amount_a, asset_a_id)
                 .map_err(|e| anyhow!("taker a: {e}"))?;
-            builder = builder.add_recipient(&maker_addr, maker_pay, asset_b_id)
+            builder = builder.add_explicit_recipient(&maker_addr, maker_pay, asset_b_id)
                 .map_err(|e| anyhow!("maker recipient: {e}"))?;
         } else {
-            builder = builder.add_recipient(&maker_addr, maker_pay, asset_b_id)
+            builder = builder.add_explicit_recipient(&maker_addr, maker_pay, asset_b_id)
                 .map_err(|e| anyhow!("maker recipient: {e}"))?;
             builder = builder.add_recipient(&taker_addr, amount_a, asset_a_id)
                 .map_err(|e| anyhow!("taker a: {e}"))?;
@@ -401,26 +429,37 @@ impl<'a> LwkTaker<'a> {
         drop(w);
 
         self.wallet.signer.sign(&mut pset).map_err(|e| anyhow!("sign: {e}"))?;
+        let w = self.wallet.wollet.lock().unwrap();
+        w.finalize(&mut pset).map_err(|e| anyhow!("finalize: {e}"))?;
+        drop(w);
 
         let covenant_spk_hex = hex::encode(covenant_spk.as_bytes());
         let input_utxo = format!("{covenant_spk_hex}:{asset_a}:{}" , amount_a as f64 / 1e8);
         let pset_b64 = pset.to_string();
+        std::fs::write("/tmp/pset_raw.b64", &pset_b64).ok();
+        eprintln!("RAW PSET length: {}", pset_b64.len());
         let pset_b64 = crate::hal_pset(&[
             "simplicity", "pset", "update-input", "-r", &pset_b64, "0",
             "-i", &input_utxo, "-c", &compiled.cmr_hex(), "-p", crate::NUMS_INTERNAL_KEY,
         ])?;
+        std::fs::write("/tmp/pset_update.b64", &pset_b64).ok();
+        eprintln!("PSET after update-input length: {}", pset_b64.len());
 
         let w = offer.tessera.settle_witness(0)?;
+        eprintln!("Witness program len: {}, witness len: {}", w.program.len(), w.witness.len());
         let b64 = |bytes: &[u8]| base64::engine::Engine::encode(&base64::engine::general_purpose::STANDARD, bytes);
         let pset_b64 = crate::hal_pset(&[
             "simplicity", "pset", "finalize", "-r", &pset_b64, "0",
             &b64(&w.program), &b64(&w.witness),
         ])?;
+        std::fs::write("/tmp/pset_finalize.b64", &pset_b64).ok();
+        eprintln!("PSET after finalize length: {}", pset_b64.len());
 
         let raw_tx = crate::hal_run(&["simplicity", "pset", "extract", "-r", &pset_b64])?;
         let raw_tx = raw_tx.trim().trim_matches('"').to_string();
+        std::fs::write("/tmp/raw_tx.hex", &raw_tx).ok();
+        eprintln!("RAWTX length: {}", raw_tx.len());
 
-        if std::env::var("MOSAIK_DEBUG_TX").is_ok() { eprintln!("RAWTX {raw_tx}"); }
         self.node.send_raw_transaction(&raw_tx)
     }
 }

@@ -52,7 +52,6 @@ pub fn build_tessera(
     asset_b_display: &str,
     amount_b: u64,
     timeout: u32,
-    maker_pk: [u8; 32],
 ) -> Result<Tessera> {
     use sha2::{Digest, Sha256};
     let maker_spk_hash: [u8; 32] = Sha256::digest(maker_spk).into();
@@ -61,7 +60,7 @@ pub fn build_tessera(
     let asset_b: [u8; 32] = asset_b
         .try_into()
         .map_err(|_| anyhow::anyhow!("asset_b id is not 32 bytes"))?;
-    Ok(Tessera { asset_b, amount_b, maker_spk_hash, timeout, maker_pk })
+    Ok(Tessera { asset_b, amount_b, maker_spk_hash, timeout })
 }
 
 /// Build a Tessera whose terms match an L-BTC payment of `amount_b` to
@@ -71,11 +70,10 @@ pub fn lbtc_tessera(
     maker_address: &str,
     amount_b: u64,
     timeout: u32,
-    maker_pk: [u8; 32],
 ) -> Result<Tessera> {
     let lbtc = rpc.policy_asset()?;
     let spk = hex::decode(rpc.address_script_pubkey(maker_address)?)?;
-    build_tessera(&spk, &lbtc, amount_b, timeout, maker_pk)
+    build_tessera(&spk, &lbtc, amount_b, timeout)
 }
 
 /// Build a [`Tessera`] whose SETTLE path requires `amount_b` of `asset_b_display`
@@ -86,10 +84,9 @@ pub fn tessera_for(
     asset_b_display: &str,
     amount_b: u64,
     timeout: u32,
-    maker_pk: [u8; 32],
 ) -> Result<Tessera> {
     let spk = hex::decode(rpc.address_script_pubkey(maker_address)?)?;
-    build_tessera(&spk, asset_b_display, amount_b, timeout, maker_pk)
+    build_tessera(&spk, asset_b_display, amount_b, timeout)
 }
 
 /// A maker that publishes offers against an Elements node.
