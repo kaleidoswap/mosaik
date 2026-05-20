@@ -1,337 +1,266 @@
 #!/usr/bin/env bash
-# Mosaik — Liquid testnet helpers.
+# Mosaik — Liquid testnet harness (local-node).
 #
-# Mirrors the Blockstream simplicity-codespace approach: NO local elementsd.
-# Public Liquid testnet faucet funds covenant addresses; public Esplora reads
-# chain state and broadcasts; `hal-simplicity` builds PSETs.
+# Mirrors scripts/regtest.sh but runs a real Liquid testnet elementsd. The same
+# wallet UI works on both chains; the only differences are which node it talks
+# to and whether it can mine blocks (regtest: yes, testnet: no — blocks come
+# from the network at ~1 min/block).
 #
-# Two ways to interact:
+# Bootstrap (one-time per machine):
+#   ./scripts/testnet.sh up      start the node, create wallets (idempotent;
+#                                 re-run to check sync progress)
+#   ./scripts/testnet.sh fund    hit the public faucet for the treasury, then
+#                                 issue the demo test assets (USDT, EURx);
+#                                 writes .testnet/assets.json
 #
-#   1. Wallet UI (mirrors the regtest demo):
-#        ./scripts/testnet.sh serve
-#        open http://127.0.0.1:8081
+# Use:
+#   ./scripts/testnet.sh serve   wallet UI on http://127.0.0.1:8081
+#   ./scripts/testnet.sh cli ... pass commands to elements-cli
+#   ./scripts/testnet.sh down    stop elementsd
 #
-#   2. CLI demo (one Tessera, end-to-end like the codespace's demo.sh):
-#        ./scripts/testnet.sh make-offer [amount_b_sats [timeout [offer.json]]]
-#        ./scripts/testnet.sh take-offer [offer.json]
-#
-# Deps: cargo  hal-simplicity  curl  python3
-#
-# Demo parameters (safe test-only keys; never use with real funds):
-#   Maker private key : 0707...07  (secp256k1 test vector — [7]×32 bytes)
-#   Maker pays to     : tex1qkkxzy9glfws4nc392an5w2kgjym7sxpshuwkjy
-#                       (the Liquid testnet faucet return address)
-#   Asset locked+paid : L-BTC (Liquid testnet policy asset)
+# Requires: elementsd (Simplicity-capable), hal-simplicity, curl, python3.
+# Defaults to ~/.simplex/bin/elementsd — override with ELEMENTSD_EXEC.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-
-# Source .env if present so ESPLORA_URL / ESPLORA_TOKEN / HAL_SIMPLICITY are
-# in the environment of both this script and the mosaik server it spawns.
-if [ -f "$ROOT/.env" ]; then
-    set -a; . "$ROOT/.env"; set +a
-fi
-
-HAL="${HAL_SIMPLICITY:-${HOME}/.cargo/bin/hal-simplicity}"
-ESPLORA="${ESPLORA_URL:-https://blockstream.info/liquidtestnet/api}"
-ESPLORA_BEARER=()
-if [ -n "${ESPLORA_TOKEN:-}" ]; then
-    ESPLORA_BEARER=(-H "Authorization: Bearer ${ESPLORA_TOKEN}")
-fi
-FAUCET="https://liquidtestnet.com/faucet"
-OFFER_DEFAULT="$ROOT/offer.json"
+DATADIR="$ROOT/.testnet"
+ELEMENTSD="${ELEMENTSD_EXEC:-${HOME}/.simplex/bin/elementsd}"
+ELEMENTS_CLI="${ELEMENTS_CLI_EXEC:-${ELEMENTSD%elementsd}elements-cli}"
+RPCUSER="user"
+RPCPASS="pass"
+RPCPORT="7041"
 UI_PORT="${MOSAIK_UI_PORT:-8081}"
 
-# BIP-341 NUMS unspendable internal key (same as the tessera crate and codespace).
-INTERNAL_KEY="50929b74c1a04954b78b4b6035e97a5e078a5a0f28ec96d547bfee9ace803ac0"
+ESPLORA="https://blockstream.info/liquidtestnet/api"
+FAUCET="https://liquidtestnet.com/faucet"
+ASSETS_FILE="$DATADIR/assets.json"
 
-# ── Demo maker constants (from `mosaik testnet-constants`) ──────────────────
-MAKER_PK="989c0b76cb563971fdc9bef31ec06c3560f3249d6ee9e5d83c57625596e05f6f"
-MAKER_ADDRESS="tex1qkkxzy9glfws4nc392an5w2kgjym7sxpshuwkjy"
-MAKER_SPK_HASH="bcfbe70502021903755bb406a7c4681817be317affc7d1120de2041a9e06cfc5"
-# L-BTC testnet asset id, internal byte order (reverse of RPC display order).
-LBTC_ASSET="499a818545f6bae39fc03b637f2a4e1e64e590cac1bc3a6f6d71aa4443654c14"
-
-# ── Helpers ─────────────────────────────────────────────────────────────────
-
+# ── output helpers ──────────────────────────────────────────────────────────
 green()  { printf '\033[32m%s\033[0m\n' "$1"; }
 yellow() { printf '\033[33m%s\033[0m\n' "$1"; }
 red()    { printf '\033[31m%s\033[0m\n' "$1"; }
-pause()  { read -rp "Press Enter to continue…" _; echo; }
 
-mosaik() {
-    cargo run -q --manifest-path "$ROOT/Cargo.toml" -p mosaik-cli -- "$@"
-}
-
-# Wait for a tx to appear on Esplora; echoes the tx JSON.
-wait_esplora() {
-    local txid="$1"
-    yellow "Waiting for $txid on Esplora (Liquid testnet ~1 min per block)…"
-    for _ in $(seq 1 120); do
-        local data
-        data=$(curl -sS "${ESPLORA_BEARER[@]}" "$ESPLORA/tx/$txid" 2>/dev/null || true)
-        if echo "$data" | python3 -c \
-            "import json,sys; d=json.load(sys.stdin); print(d['vout'][0])" \
-            >/dev/null 2>&1; then
-            echo "$data"
-            return 0
-        fi
-        printf "."
-        sleep 1
+# ── elements-cli wrapper (same fallback to curl+RPC as scripts/regtest.sh) ──
+# Honors -rpcwallet=NAME by either passing it through (elements-cli path) or
+# by routing the JSON-RPC call to /wallet/NAME (curl-fallback path).
+cli() {
+    if [ -x "$ELEMENTS_CLI" ]; then
+        "$ELEMENTS_CLI" -datadir="$DATADIR" -rpcport="$RPCPORT" \
+            -rpcuser="$RPCUSER" -rpcpassword="$RPCPASS" "$@"
+        return
+    fi
+    local wallet=""
+    # Peel off any leading -rpcwallet=... flags before the method name.
+    while [ "$#" -gt 0 ]; do
+        case "$1" in
+            -rpcwallet=*) wallet="${1#-rpcwallet=}"; shift ;;
+            -*) shift ;;     # ignore other elements-cli flags in fallback mode
+            *) break ;;
+        esac
     done
-    echo ""
-    red "Tx not found on Esplora after 120s — is the testnet reachable?" >&2
-    exit 1
+    local method="$1"; shift
+    local url="http://127.0.0.1:${RPCPORT}"
+    [ -n "$wallet" ] && url="${url}/wallet/${wallet}"
+    local params
+    params=$(python3 - "$@" <<'PYEOF'
+import json, sys
+result = []
+for a in sys.argv[1:]:
+    if a in ('true', 'false', 'null'): result.append(json.loads(a))
+    elif a[:1] in ('[', '{'): result.append(json.loads(a))
+    else:
+        try: result.append(float(a) if '.' in a else int(a))
+        except ValueError: result.append(a)
+print(json.dumps(result))
+PYEOF
+)
+    local resp
+    resp=$(curl -sf --user "${RPCUSER}:${RPCPASS}" \
+        -H 'Content-Type: application/json' \
+        --data "{\"jsonrpc\":\"1.0\",\"id\":\"m\",\"method\":\"${method}\",\"params\":${params}}" \
+        "$url") \
+        || { echo "RPC ${method}: connection refused or HTTP error" >&2; return 1; }
+    echo "$resp" | python3 -c "
+import json, sys
+d = json.loads(sys.stdin.read())
+if d.get('error'):
+    e = d['error']
+    print(json.dumps(e) if isinstance(e, dict) else str(e), file=sys.stderr)
+    sys.exit(1)
+r = d.get('result')
+if isinstance(r, str): print(r)
+elif r is not None: print(json.dumps(r))
+"
 }
 
-# ── serve ────────────────────────────────────────────────────────────────────
-
-cmd_serve() {
-    green "Starting Mosaik testnet UI on http://127.0.0.1:${UI_PORT}"
-    green "(no local node — reads from Esplora, funds via the public faucet)"
-    mosaik serve-wallet --port "$UI_PORT" --network testnet
+wait_for_rpc() {
+    for _ in $(seq 1 60); do
+        cli getblockchaininfo >/dev/null 2>&1 && return 0
+        sleep 0.5
+    done
+    red "elementsd RPC did not come up on port $RPCPORT" >&2; exit 1
 }
 
-# ── make-offer ───────────────────────────────────────────────────────────────
+# ── up: start the node + create wallets ─────────────────────────────────────
+cmd_up() {
+    if [ ! -x "$ELEMENTSD" ]; then
+        red "elementsd not found at $ELEMENTSD" >&2
+        red "Set ELEMENTSD_EXEC=/path/to/elementsd or install via smplx." >&2
+        exit 1
+    fi
+    mkdir -p "$DATADIR"
+    cat > "$DATADIR/elements.conf" <<EOF
+chain=liquidtestnet
+rpcuser=$RPCUSER
+rpcpassword=$RPCPASS
+txindex=1
+[liquidtestnet]
+rpcport=$RPCPORT
+rpcbind=127.0.0.1
+EOF
+    if "$ELEMENTSD" -datadir="$DATADIR" -daemon 2>/dev/null; then
+        yellow "elementsd starting (datadir: $DATADIR)"
+    else
+        yellow "elementsd already running, continuing wallet setup"
+    fi
+    wait_for_rpc
+    cli createwallet mosaik       >/dev/null 2>&1 || cli loadwallet mosaik       >/dev/null 2>&1 || true
+    cli createwallet mosaik-maker >/dev/null 2>&1 || cli loadwallet mosaik-maker >/dev/null 2>&1 || true
+    cli createwallet mosaik-taker >/dev/null 2>&1 || cli loadwallet mosaik-taker >/dev/null 2>&1 || true
 
-cmd_make_offer() {
-    local amount_b_sats="${1:-99500}"    # leaves 500 sat fee headroom on a 100k faucet drop
-    local timeout="${2:-500}"
-    local offer_file="${3:-$OFFER_DEFAULT}"
+    local info blocks headers verprog
+    info=$(cli getblockchaininfo)
+    blocks=$(echo "$info"  | python3 -c "import json,sys; print(json.load(sys.stdin)['blocks'])")
+    headers=$(echo "$info" | python3 -c "import json,sys; print(json.load(sys.stdin)['headers'])")
+    verprog=$(echo "$info" | python3 -c "import json,sys; print(json.load(sys.stdin)['verificationprogress'])")
+    green "Testnet node up — block $blocks / $headers (verification: $verprog)"
+    if python3 -c "import sys; sys.exit(0 if float('$verprog') >= 0.9999 else 1)"; then
+        green "Chain is synced. Next: ./scripts/testnet.sh fund"
+    else
+        yellow "Chain is still syncing. Re-run './scripts/testnet.sh up' to recheck."
+        yellow "Wait for verification ≈ 1.0 before funding (first sync can take 15–30 min)."
+    fi
+}
 
-    yellow "==> Step 1: Compile the Tessera covenant"
-    local tessera_json
-    tessera_json=$(mosaik tessera-json \
-        --asset-b     "$LBTC_ASSET" \
-        --amount-b    "$amount_b_sats" \
-        --maker-pk    "$MAKER_PK" \
-        --maker-spk-hash "$MAKER_SPK_HASH" \
-        --timeout     "$timeout")
-    local CMR PROGRAM
-    CMR=$(echo "$tessera_json" | python3 -c "import json,sys; print(json.load(sys.stdin)['cmr'])")
-    PROGRAM=$(echo "$tessera_json" | python3 -c "import json,sys; print(json.load(sys.stdin)['program'])")
-    green "CMR: $CMR"
-    pause
+cmd_down() {
+    cli stop 2>/dev/null || true
+    yellow "elementsd stopped"
+}
 
-    yellow "==> Step 2: Derive the Liquid testnet covenant address"
-    local info CONTRACT_ADDRESS
-    info=$("$HAL" simplicity info --liquid "$PROGRAM")
-    CONTRACT_ADDRESS=$(echo "$info" | python3 -c "import json,sys; print(json.load(sys.stdin)['liquid_testnet_address_unconf'])")
-    green "Covenant address: $CONTRACT_ADDRESS"
-    pause
+# ── fund: faucet → treasury, then issue test assets ─────────────────────────
+cmd_fund() {
+    cli getblockchaininfo >/dev/null 2>&1 || { red "elementsd not running. Run ./scripts/testnet.sh up first."; exit 1; }
 
-    yellow "==> Step 3: Fund via the Liquid testnet faucet"
-    yellow "  Requesting $amount_b_sats sats of L-BTC for $CONTRACT_ADDRESS…"
-    local faucet_resp FAUCET_TXID
-    faucet_resp=$(curl -sS "${FAUCET}?address=${CONTRACT_ADDRESS}&action=lbtc" 2>/dev/null || true)
-    FAUCET_TXID=$(echo "$faucet_resp" | python3 -c "
-import json,sys,re
-t = sys.stdin.read()
+    # 1) Faucet → treasury
+    yellow "==> Hitting the public faucet for the 'mosaik' treasury wallet"
+    local addr resp txid
+    addr=$(cli -rpcwallet=mosaik getnewaddress)
+    # The faucet wants an unconfidential address.
+    local unconf
+    unconf=$(cli -rpcwallet=mosaik getaddressinfo "$addr" \
+        | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('unconfidential', d.get('address','')))")
+    green "Treasury address: $unconf"
+    resp=$(curl -sS "${FAUCET}?address=${unconf}&action=lbtc" 2>/dev/null || true)
+    txid=$(python3 - <<PYEOF
+import json, re
+t = """$resp"""
 try:
     d = json.loads(t)
     print(d.get('txid') or d.get('tx_hash') or '')
 except Exception:
     m = re.search(r'[0-9a-f]{64}', t)
     print(m.group(0) if m else '')
-" 2>/dev/null || true)
-    if [ -z "$FAUCET_TXID" ]; then
-        yellow "Faucet response: $faucet_resp"
-        yellow "Faucet may be rate-limited. Fund manually:"
-        yellow "  ${FAUCET}?address=${CONTRACT_ADDRESS}&action=lbtc"
-        red "No txid returned — aborting." >&2; exit 1
+PYEOF
+)
+    if [ -z "$txid" ]; then
+        red "Faucet didn't return a txid. Try in a browser:"
+        red "  ${FAUCET}?address=${unconf}&action=lbtc"
+        exit 1
     fi
-    green "Faucet txid: $FAUCET_TXID"
-    pause
+    green "Faucet txid: $txid"
 
-    yellow "==> Step 4: Wait for the transaction to appear on Esplora"
-    local tx_data SPK ASSET VALUE_SATS VALUE_BTC
-    tx_data=$(wait_esplora "$FAUCET_TXID")
-    echo ""
-    SPK=$(echo "$tx_data"    | python3 -c "import json,sys; print(json.load(sys.stdin)['vout'][0]['scriptpubkey'])")
-    ASSET=$(echo "$tx_data"  | python3 -c "import json,sys; print(json.load(sys.stdin)['vout'][0].get('asset',''))")
-    VALUE_SATS=$(echo "$tx_data" | python3 -c "import json,sys; print(json.load(sys.stdin)['vout'][0].get('value',0))")
-    VALUE_BTC=$(python3 -c "print('%.8f' % (int('$VALUE_SATS') / 1e8))")
-    green "UTXO  scriptPubKey : $SPK"
-    green "      asset        : $ASSET"
-    green "      value        : $VALUE_BTC BTC ($VALUE_SATS sats)"
-    pause
+    # 2) Wait for the faucet tx to confirm in our wallet.
+    yellow "==> Waiting for the faucet tx to confirm (~1 min per block)"
+    local confirmations=0
+    until [ "$confirmations" -gt 0 ]; do
+        confirmations=$(cli -rpcwallet=mosaik gettransaction "$txid" 2>/dev/null \
+            | python3 -c "import json,sys; print(json.load(sys.stdin).get('confirmations',0))" 2>/dev/null || echo 0)
+        [ "$confirmations" -gt 0 ] && break
+        printf "."
+        sleep 10
+    done
+    echo
+    green "Faucet tx confirmed ($confirmations conf)."
 
-    yellow "==> Saving offer to $offer_file"
-    python3 - <<EOF
-import json
-offer = {
-    "faucet_txid":    "$FAUCET_TXID",
-    "covenant_vout":  0,
-    "cmr":            "$CMR",
-    "program":        "$PROGRAM",
-    "contract_address": "$CONTRACT_ADDRESS",
-    "spk":            "$SPK",
-    "asset":          "$ASSET",
-    "value_sats":     $VALUE_SATS,
-    "value_btc":      "$VALUE_BTC",
-    "amount_b_sats":  $amount_b_sats,
-    "maker_address":  "$MAKER_ADDRESS",
-    "lbtc_asset":     "$LBTC_ASSET",
-    "asset_b":        "$LBTC_ASSET",
-    "maker_pk":       "$MAKER_PK",
-    "maker_spk_hash": "$MAKER_SPK_HASH",
-    "timeout":        $timeout,
+    # 3) Issue test assets if we haven't already.
+    if [ -f "$ASSETS_FILE" ]; then
+        green "Test assets already issued (see $ASSETS_FILE):"
+        cat "$ASSETS_FILE"
+        green "✓ Bootstrap complete. Next: ./scripts/testnet.sh serve"
+        return 0
+    fi
+    yellow "==> Issuing test assets (USDT, EURx) from the treasury wallet"
+    local usdt_resp eurx_resp usdt_id eurx_id
+    usdt_resp=$(cli -rpcwallet=mosaik issueasset 100000 0)
+    usdt_id=$(echo "$usdt_resp" | python3 -c "import json,sys; print(json.load(sys.stdin)['asset'])")
+    eurx_resp=$(cli -rpcwallet=mosaik issueasset 100000 0)
+    eurx_id=$(echo "$eurx_resp" | python3 -c "import json,sys; print(json.load(sys.stdin)['asset'])")
+    green "USDT asset id: $usdt_id"
+    green "EURx asset id: $eurx_id"
+
+    # 4) Wait for the issuance txs to confirm (both likely land in the same block).
+    yellow "==> Waiting for issuance txs to confirm"
+    local height_then
+    height_then=$(cli getblockcount)
+    until [ "$(cli getblockcount)" -gt "$height_then" ]; do
+        printf "."
+        sleep 10
+    done
+    echo
+    green "Issuances confirmed at block $(cli getblockcount)."
+
+    # 5) Persist the asset map for the server.
+    cat > "$ASSETS_FILE" <<EOF
+{
+  "USDT": "$usdt_id",
+  "EURx": "$eurx_id"
 }
-with open("$offer_file", "w") as f:
-    json.dump(offer, f, indent=2)
-print(json.dumps(offer, indent=2))
 EOF
+    green "Wrote $ASSETS_FILE"
     green ""
-    green "✓ Offer saved to $offer_file"
-    green "  Run: ./scripts/testnet.sh take-offer"
+    green "✓ Bootstrap complete. Next: ./scripts/testnet.sh serve"
 }
 
-# ── take-offer ───────────────────────────────────────────────────────────────
-
-cmd_take_offer() {
-    local offer_file="${1:-$OFFER_DEFAULT}"
-    if [ ! -f "$offer_file" ]; then
-        red "Offer file not found: $offer_file" >&2
-        red "Run ./scripts/testnet.sh make-offer first." >&2
+cmd_serve() {
+    if [ ! -f "$ASSETS_FILE" ]; then
+        red "$ASSETS_FILE not found. Run ./scripts/testnet.sh fund first." >&2
         exit 1
     fi
-
-    local offer
-    offer=$(cat "$offer_file")
-    read_offer() { echo "$offer" | python3 -c "import json,sys; print(json.load(sys.stdin)['$1'])"; }
-
-    local FAUCET_TXID CMR PROGRAM SPK ASSET VALUE_BTC VALUE_SATS
-    local AMOUNT_B_SATS ASSET_B MAKER_SPK_HASH_O MAKER_PK_O TIMEOUT
-    FAUCET_TXID=$(read_offer faucet_txid)
-    CMR=$(read_offer cmr)
-    PROGRAM=$(read_offer program)
-    SPK=$(read_offer spk)
-    ASSET=$(read_offer asset)
-    VALUE_BTC=$(read_offer value_btc)
-    VALUE_SATS=$(read_offer value_sats)
-    AMOUNT_B_SATS=$(read_offer amount_b_sats)
-    ASSET_B=$(read_offer asset_b)
-    MAKER_SPK_HASH_O=$(read_offer maker_spk_hash)
-    MAKER_PK_O=$(read_offer maker_pk)
-    TIMEOUT=$(read_offer timeout)
-
-    local SETTLE_VOUT=0
-    local FEE_SATS=500
-    local FEE_BTC="0.00000500"
-
-    local AMOUNT_B_BTC
-    AMOUNT_B_BTC=$(python3 -c "print('%.8f' % (int('$AMOUNT_B_SATS') / 1e8))")
-
-    local CHANGE_SATS CHANGE_BTC
-    CHANGE_SATS=$(python3 -c "print(int('$VALUE_SATS') - int('$AMOUNT_B_SATS') - $FEE_SATS)")
-    if python3 -c "import sys; sys.exit(0 if int('$CHANGE_SATS') >= 0 else 1)"; then
-        CHANGE_BTC=$(python3 -c "print('%.8f' % (int('$CHANGE_SATS') / 1e8))")
-    else
-        red "Covenant UTXO ($VALUE_SATS sats) too small for amount_b ($AMOUNT_B_SATS) + fee ($FEE_SATS) sats." >&2
-        red "Re-run make-offer with a smaller amount_b_sats." >&2
-        exit 1
-    fi
-
-    green "Taking offer — settling the Tessera covenant."
-    green "  Covenant UTXO : $FAUCET_TXID:0"
-    green "  Covenant value: $VALUE_BTC BTC"
-    green "  Pay maker     : $AMOUNT_B_BTC BTC → $MAKER_ADDRESS"
-    [ "$CHANGE_SATS" -gt 0 ] && green "  Change (maker) : $CHANGE_BTC BTC"
-    pause
-
-    yellow "==> Step 1: Create unsigned PSET"
-    local OUTPUTS_JSON
-    if [ "$CHANGE_SATS" -gt 0 ]; then
-        OUTPUTS_JSON="[{\"address\":\"$MAKER_ADDRESS\",\"asset\":\"$ASSET\",\"amount\":$AMOUNT_B_BTC},{\"address\":\"$MAKER_ADDRESS\",\"asset\":\"$ASSET\",\"amount\":$CHANGE_BTC},{\"fee\":$FEE_BTC}]"
-    else
-        OUTPUTS_JSON="[{\"address\":\"$MAKER_ADDRESS\",\"asset\":\"$ASSET\",\"amount\":$AMOUNT_B_BTC},{\"fee\":$FEE_BTC}]"
-    fi
-    local PSET1
-    PSET1=$("$HAL" simplicity pset create --liquid \
-        "[{\"txid\":\"$FAUCET_TXID\",\"vout\":0}]" \
-        "$OUTPUTS_JSON" \
-        | python3 -c "import json,sys; print(json.load(sys.stdin)['pset'])")
-    green "PSET1 created."
-    pause
-
-    yellow "==> Step 2: Attach covenant metadata to the input"
-    local PSET2
-    PSET2=$("$HAL" simplicity pset update-input --liquid \
-        "$PSET1" 0 \
-        -i "${SPK}:${ASSET}:${VALUE_BTC}" \
-        -c "$CMR" \
-        -p "$INTERNAL_KEY" \
-        | python3 -c "import json,sys; print(json.load(sys.stdin)['pset'])")
-    green "PSET2 updated."
-    pause
-
-    yellow "==> Step 3: Build the SETTLE witness"
-    local settle_json WIT_PROGRAM WIT_WITNESS
-    settle_json=$(mosaik settle-json \
-        --asset-b        "$ASSET_B" \
-        --amount-b       "$AMOUNT_B_SATS" \
-        --maker-pk       "$MAKER_PK_O" \
-        --maker-spk-hash "$MAKER_SPK_HASH_O" \
-        --timeout        "$TIMEOUT" \
-        --settle-vout    "$SETTLE_VOUT")
-    WIT_PROGRAM=$(echo "$settle_json" | python3 -c "import json,sys; print(json.load(sys.stdin)['program'])")
-    WIT_WITNESS=$(echo "$settle_json" | python3 -c "import json,sys; print(json.load(sys.stdin)['witness'])")
-    green "SETTLE witness ready."
-    pause
-
-    yellow "==> Step 4: Finalize PSET with program + witness"
-    local PSET3
-    PSET3=$("$HAL" simplicity pset finalize --liquid \
-        "$PSET2" 0 "$WIT_PROGRAM" "$WIT_WITNESS" \
-        | python3 -c "import json,sys; print(json.load(sys.stdin)['pset'])")
-    green "PSET3 finalized."
-    pause
-
-    yellow "==> Step 5: Extract raw transaction"
-    local RAW_TX
-    RAW_TX=$("$HAL" simplicity pset extract --liquid "$PSET3" \
-        | python3 -c "import json,sys; print(json.load(sys.stdin)['transaction_hex'])" 2>/dev/null \
-        || "$HAL" simplicity pset extract --liquid "$PSET3" \
-        | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('hex') or d.get('raw') or list(d.values())[0])")
-    green "Raw tx: ${RAW_TX:0:40}…"
-    pause
-
-    yellow "==> Step 6: Broadcast to Liquid testnet"
-    local TXID
-    TXID=$(curl -sX POST "${ESPLORA_BEARER[@]}" "$ESPLORA/tx" -d "$RAW_TX")
-    if echo "$TXID" | grep -qE '^[0-9a-f]{64}$'; then
-        green "✓ Broadcast successful!"
-        green "  Settlement txid: $TXID"
-        green "  View at: https://blockstream.info/liquidtestnet/tx/$TXID?expand"
-    else
-        red "Broadcast response: $TXID" >&2
-        exit 1
-    fi
+    green "Starting Mosaik testnet UI on http://127.0.0.1:${UI_PORT}"
+    MOSAIK_TESTNET_ASSETS_FILE="$ASSETS_FILE" \
+        cargo run -q --manifest-path "$ROOT/Cargo.toml" -p mosaik-cli -- \
+        serve-wallet --port "$UI_PORT" --network testnet
 }
-
-# ── dispatch ─────────────────────────────────────────────────────────────────
 
 case "${1:-}" in
-  serve)              cmd_serve ;;
-  make-offer)         cmd_make_offer "${2:-}" "${3:-}" "${4:-}" ;;
-  take-offer)         cmd_take_offer "${2:-}" ;;
-  testnet-constants)  mosaik testnet-constants ;;
+  up)    cmd_up ;;
+  down)  cmd_down ;;
+  fund)  cmd_fund ;;
+  serve) cmd_serve ;;
+  cli)   shift; cli "$@" ;;
   *)
     cat >&2 <<EOF
-Mosaik — Liquid testnet (no local node, codespace-style).
+Mosaik — Liquid testnet.
 
-Wallet UI (mirrors the regtest demo):
-  ./scripts/testnet.sh serve              UI on http://127.0.0.1:${UI_PORT}
+One-time bootstrap (start from scratch):
+  ./scripts/testnet.sh up      start elementsd on liquidtestnet, create wallets
+                                (idempotent; re-run to check sync progress)
+  ./scripts/testnet.sh fund    faucet → treasury, then issue USDT/EURx
 
-Single-Tessera CLI demo (end-to-end like exercises/*/demo.sh in the codespace):
-  ./scripts/testnet.sh make-offer [amount_b_sats [timeout [offer.json]]]
-  ./scripts/testnet.sh take-offer [offer.json]
-
-  ./scripts/testnet.sh testnet-constants  print the demo maker key constants
-
-Examples:
-  ./scripts/testnet.sh serve
-  ./scripts/testnet.sh make-offer 99500 500 && ./scripts/testnet.sh take-offer
+Use:
+  ./scripts/testnet.sh serve   wallet UI on http://127.0.0.1:${UI_PORT}
+  ./scripts/testnet.sh cli ... pass commands to elements-cli
+  ./scripts/testnet.sh down    stop the node
 EOF
     exit 1
     ;;

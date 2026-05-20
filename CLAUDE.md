@@ -54,22 +54,32 @@ after every settlement/reclaim so the taker's balance updates immediately.
 Wallet names on the node: `mosaik` (treasury), `mosaik-maker`, `mosaik-taker`.
 RPC: `http://127.0.0.1:7040`, user/pass `user`/`pass`.
 
-### Liquid testnet (no local node)
+### Liquid testnet (local node)
 
-Follows the Blockstream simplicity-codespace pattern. No `elementsd` needed.
+Same wallet UI as regtest, pointed at a local Liquid testnet `elementsd` on
+port 7041. One-time bootstrap brings the node up, faucet-funds the treasury,
+and issues the demo assets:
 
 ```sh
-./scripts/testnet.sh make-offer   # compile covenant, faucet-fund, save offer.json
-./scripts/testnet.sh take-offer   # build PSET with hal-simplicity, broadcast via Esplora
+export ELEMENTSD_EXEC=/path/to/elementsd
+./scripts/testnet.sh up      # start node, create wallets (idempotent)
+./scripts/testnet.sh fund    # faucet → treasury, issue USDT + EURx once
+./scripts/testnet.sh serve   # UI on http://127.0.0.1:8081
+./scripts/testnet.sh down    # stop the node
 ```
 
-Key design decisions in `testnet.sh`:
-- `amount_b_sats` defaults to 99 500 sats — leaves 500 sats for fee when the
-  faucet sends its standard 100 000-sat drop, so the PSET balances exactly.
-- If the faucet sends more than `amount_b + 500`, a second change output is
-  added (also to the maker address) so the PSET always balances.
-- `hal-simplicity simplicity pset update-input` requires a Taproot scriptPubKey
-  (`5120…`) — the script uses vout 0's SPK from the Esplora response.
+Key differences from regtest:
+- First sync of liquidtestnet takes 15–30 min. `./scripts/testnet.sh up` is
+  idempotent — re-run to recheck `verificationprogress`.
+- No mining: the server skips `treasury.generate(1)` on testnet because
+  blocks come from the network at ~1 min/block.
+- Smaller funding amounts: Fund maker / Fund taker move 0.001 L-BTC + 100 of
+  each test asset (vs 1 L-BTC on regtest) — the treasury only holds one
+  faucet drop.
+- The asset map `{USDT: …, EURx: …}` is persisted to `.testnet/assets.json`
+  on first `./scripts/testnet.sh fund` and loaded by the server at startup
+  (env var `MOSAIK_TESTNET_ASSETS_FILE`). Surviving restart means the asset
+  ids stay stable — important since clients reference them by id.
 
 ---
 
