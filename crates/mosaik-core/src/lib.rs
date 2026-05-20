@@ -8,6 +8,7 @@ use anyhow::Result;
 use serde::{Deserialize, Serialize};
 
 pub mod rpc;
+pub mod testnet;
 
 pub use tessera::Tessera;
 
@@ -143,7 +144,9 @@ impl MakeOffer for MosaikMaker {
         } else {
             self.rpc.send_asset_to(&address.to_string(), amount, &asset_a_id)?
         };
-        self.rpc.generate(1)?;
+        // Mine a block to confirm the funding tx (regtest). On testnet this
+        // fails gracefully — the tx is visible in the mempool immediately.
+        let _ = self.rpc.generate(1);
 
         // Locate the funding output among the transaction's vouts.
         let tx = self.rpc.raw_transaction(&txid)?;

@@ -15,4 +15,5 @@ serde_json.workspace = true
 ureq.workspace = true
 base64 = "0.22"
 sha2 = "0.10"
+simplicityhl.workspace = true
 tessera = { path = "../tessera" }
