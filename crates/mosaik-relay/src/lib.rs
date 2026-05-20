@@ -128,6 +128,7 @@ mod tests {
                     maker_spk_hash: [0x22; 32],
                     timeout: 500,
                 },
+                covenant_address: "ert1pcovenant".into(),
                 maker_address: "ert1qexample".into(),
             },
             expiry: 9_999_999_999,

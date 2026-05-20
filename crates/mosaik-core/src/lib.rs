@@ -23,6 +23,8 @@ pub struct Offer {
     pub amount_a: u64,
     /// The Tessera — what the maker wants in return, and the refund conditions.
     pub tessera: Tessera,
+    /// The exact covenant address that received the funded output.
+    pub covenant_address: String,
     /// The (unconfidential) address the counter-payment must go to. The
     /// covenant commits to its scriptPubKey hash via `tessera.maker_spk_hash`.
     pub maker_address: String,
@@ -165,6 +167,7 @@ impl MakeOffer for MosaikMaker {
             asset_a: asset_a_id,
             amount_a,
             tessera: tessera.clone(),
+            covenant_address: address.to_string(),
             maker_address: maker_address.to_string(),
         })
     }
@@ -546,6 +549,7 @@ mod tests {
                 maker_spk_hash: [0x22; 32],
                 timeout: 200,
             },
+            covenant_address: "ert1pexampleexampleexampleexampleexampleex".into(),
             maker_address: "ert1qexampleexampleexampleexampleexampleex".into(),
         };
         let json = serde_json::to_string(&offer).unwrap();

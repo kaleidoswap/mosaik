@@ -19,6 +19,7 @@ fn sample_offer(order_id: &str) -> TesseraOffer {
                 maker_spk_hash: [0xcd; 32],
                 timeout: 800,
             },
+            covenant_address: "ert1pcovenant".into(),
             maker_address: "ert1qmaker".into(),
         },
         expiry: 9_999_999_999,

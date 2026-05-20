@@ -146,6 +146,21 @@ impl LwkWallet {
         Ok((asset_id, token_id, txid.to_string()))
     }
 
+    /// Issue a demo asset with basic registry metadata.
+    pub fn issue_named_asset(&self, ticker: &str, name: &str, asset_sats: u64) -> Result<(String, String, String)> {
+        let contract = lwk_wollet::Contract {
+            entity: lwk_wollet::Entity::Domain("mosaik.moaki.net".to_string()),
+            issuer_pubkey: hex::decode(
+                "0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+            )?,
+            name: name.to_string(),
+            precision: 8,
+            ticker: ticker.to_string(),
+            version: 0,
+        };
+        self.issue_asset(asset_sats, 0, &contract)
+    }
+
     pub fn sync(&self) -> Result<()> {
         let mut client = EsploraClient::new(ESPLORA_URL, ElementsNetwork::LiquidTestnet)
             .map_err(|e| anyhow!("esplora: {e}"))?;
@@ -271,7 +286,14 @@ impl<'a> MakeOffer for LwkMaker<'a> {
         };
         let vout = find_output_index(&tx, &spk_hex)
             .ok_or_else(|| anyhow!("funding output for {txid} not found"))?;
-        Ok(Offer { outpoint: format!("{txid}:{vout}"), asset_a: asset_a_id, amount_a, tessera: tessera.clone(), maker_address: maker_address.to_string() })
+        Ok(Offer {
+            outpoint: format!("{txid}:{vout}"),
+            asset_a: asset_a_id,
+            amount_a,
+            tessera: tessera.clone(),
+            covenant_address: address.to_string(),
+            maker_address: maker_address.to_string(),
+        })
     }
 }
 
@@ -310,7 +332,8 @@ impl<'a> ReclaimOffer for LwkMaker<'a> {
         };
         let raw_hex = hex::encode(serialize(&tx));
         let compiled = offer.tessera.compile()?;
-        let covenant_spk_bytes = compiled.address()?.script_pubkey().as_bytes().to_vec();
+        let covenant_addr: lwk_wollet::elements::Address = offer.covenant_address.parse()?;
+        let covenant_spk_bytes = covenant_addr.script_pubkey().as_bytes().to_vec();
         let genesis = self.node.genesis_hash()?;
         let raw_tx = offer.tessera.build_refund_tx(&raw_hex, 0, 0, &covenant_spk_bytes, &lbtc, amount_a)?;
         self.node.send_raw_transaction(&raw_tx)
@@ -361,7 +384,8 @@ impl<'a> LwkTaker<'a> {
         let lbtc_id = AssetId::from_str(&lbtc)?;
 
         let compiled = offer.tessera.compile()?;
-        let covenant_spk = compiled.address()?.script_pubkey();
+        let covenant_addr: lwk_wollet::elements::Address = offer.covenant_address.parse()?;
+        let covenant_spk = covenant_addr.script_pubkey();
         let covenant_utxo = ExternalUtxo {
             outpoint: OutPoint::new(Txid::from_str(txid)?, covenant_vout as u32),
             txout: lwk_wollet::elements::TxOut {
@@ -426,6 +450,11 @@ impl<'a> LwkTaker<'a> {
         }
 
         let mut pset = builder.finish().map_err(|e| anyhow!("finish: {e}"))?;
+        let covenant_outpoint = OutPoint::new(Txid::from_str(txid)?, covenant_vout as u32);
+        let covenant_input = pset.inputs().iter().position(|input| {
+            input.previous_txid == covenant_outpoint.txid
+                && input.previous_output_index == covenant_outpoint.vout
+        }).ok_or_else(|| anyhow!("covenant input {covenant_outpoint} not found in PSET"))?;
         drop(w);
 
         self.wallet.signer.sign(&mut pset).map_err(|e| anyhow!("sign: {e}"))?;
@@ -437,9 +466,9 @@ impl<'a> LwkTaker<'a> {
         let input_utxo = format!("{covenant_spk_hex}:{asset_a}:{}" , amount_a as f64 / 1e8);
         let pset_b64 = pset.to_string();
         std::fs::write("/tmp/pset_raw.b64", &pset_b64).ok();
-        eprintln!("RAW PSET length: {}", pset_b64.len());
+        eprintln!("RAW PSET length: {}, covenant input index: {}", pset_b64.len(), covenant_input);
         let pset_b64 = crate::hal_pset(&[
-            "simplicity", "pset", "update-input", "-r", &pset_b64, "0",
+            "simplicity", "pset", "update-input", "-r", &pset_b64, &covenant_input.to_string(),
             "-i", &input_utxo, "-c", &compiled.cmr_hex(), "-p", crate::NUMS_INTERNAL_KEY,
         ])?;
         std::fs::write("/tmp/pset_update.b64", &pset_b64).ok();
@@ -449,7 +478,7 @@ impl<'a> LwkTaker<'a> {
         eprintln!("Witness program len: {}, witness len: {}", w.program.len(), w.witness.len());
         let b64 = |bytes: &[u8]| base64::engine::Engine::encode(&base64::engine::general_purpose::STANDARD, bytes);
         let pset_b64 = crate::hal_pset(&[
-            "simplicity", "pset", "finalize", "-r", &pset_b64, "0",
+            "simplicity", "pset", "finalize", "-r", &pset_b64, &covenant_input.to_string(),
             &b64(&w.program), &b64(&w.witness),
         ])?;
         std::fs::write("/tmp/pset_finalize.b64", &pset_b64).ok();
