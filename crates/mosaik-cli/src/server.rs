@@ -32,6 +32,7 @@ use mosaik_core::{
     lbtc_tessera, tessera_for, Cheat, MakeOffer, MosaikMaker, MosaikTaker, Offer,
     ReclaimOffer,
 };
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use tiny_http::{Header, Method, Request, Response, Server};
 
@@ -41,6 +42,7 @@ const RPC_PASS: &str = "pass";
 
 const TEST_ASSETS: [&str; 2] = ["USDT", "EURx"];
 const TESTNET_ASSETS_ENV: &str = "MOSAIK_TESTNET_ASSETS_FILE";
+const TESTNET_HISTORY_ENV: &str = "MOSAIK_TESTNET_HISTORY_FILE";
 const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
 const DEMO_ASSETS: [(&str, &str); 3] = [
     ("USDT", "Mosaik Test USD"),
@@ -80,7 +82,7 @@ fn node()      -> ElementsRpc { ElementsRpc::node(node_url(),                   
 
 // ── server state ─────────────────────────────────────────────────────────────
 
-#[derive(Clone)]
+#[derive(Clone, Deserialize, Serialize)]
 struct SwapRecord {
     from_ticker: String,
     to_ticker: String,
@@ -156,6 +158,7 @@ pub fn run(port: u16, net: Network) -> Result<()> {
     let _ = NETWORK.set(net);
 
     let mut initial_assets: BTreeMap<String, String> = BTreeMap::new();
+    let mut initial_history: Vec<SwapRecord> = Vec::new();
     let lwk = if net == Network::Testnet {
         println!("Initializing LWK wallets for Liquid testnet…");
         let node = LwkNode::testnet()?;
@@ -167,6 +170,15 @@ pub fn run(port: u16, net: Network) -> Result<()> {
                 Ok(assets) => initial_assets = assets,
                 Err(e) if e.to_string().contains("No such file or directory") => {
                     println!("WARN: testnet assets file {path} does not exist yet; demo seed can create it.");
+                }
+                Err(e) => return Err(e),
+            }
+        }
+        if let Ok(path) = std::env::var(TESTNET_HISTORY_ENV) {
+            match load_history_file(&path) {
+                Ok(history) => initial_history = history,
+                Err(e) if e.to_string().contains("No such file or directory") => {
+                    println!("WARN: testnet history file {path} does not exist yet; live fills can create it.");
                 }
                 Err(e) => return Err(e),
             }
@@ -185,7 +197,7 @@ pub fn run(port: u16, net: Network) -> Result<()> {
         offers: Vec::new(),
         offer_makers: Vec::new(),
         assets: initial_assets,
-        history: Vec::new(),
+        history: initial_history,
         lwk,
     });
 
@@ -389,6 +401,19 @@ fn load_assets_file(path: &str) -> Result<BTreeMap<String, String>> {
 fn persist_assets_file(assets: &BTreeMap<String, String>) -> Result<()> {
     let Ok(path) = std::env::var(TESTNET_ASSETS_ENV) else { return Ok(()); };
     let raw = serde_json::to_string_pretty(assets)?;
+    std::fs::write(&path, raw).map_err(|e| anyhow!("write {path}: {e}"))?;
+    Ok(())
+}
+
+fn load_history_file(path: &str) -> Result<Vec<SwapRecord>> {
+    let raw = std::fs::read_to_string(path)
+        .map_err(|e| anyhow!("read {path}: {e}"))?;
+    serde_json::from_str(&raw).map_err(|e| anyhow!("parse {path}: {e}"))
+}
+
+fn persist_history_file(history: &[SwapRecord]) -> Result<()> {
+    let Ok(path) = std::env::var(TESTNET_HISTORY_ENV) else { return Ok(()); };
+    let raw = serde_json::to_string_pretty(history)?;
     std::fs::write(&path, raw).map_err(|e| anyhow!("write {path}: {e}"))?;
     Ok(())
 }
@@ -662,6 +687,9 @@ fn seed_sample_history(state: &Mutex<AppState>) {
             timestamp: now.saturating_sub((8 - i as u64) * 420),
         });
     }
+    if let Err(e) = persist_history_file(&st.history) {
+        eprintln!("WARN: could not persist sample history: {e}");
+    }
 }
 
 fn api_fund(state: &Mutex<AppState>, target_name: &str) -> Result<Value> {
@@ -825,10 +853,16 @@ fn api_take_offer(req: &mut Request, state: &Mutex<AppState>) -> Result<Value> {
                 sample: false,
                 timestamp: now_secs(),
             };
-            let mut st = state.lock().unwrap();
-            if index < st.offers.len() { st.offers.remove(index); }
-            if index < st.offer_makers.len() { st.offer_makers.remove(index); }
-            st.history.push(record);
+            let history = {
+                let mut st = state.lock().unwrap();
+                if index < st.offers.len() { st.offers.remove(index); }
+                if index < st.offer_makers.len() { st.offer_makers.remove(index); }
+                st.history.push(record);
+                st.history.clone()
+            };
+            if let Err(e) = persist_history_file(&history) {
+                eprintln!("WARN: could not persist settlement history: {e}");
+            }
             Ok(json!({ "ok": true, "txid": txid }))
         }
         (Cheat::None, Err(e)) => Err(e),

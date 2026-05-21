@@ -410,6 +410,7 @@ impl<'a> LwkTaker<'a> {
             .fee_rate(Some(1000.0));
 
         let maker_addr: lwk_wollet::elements::Address = maker_recipient.parse()?;
+        let maker_spk = maker_addr.script_pubkey();
         let taker_addr: lwk_wollet::elements::Address = taker.parse()?;
 
         // WrongIndex: put the taker output at index 0 so the covenant checks the wrong output.
@@ -450,6 +451,18 @@ impl<'a> LwkTaker<'a> {
         }
 
         let mut pset = builder.finish().map_err(|e| anyhow!("finish: {e}"))?;
+        let settle_vout = if cheat == Cheat::WrongIndex {
+            0
+        } else {
+            pset.outputs().iter().position(|output| {
+                output.script_pubkey == maker_spk
+                    && output.asset.as_ref() == Some(&asset_b_id)
+                    && output.amount == Some(maker_pay)
+            }).ok_or_else(|| anyhow!(
+                "maker settlement output not found for asset {asset_b} amount {maker_pay}"
+            ))?
+        };
+
         let covenant_outpoint = OutPoint::new(Txid::from_str(txid)?, covenant_vout as u32);
         let covenant_input = pset.inputs().iter().position(|input| {
             input.previous_txid == covenant_outpoint.txid
@@ -474,8 +487,8 @@ impl<'a> LwkTaker<'a> {
         std::fs::write("/tmp/pset_update.b64", &pset_b64).ok();
         eprintln!("PSET after update-input length: {}", pset_b64.len());
 
-        let w = offer.tessera.settle_witness(0)?;
-        eprintln!("Witness program len: {}, witness len: {}", w.program.len(), w.witness.len());
+        let w = offer.tessera.settle_witness(settle_vout as u32)?;
+        eprintln!("Witness program len: {}, witness len: {}, settle output index: {}", w.program.len(), w.witness.len(), settle_vout);
         let b64 = |bytes: &[u8]| base64::engine::Engine::encode(&base64::engine::general_purpose::STANDARD, bytes);
         let pset_b64 = crate::hal_pset(&[
             "simplicity", "pset", "finalize", "-r", &pset_b64, &covenant_input.to_string(),

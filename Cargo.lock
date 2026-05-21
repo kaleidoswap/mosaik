@@ -1853,6 +1853,7 @@ dependencies = [
  "hex",
  "mosaik-core",
  "mosaik-relay",
+ "serde",
  "serde_json",
  "simplicityhl",
  "tessera",
