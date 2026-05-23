@@ -30,6 +30,20 @@
 
   * { box-sizing: border-box; }
 
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(0, 208, 156, 0.42) rgba(255, 255, 255, 0.04);
+  }
+
+  *::-webkit-scrollbar { width: 7px; height: 7px; }
+  *::-webkit-scrollbar-track { background: rgba(255, 255, 255, 0.04); }
+  *::-webkit-scrollbar-thumb {
+    border-radius: 999px;
+    background: rgba(0, 208, 156, 0.42);
+  }
+
+  *::-webkit-scrollbar-thumb:hover { background: rgba(0, 208, 156, 0.68); }
+
   html { min-height: 100%; background: var(--bg); }
 
   body {
@@ -122,7 +136,7 @@
 
   .topbar {
     display: grid;
-    grid-template-columns: minmax(210px, 1fr) auto minmax(210px, 1fr);
+    grid-template-columns: minmax(210px, 1fr) auto;
     gap: 14px;
     align-items: center;
     min-height: 58px;
@@ -181,26 +195,6 @@
 
   h1 { margin: 1px 0 0; font-size: 20px; line-height: 1.1; }
 
-  .pair-select {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 10px;
-  }
-
-  .pair-select label { margin: 0; }
-
-  .pair-select select {
-    width: auto;
-    min-width: 190px;
-    min-height: 44px;
-    color: var(--green-2);
-    background: #0d1625;
-    border-color: rgba(0, 208, 156, 0.28);
-    font: 900 17px/1 var(--mono);
-    letter-spacing: 0.04em;
-  }
-
   .height {
     justify-self: end;
     display: flex;
@@ -226,24 +220,21 @@
     letter-spacing: 0;
   }
 
-  .ticker-strip {
+  .market-status {
     display: grid;
-    grid-template-columns: 1.2fr repeat(5, minmax(110px, 1fr));
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 1px;
     overflow: hidden;
-    margin-bottom: 8px;
-    border: 1px solid var(--line);
-    border-radius: 8px;
     background: var(--line);
   }
 
-  .ticker-cell {
-    min-height: 52px;
-    background: rgba(16, 24, 39, 0.94);
+  .status-cell {
+    min-height: 44px;
+    background: rgba(16, 24, 39, 0.84);
     padding: 8px 14px;
   }
 
-  .ticker-cell .k {
+  .status-cell .k {
     color: var(--dim);
     font-size: 10px;
     font-weight: 800;
@@ -251,24 +242,68 @@
     text-transform: uppercase;
   }
 
-  .ticker-cell .v { margin-top: 5px; color: var(--ink); font: 800 16px/1.1 var(--mono); }
+  .status-cell .v {
+    margin-top: 5px;
+    color: var(--muted);
+    font: 800 12px/1.1 var(--mono);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
 
-  .ticker-cell.pair .v { color: var(--green-2); font-size: 22px; }
-
-  .ticker-cell .up { color: var(--green); }
-  .ticker-cell .down { color: var(--red); }
-
-  .ticker-cell.nostr .v { color: var(--purple-2); font-size: 13px; }
-
-  .dex-grid {
+  .app-layout {
     display: grid;
-    grid-template-columns: minmax(236px, 0.74fr) minmax(420px, 1.7fr) minmax(320px, 0.9fr);
+    grid-template-columns: minmax(0, 1fr) minmax(292px, 348px);
+    align-items: stretch;
+    gap: 8px;
+    height: calc(100vh - 88px);
+    min-height: 790px;
+  }
+
+  .market-workspace {
+    display: grid;
+    grid-template-rows: minmax(0, 1fr);
+    align-content: start;
+    gap: 8px;
+    border: 1px solid rgba(0, 208, 156, 0.16);
+    border-radius: 8px;
+    background:
+      linear-gradient(135deg, rgba(0, 208, 156, 0.07), transparent 34%),
+      linear-gradient(225deg, rgba(111, 50, 255, 0.07), transparent 32%),
+      rgba(8, 14, 24, 0.9);
+    box-shadow: var(--shadow);
+    min-height: 0;
+    overflow: hidden;
+    padding: 8px;
+  }
+
+  .workspace-grid {
+    display: grid;
+    grid-template-columns: minmax(292px, 0.58fr) minmax(480px, 1.42fr);
+    grid-template-rows: auto minmax(136px, 0.34fr) minmax(210px, 0.66fr) minmax(122px, 0.42fr);
     grid-auto-rows: minmax(min-content, auto);
     grid-template-areas:
-      "book chart ticket"
-      "book depth trades"
-      "wallet offers trades";
+      "ticket book"
+      "depth book"
+      "chart book"
+      "offers offers";
     gap: 8px;
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  .side-modules {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto auto minmax(0, 1fr);
+    gap: 8px;
+    height: 100%;
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  .side-modules > .panel {
+    grid-area: auto;
   }
 
   .panel {
@@ -279,6 +314,18 @@
     background: rgba(16, 24, 39, 0.94);
     box-shadow: 0 12px 40px rgba(0, 0, 0, 0.22);
     overflow: hidden;
+  }
+
+  .market-workspace .panel {
+    background: rgba(16, 24, 39, 0.78);
+    box-shadow: none;
+  }
+
+  .panel.market-status {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 1px;
+    background: var(--line);
   }
 
   /* panel bodies grow with their content and stretch to fill the row —
@@ -310,7 +357,8 @@
 
   .book-head {
     display: grid;
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: minmax(94px, 1fr) minmax(58px, 0.6fr) minmax(104px, 1fr) minmax(86px, 0.9fr);
+    gap: 8px;
     padding: 0 12px 6px;
     color: var(--dim);
     font: 800 10px/1 var(--sans);
@@ -323,7 +371,8 @@
   .book-row {
     position: relative;
     display: grid;
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: minmax(94px, 1fr) minmax(58px, 0.6fr) minmax(104px, 1fr) minmax(86px, 0.9fr);
+    gap: 8px;
     min-height: 30px;
     align-items: center;
     padding: 0 12px;
@@ -350,8 +399,14 @@
 
   .book-row span:last-child { color: rgba(246, 248, 251, 0.78); text-align: right; }
 
+  .book-row .pair { color: var(--ink); }
+  .book-row .side { font-weight: 900; text-transform: uppercase; }
+  .book-row .quote { color: rgba(246, 248, 251, 0.78); text-align: right; }
+
   .ask .price { color: var(--red); }
   .bid .price { color: var(--green); }
+  .ask .side { color: var(--red); }
+  .bid .side { color: var(--green); }
 
   .spread {
     display: grid;
@@ -571,10 +626,18 @@
     font-size: 12px;
   }
 
-  .maker-row .n { font-weight: 800; }
-  .maker-row .s { color: var(--muted); font-family: var(--mono); }
+  .maker-row .n { flex: 0 0 auto; font-weight: 800; white-space: nowrap; }
+  .maker-row .s { color: var(--muted); font-family: var(--mono); text-align: right; }
 
   .offers-panel { grid-area: offers; }
+
+  .offers-panel {
+    min-height: 0;
+  }
+
+  .offers-panel #offers {
+    overflow: auto;
+  }
 
   .offers-list { display: grid; gap: 7px; padding: 10px; }
 
@@ -776,9 +839,18 @@
 
   .trade-list { display: grid; padding: 8px 0; }
 
+  .side-modules .trades {
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  .side-modules .trade-list {
+    overflow: auto;
+  }
+
   .market-row {
     display: grid;
-    grid-template-columns: 0.9fr 0.9fr 1fr;
+    grid-template-columns: 0.9fr 1fr 1.1fr;
     gap: 8px;
     min-height: 34px;
     align-items: center;
@@ -798,6 +870,75 @@
   .market-row .up { color: var(--green); }
   .market-row .down { color: var(--red); }
   .market-row span:last-child { color: var(--dim); text-align: right; }
+  .market-row .tag {
+    display: inline-grid;
+    place-items: center;
+    min-width: 44px;
+    min-height: 18px;
+    border: 1px solid rgba(157, 120, 255, 0.26);
+    border-radius: 6px;
+    color: var(--purple-2);
+    font: 800 9px/1 var(--sans);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  .history-row {
+    grid-template-columns: 0.85fr 1.05fr 1.25fr;
+    min-height: 48px;
+    align-items: start;
+    padding-top: 8px;
+    padding-bottom: 8px;
+  }
+
+  .history-pair,
+  .history-amounts,
+  .history-tx {
+    min-width: 0;
+  }
+
+  .history-pair b,
+  .history-amounts b {
+    display: block;
+    color: var(--ink);
+    font: 800 12px/1.2 var(--mono);
+    overflow-wrap: anywhere;
+  }
+
+  .history-pair small,
+  .history-amounts small {
+    display: block;
+    margin-top: 5px;
+    color: var(--dim);
+    font: 700 10px/1.2 var(--sans);
+  }
+
+  .history-tx {
+    display: flex;
+    justify-content: flex-end;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+  }
+
+  .tx-link {
+    color: var(--green-2);
+    font: 800 11px/1.25 var(--mono);
+    overflow-wrap: anywhere;
+    text-decoration: none;
+  }
+
+  .tx-link:hover { text-decoration: underline; }
+
+  .copy-tx {
+    min-height: 24px;
+    border: 1px solid var(--line);
+    color: var(--ink);
+    background: rgba(255, 255, 255, 0.04);
+    box-shadow: none;
+    padding: 0 8px;
+    font-size: 10px;
+  }
 
   .toast {
     position: fixed;
@@ -817,44 +958,114 @@
     transition: opacity 0.2s ease;
   }
 
-  .toast.show { opacity: 1; }
+  .toast.show { opacity: 1; pointer-events: auto; }
   .toast.ok { border-color: rgba(0, 208, 156, 0.45); }
   .toast.err { border-color: rgba(242, 99, 123, 0.55); }
   .toast code { color: var(--green); font-family: var(--mono); }
 
-  @media (max-width: 1180px) {
+  .version-footer {
+    position: fixed;
+    right: 14px;
+    bottom: 10px;
+    z-index: 30;
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    background: rgba(8, 14, 24, 0.88);
+    padding: 7px 10px;
+    color: var(--dim);
+    font: 700 11px/1 var(--mono);
+    backdrop-filter: blur(12px);
+  }
+
+  .version-footer code {
+    color: var(--muted);
+    font-family: var(--mono);
+  }
+
+  @media (max-width: 1320px) {
     /* below the desktop width the page scrolls normally again */
     html, body { height: auto; overflow: auto; }
     .app-shell { height: auto; display: block; }
     .topbar { grid-template-columns: 1fr; margin-bottom: 8px; }
-    .pair-select { justify-content: flex-start; }
     .height { justify-self: stretch; justify-content: space-between; text-align: left; }
-    .ticker-strip { grid-template-columns: repeat(3, minmax(170px, 1fr)); margin-bottom: 8px; }
-    .dex-grid {
+    .app-layout { grid-template-columns: 1fr; }
+    .app-layout { height: auto; min-height: 0; }
+    .market-workspace, .workspace-grid, .side-modules { height: auto; overflow: visible; }
+    .workspace-grid {
       grid-template-columns: minmax(0, 1fr) minmax(320px, 0.72fr);
       grid-template-rows: none;
       grid-template-areas:
-        "chart ticket"
-        "depth book"
-        "offers trades"
-        "wallet wallet";
+        "ticket book"
+        "chart depth"
+        "offers offers";
     }
+    .side-modules { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .side-modules { grid-template-rows: none; }
+    .market-status { grid-column: 1 / -1; grid-template-columns: repeat(4, minmax(0, 1fr)); }
     .book-table, .chart-stage, .ticket-body, .depth-stage,
     .wallet-side, #offers, .trade-list { flex: none; overflow: visible; }
+    .offers-panel #offers { overflow: visible; }
+    .side-modules .trade-list { overflow: visible; }
     .chart-svg { flex: none; height: 240px; }
   }
 
-  @media (max-width: 820px) {
+  @media (max-width: 940px) {
     .app-shell { padding: 10px; }
-    .ticker-strip, .dex-grid { grid-template-columns: 1fr; }
-    .dex-grid {
+    .workspace-grid, .side-modules { grid-template-columns: 1fr; }
+    .market-status { grid-template-columns: 1fr; }
+    .workspace-grid {
       grid-template-areas:
-        "chart" "ticket" "book" "depth" "wallet" "offers" "trades";
+        "ticket" "book" "offers" "depth" "chart";
     }
-    .ticker-strip { overflow: visible; }
+    .market-status { overflow: visible; }
     .chart-svg { height: 230px; }
     .row, .offer-main { grid-template-columns: 1fr; }
     .offer-actions { justify-content: flex-start; }
+  }
+
+  @media (max-width: 520px) {
+    .app-shell { padding: 8px; }
+    .topbar, .market-workspace, .panel { border-radius: 7px; }
+    .topbar { padding: 10px 12px; }
+    .brand { align-items: flex-start; }
+    .mark { width: 32px; height: 32px; grid-template-columns: repeat(3, 8px); grid-template-rows: repeat(3, 8px); }
+    h1 { font-size: 19px; }
+    .panel-head { align-items: flex-start; }
+    .market-row,
+    .history-row {
+      grid-template-columns: 1fr;
+      gap: 5px;
+      min-height: auto;
+      padding-top: 10px;
+      padding-bottom: 10px;
+    }
+    .market-row.header { display: none; }
+    .book-head { display: none; }
+    .book-row {
+      grid-template-columns: 1fr auto;
+      grid-template-areas:
+        "pair side"
+        "price quote";
+      gap: 7px 12px;
+      min-height: 54px;
+      padding: 8px 12px;
+    }
+    .book-row .pair { grid-area: pair; }
+    .book-row .side { grid-area: side; text-align: right; }
+    .book-row .price { grid-area: price; }
+    .book-row .quote { grid-area: quote; }
+    .history-tx { justify-content: flex-start; }
+    .wallet-top { flex-direction: column; align-items: stretch; }
+    .wallet-switch { width: 100%; }
+    .bals { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .version-footer {
+      right: 8px;
+      bottom: 8px;
+      max-width: calc(100vw - 16px);
+    }
   }
 </style>
 </head>
@@ -869,153 +1080,147 @@
       <span></span><span></span><span></span>
     </div>
     <div class="brand-copy">
-      <div class="eyebrow">Mosaik</div>
-      <h1>Covenant DEX</h1>
+      <div class="eyebrow">Mosaik shared-wallet demo</div>
+      <h1>Liquid Testnet DEX</h1>
     </div>
   </div>
-  <div class="pair-select">
-    <label for="pairFilter">Trading pair</label>
-    <select id="pairFilter" aria-label="Trading pair filter"></select>
-  </div>
   <div class="height">
-    <span>Liquid regtest height</span>
+    <span>Liquid testnet height</span>
     <b id="height">--</b>
   </div>
 </header>
 
-<section class="ticker-strip" aria-label="Market summary">
-  <div class="ticker-cell pair">
-    <div class="k">Pair</div>
-    <div class="v" id="tk-pair">--</div>
-  </div>
-  <div class="ticker-cell">
-    <div class="k">Last price</div>
-    <div class="v" id="tk-last">--</div>
-  </div>
-  <div class="ticker-cell">
-    <div class="k">Open offers</div>
-    <div class="v" id="tk-offers">--</div>
-  </div>
-  <div class="ticker-cell">
-    <div class="k">Best bid</div>
-    <div class="v up" id="tk-bid">--</div>
-  </div>
-  <div class="ticker-cell">
-    <div class="k">Best ask</div>
-    <div class="v down" id="tk-ask">--</div>
-  </div>
-  <div class="ticker-cell nostr">
-    <div class="k">Nostr orderbook</div>
-    <div class="v" id="tk-nostr">kind 30050</div>
-  </div>
-</section>
-
-<main class="dex-grid">
-  <aside class="panel book" aria-label="Order book">
-    <div class="panel-head">
-      <h2 class="panel-title">Order Book</h2>
-      <span class="panel-meta" id="book-meta">live covenant offers</span>
-    </div>
-    <div class="book-table" id="book"></div>
-  </aside>
-
-  <section class="panel chart" aria-label="Covenant settlements">
-    <div class="panel-head">
-      <h2 class="panel-title">Covenant Settlements</h2>
-      <span class="panel-meta" id="chart-meta">this pair, on-chain</span>
-    </div>
-    <div class="chart-stage" id="chart"></div>
-  </section>
-
-  <section class="panel ticket" aria-label="Create covenant offer">
-    <div class="tabs">
-      <button class="active" type="button">Limit offer</button>
-      <button type="button" disabled>Market</button>
-    </div>
-    <div class="ticket-body">
-      <div class="side-toggle" aria-label="Offer side">
-        <button class="sell active" id="sideSell" type="button">Sell base</button>
-        <button class="buy" id="sideBuy" type="button">Buy base</button>
-      </div>
-      <div class="row">
-        <div>
-          <label for="lockAsset">Lock asset</label>
-          <select id="lockAsset"></select>
+<main class="app-layout">
+  <section class="market-workspace" aria-label="Trading workspace">
+    <div class="workspace-grid">
+      <aside class="panel book" aria-label="Order book">
+        <div class="panel-head">
+          <h2 class="panel-title">Order Book</h2>
+          <span class="panel-meta" id="book-meta">live covenant offers</span>
         </div>
-        <div>
-          <label for="wantAsset">Want asset</label>
-          <select id="wantAsset"></select>
+        <div class="book-table" id="book"></div>
+      </aside>
+
+      <section class="panel chart" aria-label="Covenant settlements">
+        <div class="panel-head">
+          <h2 class="panel-title">Covenant Settlements</h2>
+          <span class="panel-meta" id="chart-meta">all pairs, on-chain</span>
         </div>
-      </div>
-      <div class="row">
-        <div>
-          <label for="amountA">Lock amount</label>
-          <div class="input-shell">
-            <input id="amountA" type="number" value="0.01" min="0" step="any">
-            <span class="unit" id="unitA">base</span>
+        <div class="chart-stage" id="chart"></div>
+      </section>
+
+      <section class="panel ticket" aria-label="Create covenant offer">
+        <div class="panel-head">
+          <h2 class="panel-title">Create Offer</h2>
+          <span class="panel-meta">choose assets</span>
+        </div>
+        <div class="ticket-body">
+          <div class="row">
+            <div>
+              <label for="lockAsset">Lock asset</label>
+              <select id="lockAsset"></select>
+            </div>
+            <div>
+              <label for="wantAsset">Want asset</label>
+              <select id="wantAsset"></select>
+            </div>
           </div>
-        </div>
-        <div>
-          <label for="wantAmount">Want amount</label>
-          <div class="input-shell">
-            <input id="wantAmount" type="number" value="50" min="0" step="any">
-            <span class="unit" id="unitB">quote</span>
+          <div class="row">
+            <div>
+              <label for="amountA">Lock amount</label>
+              <div class="input-shell">
+                <input id="amountA" type="number" value="0.01" min="0" step="any">
+                <span class="unit" id="unitA">base</span>
+              </div>
+            </div>
+            <div>
+              <label for="wantAmount">Want amount</label>
+              <div class="input-shell">
+                <input id="wantAmount" type="number" value="50" min="0" step="any">
+                <span class="unit" id="unitB">quote</span>
+              </div>
+            </div>
           </div>
+          <div class="form-block">
+            <label for="timeout">Refund height</label>
+            <input id="timeout" type="number" value="500" min="1">
+          </div>
+          <button class="maker make-btn" id="makeOffer">Fund covenant and publish offer</button>
+          <div class="note">This deployment uses shared Maker and Taker wallets on
+            Liquid testnet. The locked asset moves into a real covenant UTXO.
+            Settlement succeeds only when the maker is paid.</div>
         </div>
+      </section>
+
+      <section class="panel depth" aria-label="Aggregate liquidity">
+        <div class="panel-head">
+          <h2 class="panel-title">Liquidity</h2>
+          <span class="panel-meta" id="depth-meta">locked in covenants</span>
+        </div>
+        <div class="depth-stage" id="depth"></div>
+      </section>
+
+      <section class="panel offers-panel" aria-label="Open offers">
+        <div class="panel-head">
+          <h2 class="panel-title">Open Orders</h2>
+          <span class="panel-meta" id="offers-meta">covenant offer book</span>
+        </div>
+        <div id="offers"></div>
+      </section>
+    </div>
+  </section>
+
+  <aside class="side-modules" aria-label="Wallet and deployment modules">
+    <section class="panel market-status" aria-label="Deployment status">
+      <div class="status-cell">
+        <div class="k">Mode</div>
+        <div class="v" id="st-mode">shared testnet wallets</div>
       </div>
-      <div class="form-block">
-        <label for="timeout">Refund height</label>
-        <input id="timeout" type="number" value="500" min="1">
+      <div class="status-cell">
+        <div class="k">Assets</div>
+        <div class="v" id="st-assets">loading</div>
       </div>
-      <button class="maker make-btn" id="makeOffer">Fund covenant and publish offer</button>
-      <div class="note">You post as a maker from your own wallet. The locked
-        asset moves into a covenant UTXO and the offer is published to the
-        Nostr orderbook (kind 30050). Settlement succeeds only when the maker
-        is paid.</div>
-    </div>
-  </section>
-
-  <section class="panel depth" aria-label="Liquidity for this pair">
-    <div class="panel-head">
-      <h2 class="panel-title">Liquidity</h2>
-      <span class="panel-meta" id="depth-meta">locked in covenants</span>
-    </div>
-    <div class="depth-stage" id="depth"></div>
-  </section>
-
-  <section class="panel wallets" aria-label="Active wallet">
-    <div class="panel-head">
-      <h2 class="panel-title">Active Wallet</h2>
-      <span class="panel-meta" id="wallet-meta">switch to test cross-user trades</span>
-    </div>
-    <div class="wallet-side">
-      <div class="wallet-top">
-        <select id="walletSwitch" class="wallet-switch"
-          aria-label="Switch the active wallet"></select>
-        <button id="fundUser">Fund wallet</button>
+      <div class="status-cell">
+        <div class="k">Wallets</div>
+        <div class="v" id="st-wallets">Maker / Taker</div>
       </div>
-      <div class="bals" id="u-bals"></div>
-      <label>Address</label>
-      <div class="addr" id="u-addr">--</div>
-    </div>
-  </section>
+      <div class="status-cell">
+        <div class="k">Volume</div>
+        <div class="v" id="st-volume">loading</div>
+      </div>
+    </section>
 
-  <section class="panel offers-panel" aria-label="Open offers">
-    <div class="panel-head">
-      <h2 class="panel-title">Open Orders</h2>
-      <span class="panel-meta" id="offers-meta">covenant offer book</span>
-    </div>
-    <div id="offers"></div>
-  </section>
+    <section class="panel wallets" aria-label="Active wallet">
+      <div class="panel-head">
+        <h2 class="panel-title">Active Wallet</h2>
+        <span class="panel-meta" id="wallet-meta">shared test wallets</span>
+      </div>
+      <div class="wallet-side">
+        <div class="wallet-top">
+          <select id="walletSwitch" class="wallet-switch"
+            aria-label="Switch the active wallet"></select>
+          <button id="fundUser">Top up wallet</button>
+        </div>
+        <div class="bals" id="u-bals"></div>
+        <label>Address</label>
+        <div class="addr" id="u-addr">--</div>
+      </div>
+    </section>
 
-  <aside class="panel trades" aria-label="Market trades">
-    <div class="panel-head">
-      <h2 class="panel-title">Market Trades</h2>
-      <span class="panel-meta">live tape</span>
-    </div>
-    <div class="trade-list" id="trades"></div>
+    <aside class="panel trades" aria-label="Settlement history">
+      <div class="panel-head">
+        <h2 class="panel-title">Settlement History</h2>
+        <span class="panel-meta" id="trades-meta">live txids</span>
+      </div>
+      <div class="trade-list" id="trades"></div>
+    </aside>
   </aside>
 </main>
+
+<footer class="version-footer" aria-label="Deployed version">
+  <span>Mosaik</span>
+  <code id="versionTag">version loading</code>
+</footer>
 
 </div>
 <div class="toast" id="toast"></div>
@@ -1023,10 +1228,10 @@
 <script>
 const $ = id => document.getElementById(id);
 let state = { assets: [], offers: [], trades: [], block_count: 0,
-  wallets: {}, makers: [], relay: '' };
-let selectedPair = null;
-let offerSide = 'sell'; // 'sell' = lock base / 'buy' = lock quote
-let activeWallet = 'user'; // which wallet the UI acts as (maker + taker)
+  wallets: {}, makers: [], relay: '', network: '', version: {} };
+let activeWallet = 'maker';
+let timeoutTouched = false;
+const EXPLORER_TX_BASE = 'https://blockstream.info/liquidtestnet/tx/';
 
 const makerName = label => {
   const m = state.makers.find(x => x.label === label);
@@ -1040,9 +1245,17 @@ const units = raw => Number(raw || 0) / 1e8;
 const fmt = n => Number(n || 0).toLocaleString(undefined, { maximumFractionDigits: 8 });
 const fmtAmt = (raw, name) => fmt(units(raw)) + ' ' + name;
 const short = (s, n) => { s = String(s || ''); return s.length > n ? s.slice(0, n) + '…' : s; };
+const isRealTx = t => t && !t.sample && /^[0-9a-fA-F]{64}$/.test(String(t.txid || ''));
+const explorerTx = txid => EXPLORER_TX_BASE + encodeURIComponent(txid);
+const fmtTime = ts => {
+  if (!ts) return 'pending';
+  return new Date(Number(ts) * 1000).toLocaleString(undefined, {
+    month: 'short', day: '2-digit', hour: '2-digit', minute: '2-digit'
+  });
+};
 
 // L-BTC is the base when present; otherwise alphabetical-ish rank.
-const ASSET_RANK = { 'L-BTC': 0, 'USDT': 1, 'EURx': 2 };
+const ASSET_RANK = { 'L-BTC': 0, 'USDT': 1, 'EURx': 2, 'XAUT': 3 };
 const rank = a => (a in ASSET_RANK ? ASSET_RANK[a] : 99);
 // Canonical [base, quote] for a pair of asset names.
 const canon = (x, y) => (rank(x) <= rank(y) ? [x, y] : [y, x]);
@@ -1096,33 +1309,8 @@ function fillSelect(sel, selected) {
   if (selected && opts.includes(selected)) sel.value = selected;
 }
 
-// ---- pair filter -----------------------------------------------------------
-
-// Every pair that has an offer or a settlement.
-function allPairs() {
-  const set = new Set();
-  for (const o of state.offers) set.add(pairKey(o.lock_name, o.want_name));
-  for (const t of state.trades) set.add(pairKey(t.lock_name, t.want_name));
-  return [...set].sort();
-}
-
-function syncPairFilter() {
-  const pairs = allPairs();
-  const sel = $('pairFilter');
-  if (!pairs.length) {
-    sel.innerHTML = '<option>— no pairs yet —</option>';
-    selectedPair = null;
-    return;
-  }
-  if (!selectedPair || !pairs.includes(selectedPair)) selectedPair = pairs[0];
-  sel.innerHTML = pairs.map(p => `<option value="${p}">${p}</option>`).join('');
-  sel.value = selectedPair;
-}
-
-const pairOffers = () =>
-  state.offers.filter(o => pairKey(o.lock_name, o.want_name) === selectedPair);
-const pairTrades = () =>
-  state.trades.filter(t => pairKey(t.lock_name, t.want_name) === selectedPair);
+const visibleOffers = () => state.offers || [];
+const visibleTrades = () => state.trades || [];
 
 // ---- wallet ----------------------------------------------------------------
 
@@ -1156,42 +1344,31 @@ function renderWallet() {
 function renderBook() {
   const box = $('book');
   if (!box) return;
-  const rows = pairOffers().map(o => ({ o, p: project(o) }));
-  $('book-meta').textContent = selectedPair ? selectedPair + ' covenants' : 'no pair';
+  const rows = visibleOffers().map(o => ({ o, p: project(o) }))
+    .sort((a, b) =>
+      a.p.pair.localeCompare(b.p.pair) ||
+      a.p.side.localeCompare(b.p.side) ||
+      (b.p.price - a.p.price));
+  $('book-meta').textContent = `${rows.length} live covenant${rows.length === 1 ? '' : 's'} · all pairs`;
   if (!rows.length) {
-    box.innerHTML = '<div class="empty">No open offers for this pair.</div>';
+    box.innerHTML = '<div class="empty">No open offers yet.</div>';
     return;
   }
-  const asks = rows.filter(r => r.p.side === 'ask').sort((a, b) => b.p.price - a.p.price);
-  const bids = rows.filter(r => r.p.side === 'bid').sort((a, b) => b.p.price - a.p.price);
   const maxSize = Math.max(...rows.map(r => r.p.size), 1e-12);
-  const [base, quote] = (selectedPair || '/').split('/');
 
   const line = r => `
     <div class="book-row ${r.p.side}" data-take="${r.o.index}"
       style="--w:${Math.round(r.p.size / maxSize * 100)}%"
       title="Take this offer">
+      <span class="pair">${esc(r.p.pair)}</span>
+      <span class="side">${r.p.side === 'ask' ? 'Sell' : 'Buy'}</span>
       <span class="price">${fmt(r.p.price)}</span>
-      <span>${fmt(r.p.size)} ${esc(base)}</span>
+      <span class="quote">${fmt(r.p.size)} ${esc(r.p.base)}</span>
     </div>`;
 
-  const bestAsk = asks.length ? asks[asks.length - 1].p.price : null;
-  const bestBid = bids.length ? bids[0].p.price : null;
-  let spread = '<small>no two-sided market</small>';
-  if (bestAsk != null && bestBid != null) {
-    const d = bestAsk - bestBid;
-    spread = fmt(d) + '<small>spread · ' + quote + ' per ' + base + '</small>';
-  } else if (bestAsk != null) {
-    spread = fmt(bestAsk) + '<small>best ask · ' + quote + ' per ' + base + '</small>';
-  } else if (bestBid != null) {
-    spread = fmt(bestBid) + '<small>best bid · ' + quote + ' per ' + base + '</small>';
-  }
-
   box.innerHTML =
-    `<div class="book-head"><span>Price ${esc(quote)}</span><span>Size ${esc(base)}</span></div>` +
-    asks.map(line).join('') +
-    `<div class="spread">${spread}</div>` +
-    bids.map(line).join('');
+    `<div class="book-head"><span>Pair</span><span>Side</span><span>Price</span><span>Size</span></div>` +
+    rows.map(line).join('');
   box.querySelectorAll('.book-row[data-take]').forEach(r => {
     r.onclick = () => takeOffer(Number(r.dataset.take));
   });
@@ -1202,26 +1379,23 @@ function renderBook() {
 function renderDepth() {
   const box = $('depth');
   if (!box) return;
-  const rows = pairOffers().map(o => ({ o, p: project(o) }));
-  $('depth-meta').textContent = selectedPair || 'no pair';
+  const rows = visibleOffers().map(o => ({ o, p: project(o) }));
+  $('depth-meta').textContent = 'locked liquidity by pair';
   if (!rows.length) {
-    box.innerHTML = '<div class="empty">No liquidity for this pair.</div>';
+    box.innerHTML = '<div class="empty">No locked liquidity yet.</div>';
     return;
   }
-  const [base] = (selectedPair || '/').split('/');
-  const bidSize = rows.filter(r => r.p.side === 'bid').reduce((s, r) => s + r.p.size, 0);
-  const askSize = rows.filter(r => r.p.side === 'ask').reduce((s, r) => s + r.p.size, 0);
-  const total = bidSize + askSize || 1;
-
-  // liquidity by maker
-  const byMaker = {};
+  const byPair = {};
   for (const r of rows) {
-    const m = r.o.maker_name;
-    (byMaker[m] = byMaker[m] || { n: 0, size: 0 });
-    byMaker[m].n++;
-    byMaker[m].size += r.p.size;
+    const p = r.p.pair;
+    byPair[p] = byPair[p] || { bids: 0, asks: 0, n: 0, base: r.p.base };
+    byPair[p].n++;
+    byPair[p][r.p.side === 'bid' ? 'bids' : 'asks'] += r.p.size;
   }
-  const makers = Object.entries(byMaker).sort((a, b) => b[1].size - a[1].size);
+  const pairs = Object.entries(byPair).sort((a, b) => b[1].n - a[1].n || a[0].localeCompare(b[0]));
+  const bidSize = pairs.reduce((s, [, v]) => s + v.bids, 0);
+  const askSize = pairs.reduce((s, [, v]) => s + v.asks, 0);
+  const total = bidSize + askSize || 1;
 
   box.innerHTML = `
     <div class="depth-bar">
@@ -1229,14 +1403,14 @@ function renderDepth() {
       <div class="a" style="width:${askSize / total * 100}%"></div>
     </div>
     <div class="depth-legend">
-      <span class="b">Bids ${fmt(bidSize)} ${esc(base)}</span>
-      <span class="a">${fmt(askSize)} ${esc(base)} Asks</span>
+      <span class="b">Bid-side ${fmt(bidSize)}</span>
+      <span class="a">${fmt(askSize)} Ask-side</span>
     </div>
     <div class="maker-rows">
-      ${makers.map(([m, v]) => `
+      ${pairs.map(([pair, v]) => `
         <div class="maker-row">
-          <span class="n">${esc(m)}</span>
-          <span class="s">${v.n} offer${v.n > 1 ? 's' : ''} · ${fmt(v.size)} ${esc(base)}</span>
+          <span class="n">${esc(pair)}</span>
+          <span class="s">${v.n} offer${v.n > 1 ? 's' : ''} · ${fmt(v.bids)} bid / ${fmt(v.asks)} ask ${esc(v.base)}</span>
         </div>`).join('')}
     </div>`;
 }
@@ -1246,12 +1420,13 @@ function renderDepth() {
 function renderChart() {
   const box = $('chart');
   if (!box) return;
-  const trades = [...pairTrades()].reverse(); // oldest -> newest
-  $('chart-meta').textContent = selectedPair ? selectedPair + ' · on-chain' : 'no pair';
+  const trades = [...visibleTrades()].reverse(); // oldest -> newest
+  const sampleCount = trades.filter(t => t.sample).length;
+  $('chart-meta').textContent = 'all pairs · ' + (sampleCount ? 'sample + live settlements' : 'on-chain settlements');
   if (!trades.length) {
     box.innerHTML = `<div class="empty" style="padding:46px">
-      No covenant settlements for this pair yet.<br>
-      Take an offer to plot a real on-chain trade.</div>`;
+      No settlements yet.<br>
+      Take a live offer to plot an on-chain trade.</div>`;
     return;
   }
   const prices = trades.map(t => project(t).price);
@@ -1287,48 +1462,56 @@ function renderTrades() {
   const box = $('trades');
   if (!box) return;
   const head = `<div class="market-row header">
-    <span>Price</span><span>Size</span><span>Maker</span></div>`;
-  const trades = pairTrades();
+    <span>Pair</span><span>Settlement</span><span>Explorer</span></div>`;
+  const trades = state.trades || [];
+  const sampleCount = trades.filter(t => t.sample).length;
+  const liveCount = trades.length - sampleCount;
+  $('trades-meta').textContent = `${liveCount} live · ${sampleCount} sample`;
   if (!trades.length) {
     box.innerHTML = head +
-      `<div class="empty" style="padding:20px">No settlements for this pair yet.</div>`;
+      `<div class="empty" style="padding:20px">No settlements yet.</div>`;
     return;
   }
   box.innerHTML = head + trades.slice(0, 16).map(t => {
     const p = project(t);
-    return `<div class="market-row">
-       <span class="${p.side === 'ask' ? 'down' : 'up'}">${fmt(p.price)}</span>
-       <span>${fmt(p.size)} ${esc(p.base)}</span>
-       <span>${esc(t.maker_name || '—')}</span>
+    const real = isRealTx(t);
+    const tx = real
+      ? `<a class="tx-link" href="${explorerTx(t.txid)}" target="_blank" rel="noreferrer"
+            title="${esc(t.txid)}">${short(t.txid, 18)}</a>
+         <button class="copy-tx" type="button" data-copy-tx="${esc(t.txid)}">Copy</button>`
+      : `<span class="tag">sample</span>`;
+    return `<div class="market-row history-row ${real ? 'live' : 'sample'}">
+       <span class="history-pair">
+         <b>${esc(pairKey(t.lock_name, t.want_name))}</b>
+         <small>${fmtTime(t.timestamp)} · ${esc(t.maker_name || t.maker || 'maker')}</small>
+       </span>
+       <span class="history-amounts">
+         <b>${fmtAmt(t.amount_a, esc(t.lock_name))}</b>
+         <small>for ${fmtAmt(t.amount_b, esc(t.want_name))}</small>
+       </span>
+       <span class="history-tx">${tx}</span>
      </div>`;
   }).join('');
+  box.querySelectorAll('button[data-copy-tx]').forEach(b => {
+    b.onclick = () => copyTx(b.dataset.copyTx, b);
+  });
 }
 
-// ---- ticker ----------------------------------------------------------------
-
-function renderTicker() {
-  const offers = pairOffers().map(o => project(o));
-  const asks = offers.filter(o => o.side === 'ask').map(o => o.price);
-  const bids = offers.filter(o => o.side === 'bid').map(o => o.price);
-  const trades = pairTrades();
-  $('tk-pair').textContent = selectedPair || '—';
-  $('tk-offers').textContent = offers.length;
-  $('tk-bid').textContent = bids.length ? fmt(Math.max(...bids)) : '—';
-  $('tk-ask').textContent = asks.length ? fmt(Math.min(...asks)) : '—';
-  $('tk-last').textContent = trades.length ? fmt(project(trades[0]).price) : '—';
-  $('tk-nostr').textContent = 'kind 30050 · ' + state.offers.length + ' events';
+function renderStatus() {
+  $('st-mode').textContent = (state.network || 'Liquid testnet') + ' · shared wallets';
+  $('st-assets').textContent = assetOptions().join(', ');
+  $('st-wallets').textContent = state.makers.map(m => m.name).join(' / ') || 'Maker / Taker';
+  $('st-volume').textContent = state.trades.length + ' trades · ' + state.offers.length + ' offers';
 }
 
 // ---- open orders -----------------------------------------------------------
 
 function renderOffers() {
   const box = $('offers');
-  const offers = pairOffers();
-  $('offers-meta').textContent = selectedPair
-    ? offers.length + ' on ' + selectedPair : 'covenant offer book';
+  const offers = visibleOffers();
+  $('offers-meta').textContent = `${offers.length} covenant order${offers.length === 1 ? '' : 's'} · all pairs`;
   if (!offers.length) {
-    box.innerHTML = '<div class="empty">No open orders for this pair. '
-      + 'Post the first covenant offer with the ticket.</div>';
+    box.innerHTML = '<div class="empty">No open orders. Publish a covenant offer with the ticket.</div>';
     return;
   }
   box.innerHTML = `<div class="offers-list">${offers.map(o => {
@@ -1372,36 +1555,41 @@ function renderOffers() {
 
 // ---- ticket ----------------------------------------------------------------
 
-// Reflect the selected pair + side into the make-offer form.
+// Keep the make-offer form populated while preserving the tester's asset choices.
 function syncTicket() {
-  if (!selectedPair) return;
-  const [base, quote] = selectedPair.split('/');
-  const lock = offerSide === 'sell' ? base : quote;
-  const want = offerSide === 'sell' ? quote : base;
+  const opts = assetOptions();
+  const prevLock = $('lockAsset').value;
+  const prevWant = $('wantAsset').value;
+  const fallbackLock = opts.includes('L-BTC') ? 'L-BTC' : opts[0];
+  const fallbackWant = opts.includes('USDT') ? 'USDT' : opts.find(a => a !== fallbackLock) || fallbackLock;
+  const lock = opts.includes(prevLock) ? prevLock : fallbackLock;
+  let want = opts.includes(prevWant) ? prevWant : fallbackWant;
+  if (want === lock) want = opts.find(a => a !== lock) || want;
   fillSelect($('lockAsset'), lock);
   fillSelect($('wantAsset'), want);
-  $('unitA').textContent = lock;
-  $('unitB').textContent = want;
+  $('unitA').textContent = $('lockAsset').value || 'asset';
+  $('unitB').textContent = $('wantAsset').value || 'asset';
 }
 
-function setSide(side) {
-  offerSide = side;
-  $('sideSell').classList.toggle('active', side === 'sell');
-  $('sideBuy').classList.toggle('active', side === 'buy');
-  syncTicket();
+function syncTimeoutDefault(force) {
+  const input = $('timeout');
+  if (!input || !state.block_count) return;
+  if (force || !timeoutTouched || Number(input.value) < state.block_count) {
+    input.value = state.block_count + 250;
+  }
 }
 
 // ---- render all ------------------------------------------------------------
 
 function renderAll() {
-  syncPairFilter();
   syncWalletSwitch();
+  syncTicket();
   renderWallet();
   renderBook();
   renderDepth();
   renderChart();
   renderTrades();
-  renderTicker();
+  renderStatus();
   renderOffers();
 }
 
@@ -1416,9 +1604,13 @@ async function refresh() {
     state.wallets = s.wallets || {};
     state.makers = s.makers || [];
     state.relay = s.relay || '';
+    state.version = s.version || {};
+    state.network = s.network || '';
     $('height').textContent = s.block_count;
+    $('versionTag').textContent =
+      'v' + (state.version.app || 'dev') + ' · ' + (state.version.commit || 'local');
+    syncTimeoutDefault(firstLoad);
     renderAll();
-    if (firstLoad) syncTicket();
   } catch (e) {
     toast('Cannot reach the node: ' + e.message, 'err');
   }
@@ -1432,10 +1624,10 @@ async function action(btn, path, body, okMsg) {
   await refresh();
 }
 
-$('pairFilter').onchange = e => { selectedPair = e.target.value; syncTicket(); renderAll(); };
-$('sideSell').onclick = () => setSide('sell');
-$('sideBuy').onclick = () => setSide('buy');
 $('walletSwitch').onchange = e => { activeWallet = e.target.value; renderAll(); };
+$('lockAsset').onchange = syncTicket;
+$('wantAsset').onchange = syncTicket;
+$('timeout').oninput = () => { timeoutTouched = true; };
 
 $('fundUser').onclick = e =>
   action(e.target, '/api/fund', { wallet: activeWallet }, r => r.funded);
@@ -1443,7 +1635,7 @@ $('fundUser').onclick = e =>
 $('makeOffer').onclick = e => {
   const lock = $('lockAsset').value === 'L-BTC' ? 'BTC' : $('lockAsset').value;
   const want = $('wantAsset').value === 'L-BTC' ? 'BTC' : $('wantAsset').value;
-  if (lock === want) { toast('Lock and want assets must differ', 'err'); return; }
+  if (lock === want && lock !== 'BTC') { toast('Lock and want assets must differ', 'err'); return; }
   action(e.target, '/api/make-offer', {
     maker: activeWallet,
     lock, want,
@@ -1460,7 +1652,8 @@ async function takeOffer(index, btn) {
   try {
     const r = await api('/api/take-offer', { index, taker: activeWallet });
     toast('Settled - ' + esc(makerName(activeWallet))
-      + ' filled the offer. tx <code>' + r.txid + '</code>', 'ok');
+      + ' filled the offer. <a class="tx-link" href="' + explorerTx(r.txid)
+      + '" target="_blank" rel="noreferrer">open tx</a> <code>' + r.txid + '</code>', 'ok');
   } catch (e) { toast(e.message, 'err'); }
   if (btn) { btn.disabled = false; btn.textContent = was; }
   refresh();
@@ -1471,7 +1664,8 @@ async function reclaimOffer(index, btn) {
   btn.disabled = true; btn.textContent = 'Reclaiming...';
   try {
     const r = await api('/api/reclaim', { index, wallet: activeWallet });
-    toast('Reclaimed via the keyless REFUND path. tx <code>' + r.txid + '</code>', 'ok');
+    toast('Reclaimed via the keyless REFUND path. <a class="tx-link" href="' + explorerTx(r.txid)
+      + '" target="_blank" rel="noreferrer">open tx</a> <code>' + r.txid + '</code>', 'ok');
   } catch (e) { toast(e.message, 'err'); }
   btn.disabled = false;
   btn.textContent = was;
@@ -1496,6 +1690,17 @@ async function cheatOffer(index, cheat, btn) {
   btn.disabled = false;
   btn.textContent = was;
   refresh();
+}
+
+async function copyTx(txid, btn) {
+  try {
+    await navigator.clipboard.writeText(txid);
+    const was = btn.textContent;
+    btn.textContent = 'Copied';
+    setTimeout(() => { btn.textContent = was; }, 1200);
+  } catch (_) {
+    toast('Could not copy txid. Select it from the explorer link tooltip instead.', 'err');
+  }
 }
 
 async function viewContract(index) {

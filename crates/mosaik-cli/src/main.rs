@@ -117,6 +117,9 @@ enum Command {
     ServeWallet {
         #[arg(long, default_value_t = 8080)]
         port: u16,
+        /// `regtest` (local node, default) or `testnet` (Liquid testnet node on port 7041).
+        #[arg(long, default_value = "regtest")]
+        network: String,
     },
 }
 
@@ -204,7 +207,11 @@ fn main() -> Result<()> {
         Command::ServeRelay { port } => {
             block_on(mosaik_relay::run_local_relay(port))
         }
-        Command::ServeWallet { port } => server::run(port),
+        Command::ServeWallet { port, network } => {
+            use server::Network;
+            let net = if network == "testnet" { Network::Testnet } else { Network::Regtest };
+            server::run(port, net)
+        }
     }
 }
 

@@ -7,6 +7,7 @@
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 
+pub mod lwk;
 pub mod rpc;
 
 pub use tessera::Tessera;
@@ -22,6 +23,8 @@ pub struct Offer {
     pub amount_a: u64,
     /// The Tessera — what the maker wants in return, and the refund conditions.
     pub tessera: Tessera,
+    /// The exact covenant address that received the funded output.
+    pub covenant_address: String,
     /// The (unconfidential) address the counter-payment must go to. The
     /// covenant commits to its scriptPubKey hash via `tessera.maker_spk_hash`.
     pub maker_address: String,
@@ -42,12 +45,28 @@ pub trait MakeOffer {
     ) -> Result<Offer>;
 }
 
+/// Build a [`Tessera`] from the maker scriptPubKey and terms.
+///
+/// `maker_spk` is the raw scriptPubKey bytes; `asset_b_display` is the asset id
+/// in RPC display order (reversed internally).
+pub fn build_tessera(
+    maker_spk: &[u8],
+    asset_b_display: &str,
+    amount_b: u64,
+    timeout: u32,
+) -> Result<Tessera> {
+    use sha2::{Digest, Sha256};
+    let maker_spk_hash: [u8; 32] = Sha256::digest(maker_spk).into();
+    let mut asset_b = hex::decode(asset_b_display)?;
+    asset_b.reverse();
+    let asset_b: [u8; 32] = asset_b
+        .try_into()
+        .map_err(|_| anyhow::anyhow!("asset_b id is not 32 bytes"))?;
+    Ok(Tessera { asset_b, amount_b, maker_spk_hash, timeout })
+}
+
 /// Build a Tessera whose terms match an L-BTC payment of `amount_b` to
 /// `maker_address`, so a Simplicity node accepts the settlement.
-///
-/// `maker_spk_hash` is the SHA-256 of the maker scriptPubKey; `asset_b` is the
-/// L-BTC asset id in tx / jet (internal) byte order, the reverse of the RPC
-/// display order.
 pub fn lbtc_tessera(
     rpc: &rpc::ElementsRpc,
     maker_address: &str,
@@ -55,14 +74,12 @@ pub fn lbtc_tessera(
     timeout: u32,
 ) -> Result<Tessera> {
     let lbtc = rpc.policy_asset()?;
-    tessera_for(rpc, maker_address, &lbtc, amount_b, timeout)
+    let spk = hex::decode(rpc.address_script_pubkey(maker_address)?)?;
+    build_tessera(&spk, &lbtc, amount_b, timeout)
 }
 
 /// Build a [`Tessera`] whose SETTLE path requires `amount_b` of `asset_b_display`
 /// (an asset id in RPC display order — e.g. an issued USDT) paid to the maker.
-///
-/// `maker_spk_hash` is the SHA-256 of the maker scriptPubKey; `asset_b` is stored
-/// in tx / jet (internal) byte order, the reverse of the RPC display order.
 pub fn tessera_for(
     rpc: &rpc::ElementsRpc,
     maker_address: &str,
@@ -70,18 +87,8 @@ pub fn tessera_for(
     amount_b: u64,
     timeout: u32,
 ) -> Result<Tessera> {
-    use sha2::{Digest, Sha256};
-
     let spk = hex::decode(rpc.address_script_pubkey(maker_address)?)?;
-    let maker_spk_hash: [u8; 32] = Sha256::digest(&spk).into();
-
-    let mut asset_b = hex::decode(asset_b_display)?;
-    asset_b.reverse();
-    let asset_b: [u8; 32] = asset_b
-        .try_into()
-        .map_err(|_| anyhow::anyhow!("asset_b id is not 32 bytes"))?;
-
-    Ok(Tessera { asset_b, amount_b, maker_spk_hash, timeout })
+    build_tessera(&spk, asset_b_display, amount_b, timeout)
 }
 
 /// A maker that publishes offers against an Elements node.
@@ -130,9 +137,12 @@ impl MakeOffer for MosaikMaker {
         let lbtc = self.rpc.policy_asset()?;
         let asset_a_id = resolve_asset(&self.rpc, asset_a)?;
 
-        // Compile the covenant and derive its Taproot address.
+        // Compile the covenant and derive its Taproot address. The bech32
+        // prefix (ert1p / tex1p / lq1p) must match the chain the node is on,
+        // otherwise sendtoaddress rejects it as "Invalid Bitcoin address".
         let compiled = tessera.compile()?;
-        let address = compiled.address()?;
+        let params = address_params_for(&self.rpc)?;
+        let address = compiled.address_for(params)?;
         let spk_hex = hex::encode(address.script_pubkey().as_bytes());
 
         // Fund the covenant UTXO with `asset_a` and confirm it. A P2TR address
@@ -143,7 +153,9 @@ impl MakeOffer for MosaikMaker {
         } else {
             self.rpc.send_asset_to(&address.to_string(), amount, &asset_a_id)?
         };
-        self.rpc.generate(1)?;
+        // Mine a block to confirm the funding tx (regtest). On testnet this
+        // fails gracefully — the tx is visible in the mempool immediately.
+        let _ = self.rpc.generate(1);
 
         // Locate the funding output among the transaction's vouts.
         let tx = self.rpc.raw_transaction(&txid)?;
@@ -155,13 +167,26 @@ impl MakeOffer for MosaikMaker {
             asset_a: asset_a_id,
             amount_a,
             tessera: tessera.clone(),
+            covenant_address: address.to_string(),
             maker_address: maker_address.to_string(),
         })
     }
 }
 
+/// Pick the right Liquid address params from the node's reported chain.
+/// Falls back to elementsregtest (`ert…`) if the chain is unknown.
+fn address_params_for(rpc: &rpc::ElementsRpc) -> Result<&'static simplicityhl::elements::AddressParams> {
+    use simplicityhl::elements::AddressParams;
+    let info = rpc.call("getblockchaininfo", serde_json::json!([]))?;
+    Ok(match info.get("chain").and_then(serde_json::Value::as_str) {
+        Some("liquidtestnet") => &AddressParams::LIQUID_TESTNET,
+        Some("liquidv1") => &AddressParams::LIQUID,
+        _ => &AddressParams::ELEMENTS,
+    })
+}
+
 /// Find the index of the output whose scriptPubKey hex matches `spk_hex`.
-fn find_output_index(tx: &serde_json::Value, spk_hex: &str) -> Option<u64> {
+pub fn find_output_index(tx: &serde_json::Value, spk_hex: &str) -> Option<u64> {
     tx.get("vout")?.as_array()?.iter().find_map(|out| {
         let hex = out.get("scriptPubKey")?.get("hex")?.as_str()?;
         (hex == spk_hex).then(|| out.get("n")?.as_u64()).flatten()
@@ -176,7 +201,7 @@ pub trait TakeOffer {
 }
 
 /// Network fee for the settlement transaction (satoshis).
-const SETTLE_FEE_SATS: u64 = 1_000;
+pub const SETTLE_FEE_SATS: u64 = 1_000;
 
 /// A taker that fills offers against an Elements node.
 pub struct MosaikTaker {
@@ -195,7 +220,7 @@ impl MosaikTaker {
 }
 
 /// The BIP-341 NUMS internal key the Tessera covenant uses (no key-path spend).
-const NUMS_INTERNAL_KEY: &str =
+pub const NUMS_INTERNAL_KEY: &str =
     "50929b74c1a04954b78b4b6035e97a5e078a5a0f28ec96d547bfee9ace803ac0";
 
 /// A deliberately-broken settlement, used to demonstrate that the covenant
@@ -392,7 +417,7 @@ impl MosaikTaker {
 }
 
 /// Run `hal-simplicity` with `args`, returning trimmed stdout.
-fn hal_run(args: &[&str]) -> Result<String> {
+pub fn hal_run(args: &[&str]) -> Result<String> {
     let bin = std::env::var("HAL_SIMPLICITY").unwrap_or_else(|_| "hal-simplicity".into());
     let out = std::process::Command::new(&bin)
         .args(args)
@@ -409,7 +434,7 @@ fn hal_run(args: &[&str]) -> Result<String> {
 }
 
 /// Run a `hal-simplicity` PSET command and return the `pset` field of its JSON.
-fn hal_pset(args: &[&str]) -> Result<String> {
+pub fn hal_pset(args: &[&str]) -> Result<String> {
     let output = hal_run(args)?;
     let v: serde_json::Value = serde_json::from_str(&output)
         .map_err(|e| anyhow::anyhow!("hal-simplicity output not JSON: {e}\n{output}"))?;
@@ -524,6 +549,7 @@ mod tests {
                 maker_spk_hash: [0x22; 32],
                 timeout: 200,
             },
+            covenant_address: "ert1pexampleexampleexampleexampleexampleex".into(),
             maker_address: "ert1qexampleexampleexampleexampleexampleex".into(),
         };
         let json = serde_json::to_string(&offer).unwrap();

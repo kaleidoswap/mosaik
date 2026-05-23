@@ -28,3 +28,6 @@ simplicityhl = "0.6.0-rc.0"
 #   elements   = "0.25"   # Elements/Liquid transactions, PSET
 #   lwk_wollet = "0.x"    # Liquid Wallet Kit — wallet, scanning, PSET
 #   simplicity = "0.x"    # rust-simplicity — compile/parse Simplicity programs
+lwk_wollet = "0.17"
+lwk_signer = "0.17"
+lwk_common = "0.17"

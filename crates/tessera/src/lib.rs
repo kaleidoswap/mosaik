@@ -266,19 +266,28 @@ impl CompiledTessera {
         hex::encode(self.cmr)
     }
 
-    /// Derive the covenant's Liquid Taproot address (elementsregtest params).
+    /// Derive the covenant's Liquid Taproot address for the regtest network
+    /// (`ert1p…`). For Liquid testnet (`tex1p…`) use [`Self::address_for`] with
+    /// `AddressParams::LIQUID_TESTNET`.
     ///
     /// The covenant lives in a single Taproot leaf: the leaf script is the
     /// 32-byte CMR, the leaf version is the Simplicity version (`0xbe`). There
     /// is no key-path spend, so the internal key is the BIP-341 NUMS point.
     pub fn address(&self) -> Result<simplicityhl::elements::Address> {
-        use simplicityhl::elements::{Address, AddressParams};
+        use simplicityhl::elements::AddressParams;
+        self.address_for(&AddressParams::ELEMENTS)
+    }
+
+    /// Same as [`Self::address`] but with explicit address params — pass
+    /// `AddressParams::LIQUID_TESTNET` for `tex1p…`, `AddressParams::LIQUID`
+    /// for mainnet `lq1p…`.
+    pub fn address_for(
+        &self,
+        params: &'static simplicityhl::elements::AddressParams,
+    ) -> Result<simplicityhl::elements::Address> {
+        use simplicityhl::elements::Address;
         let (spend_info, _) = taproot_spend_info(&self.cmr)?;
-        Ok(Address::p2tr_tweaked(
-            spend_info.output_key(),
-            None,
-            &AddressParams::ELEMENTS,
-        ))
+        Ok(Address::p2tr_tweaked(spend_info.output_key(), None, params))
     }
 }
 

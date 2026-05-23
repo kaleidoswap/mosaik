@@ -1,554 +1,1171 @@
-//! Mosaik wallet UI — a tiny HTTP server that drives the regtest covenant DEX.
+//! Mosaik trading UI — HTTP server for the covenant DEX.
 //!
-//! The single-page app in `webapp/index.html` behaves like a normal exchange:
-//! you pick **one trading pair** and every panel — order book, depth, the trade
-//! tape, the open orders — re-renders for that pair.
+//! Two networks, picked at startup via `--network`:
 //!
-//! The UI has an **active-wallet switcher**: you act as any of four wallets
-//! (`mosaik-user` plus three market makers). With whichever wallet is active
-//! you can post a new covenant offer (act as a maker) *or* fill an existing
-//! one (act as a taker), so cross-user buys and sells are testable end to
-//! end. The seeded book shows liquidity from several distinct makers —
-//! exactly what a permissionless covenant orderbook looks like.
+//!   * `regtest` (default) — local Elements regtest on port 7040.
+//!   * `testnet`           — local Elements node on port 7041 running
+//!                            `chain=liquidtestnet`.
 //!
-//! Every offer is also published as a Nostr addressable event (kind 30050); the
-//! UI surfaces the real event id, pubkey, and tags so discovery-over-Nostr is
-//! visible alongside the on-chain covenant.
+//! Serves the React trading UI (from `ui/dist/` if built, else the baked-in
+//! HTML fallback) and exposes API surfaces:
 //!
-//! The covenant never inspects the *locked* asset (it only enforces the maker's
-//! counter-payment), so any combination works: L-BTC/asset, asset/L-BTC, and
-//! asset/asset, in either direction.
+//! **Market Data API**
+//!   GET  /api/orderbook      aggregated bid/ask levels
+//!   GET  /api/trades         recent market trades
+//!   GET  /api/chart          OHLCV candles (synthesised for demo)
+//!   GET  /api/depth          cumulative depth chart data
+//!   GET  /api/user/orders    current user's open orders
+//!   POST /api/cancel         cancel (reclaim) an open order
 //!
-//! Wallets on the Elements node:
-//!   * `mosaik`         — the regtest treasury (holds the swept freecoins)
-//!   * `mosaik-user`    — the UI wallet (makes *and* takes)
-//!   * `mosaik-mm-{a,b,c}` — independent market makers that seed the book
+//! **Covenant DEX API**
+//!   GET  /api/state
+//!   POST /api/fund/maker|taker
+//!   POST /api/make-offer | /api/take-offer | /api/reclaim | /api/contract
 
 use std::collections::BTreeMap;
-use std::sync::Mutex;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::sync::{Arc, Mutex, OnceLock};
 
 use anyhow::{anyhow, Result};
+use mosaik_core::lwk::{LwkMaker, LwkNode, LwkTaker, LwkWallet};
 use mosaik_core::rpc::ElementsRpc;
 use mosaik_core::{
-    lbtc_tessera, tessera_for, Cheat, MakeOffer, MosaikMaker, MosaikTaker, Offer, ReclaimOffer,
+    lbtc_tessera, tessera_for, Cheat, MakeOffer, MosaikMaker, MosaikTaker, Offer,
+    ReclaimOffer,
 };
-use mosaik_relay::{Keys, OfferStatus, TesseraOffer};
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use tiny_http::{Header, Method, Request, Response, Server};
 
-/// The single-page wallet UI, baked into the binary.
 const INDEX_HTML: &str = include_str!("../../../webapp/index.html");
-
-const BASE: &str = "http://127.0.0.1:7040";
 const RPC_USER: &str = "user";
 const RPC_PASS: &str = "pass";
 
-/// The two test Liquid assets the demo issues, so asset/asset swaps are real.
 const TEST_ASSETS: [&str; 2] = ["USDT", "EURx"];
-
-/// Nostr relay the demo points at (informational — the event is built locally).
-const RELAY_URL: &str = "ws://127.0.0.1:7777";
-
-/// Wallets known to the demo: `(label, wallet name, display name)`.
-///
-/// Any of them can be the active trader in the UI; the three `mm-*` wallets
-/// also seed the order book so it shows liquidity from several distinct parties.
-const MAKERS: [(&str, &str, &str); 4] = [
-    ("user", "mosaik-user", "Mosaik User"),
-    ("mm-a", "mosaik-mm-a", "Helix MM"),
-    ("mm-b", "mosaik-mm-b", "Aurora Desk"),
-    ("mm-c", "mosaik-mm-c", "Tessera LP"),
+const TESTNET_ASSETS_ENV: &str = "MOSAIK_TESTNET_ASSETS_FILE";
+const TESTNET_HISTORY_ENV: &str = "MOSAIK_TESTNET_HISTORY_FILE";
+const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
+const DEMO_ASSETS: [(&str, &str); 3] = [
+    ("USDT", "Mosaik Test USD"),
+    ("EURx", "Mosaik Test Euro"),
+    ("XAUT", "Mosaik Test Gold"),
 ];
 
-/// An offer registered this session, plus its maker and Nostr metadata.
-#[derive(Clone)]
-struct ListedOffer {
-    offer: Offer,
-    /// Maker label (`user` | `mm-a` | …).
-    maker: &'static str,
-    /// Human-readable maker name.
-    maker_name: &'static str,
-    /// Nostr addressable order id (the `d` tag).
-    order_id: String,
-    /// Real Nostr event id for the published offer (kind 30050).
-    event_id: String,
-    /// Maker's Nostr pubkey.
-    pubkey: String,
-    /// Event timestamp (unix seconds).
-    created_at: u64,
+/// Fixed RFQ pricing (sats of 'to' per sat of 'from', before fee).
+const BTC_USDT: f64 = 48_732.0;
+const BTC_EURX: f64 = 44_500.0;
+const FEE_BPS: f64 = 10.0; // 0.1 %
+
+// ── network ──────────────────────────────────────────────────────────────────
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Network {
+    Regtest,
+    Testnet,
 }
 
-/// In-memory server state: the offers made this session and the test assets
-/// (name -> RPC display-order id).
-struct AppState {
-    offers: Vec<ListedOffer>,
-    assets: BTreeMap<String, String>,
-    /// Settled swaps this session — the real trade tape.
-    trades: Vec<Value>,
-}
+static NETWORK: OnceLock<Network> = OnceLock::new();
 
-fn treasury() -> ElementsRpc {
-    ElementsRpc::wallet(BASE, "mosaik", RPC_USER, RPC_PASS)
-}
-fn wallet_rpc(name: &str) -> ElementsRpc {
-    ElementsRpc::wallet(BASE, name, RPC_USER, RPC_PASS)
-}
-fn node_rpc() -> ElementsRpc {
-    ElementsRpc::node(BASE, RPC_USER, RPC_PASS)
-}
+fn network() -> Network { *NETWORK.get().unwrap_or(&Network::Regtest) }
+fn is_regtest() -> bool { network() == Network::Regtest }
 
-/// Resolve a maker label to its `(label, wallet, display name)` entry.
-fn maker_entry(label: &str) -> Result<(&'static str, &'static str, &'static str)> {
-    MAKERS
-        .iter()
-        .copied()
-        .find(|(l, _, _)| *l == label)
-        .ok_or_else(|| anyhow!("unknown maker '{label}'"))
-}
-
-/// Run the wallet UI server until the process is killed.
-pub fn run(port: u16) -> Result<()> {
-    let node = node_rpc();
-    for (_, wallet, _) in MAKERS {
-        node.ensure_wallet(wallet)?;
+fn node_url() -> &'static str {
+    match network() {
+        Network::Regtest => "http://127.0.0.1:7040",
+        Network::Testnet => "http://127.0.0.1:7041",
     }
+}
 
-    let server = Server::http(("127.0.0.1", port))
-        .map_err(|e| anyhow!("could not bind 127.0.0.1:{port}: {e}"))?;
+fn treasury()  -> ElementsRpc { ElementsRpc::wallet(node_url(), "mosaik",       RPC_USER, RPC_PASS) }
+fn maker_rpc() -> ElementsRpc { ElementsRpc::wallet(node_url(), "mosaik-maker", RPC_USER, RPC_PASS) }
+fn taker_rpc() -> ElementsRpc { ElementsRpc::wallet(node_url(), "mosaik-taker", RPC_USER, RPC_PASS) }
+fn node()      -> ElementsRpc { ElementsRpc::node(node_url(),                   RPC_USER, RPC_PASS) }
+
+// ── server state ─────────────────────────────────────────────────────────────
+
+#[derive(Clone, Deserialize, Serialize)]
+struct SwapRecord {
+    from_ticker: String,
+    to_ticker: String,
+    from_amount: u64,
+    to_amount: u64,
+    txid: String,
+    maker_label: String,
+    sample: bool,
+    timestamp: u64,
+}
+
+struct AppState {
+    offers: Vec<Offer>,
+    offer_makers: Vec<String>,
+    assets: BTreeMap<String, String>,
+    history: Vec<SwapRecord>,
+    lwk: Option<Arc<LwkNode>>,
+}
+
+/// Path to the React build output, if present.
+fn dist_dir() -> Option<std::path::PathBuf> {
+    for candidate in &["ui/dist", "../ui/dist", "webapp/dist", "../webapp/dist"] {
+        let p = std::path::Path::new(candidate);
+        if p.join("index.html").exists() {
+            return Some(p.to_path_buf());
+        }
+    }
+    None
+}
+
+fn mime_for(path: &str) -> &'static str {
+    if path.ends_with(".js") || path.ends_with(".mjs") {
+        "application/javascript"
+    } else if path.ends_with(".css") {
+        "text/css"
+    } else if path.ends_with(".svg") {
+        "image/svg+xml"
+    } else if path.ends_with(".woff2") {
+        "font/woff2"
+    } else {
+        "text/html; charset=utf-8"
+    }
+}
+
+fn serve_static(req: Request, url_path: &str) {
+    if let Some(dist) = dist_dir() {
+        let file = if url_path == "/" || url_path == "/index.html" || !url_path.contains('.') {
+            dist.join("index.html")
+        } else {
+            dist.join(url_path.trim_start_matches('/'))
+        };
+
+        if let Ok(bytes) = std::fs::read(&file) {
+            let mime = mime_for(url_path);
+            let header = Header::from_bytes(b"Content-Type", mime.as_bytes())
+                .expect("valid header");
+            let _ = req.respond(Response::from_data(bytes).with_header(header));
+            return;
+        }
+        if let Ok(bytes) = std::fs::read(dist.join("index.html")) {
+            let header =
+                Header::from_bytes(b"Content-Type", b"text/html; charset=utf-8").unwrap();
+            let _ = req.respond(Response::from_data(bytes).with_header(header));
+            return;
+        }
+    }
+    let header =
+        Header::from_bytes(b"Content-Type", b"text/html; charset=utf-8").expect("valid header");
+    let _ = req.respond(Response::from_string(INDEX_HTML).with_header(header));
+}
+
+pub fn run(port: u16, net: Network) -> Result<()> {
+    let _ = NETWORK.set(net);
+
+    let mut initial_assets: BTreeMap<String, String> = BTreeMap::new();
+    let mut initial_history: Vec<SwapRecord> = Vec::new();
+    let lwk = if net == Network::Testnet {
+        println!("Initializing LWK wallets for Liquid testnet…");
+        let node = LwkNode::testnet()?;
+        println!("Syncing LWK wallets with Esplora…");
+        node.sync()?;
+        println!("Treasury address: {}", node.treasury.address()?);
+        if let Ok(path) = std::env::var(TESTNET_ASSETS_ENV) {
+            match load_assets_file(&path) {
+                Ok(assets) => initial_assets = assets,
+                Err(e) if e.to_string().contains("No such file or directory") => {
+                    println!("WARN: testnet assets file {path} does not exist yet; demo seed can create it.");
+                }
+                Err(e) => return Err(e),
+            }
+        }
+        if let Ok(path) = std::env::var(TESTNET_HISTORY_ENV) {
+            match load_history_file(&path) {
+                Ok(history) => initial_history = history,
+                Err(e) if e.to_string().contains("No such file or directory") => {
+                    println!("WARN: testnet history file {path} does not exist yet; live fills can create it.");
+                }
+                Err(e) => return Err(e),
+            }
+        }
+        Some(Arc::new(node))
+    } else {
+        let n = node();
+        n.ensure_wallet("mosaik-maker")?;
+        n.ensure_wallet("mosaik-taker")?;
+        None
+    };
+
+    let server = Server::http(("0.0.0.0", port))
+        .map_err(|e| anyhow!("could not bind 0.0.0.0:{port}: {e}"))?;
     let state = Mutex::new(AppState {
         offers: Vec::new(),
-        assets: BTreeMap::new(),
-        trades: Vec::new(),
+        offer_makers: Vec::new(),
+        assets: initial_assets,
+        history: initial_history,
+        lwk,
     });
 
-    println!("Mosaik wallet UI  ->  http://127.0.0.1:{port}");
-    println!("Wallets: mosaik (treasury), mosaik-user, mosaik-mm-{{a,b,c}}");
-    println!("(Elements regtest expected at {BASE} — run scripts/regtest.sh)");
+    let label = match net { Network::Regtest => "regtest", Network::Testnet => "testnet" };
+    if dist_dir().is_some() {
+        println!("Mosaik trading UI  ->  http://127.0.0.1:{port}  (React build)  [{label}]");
+    } else {
+        println!("Mosaik wallet UI   ->  http://127.0.0.1:{port}  (fallback HTML)  [{label}]");
+    }
+    if is_regtest() {
+        println!("Backend: elementsd at {}  |  wallets: mosaik, mosaik-maker, mosaik-taker", node_url());
+    } else {
+        println!("Backend: LWK + Blockstream Esplora (testnet)");
+    }
+    if net == Network::Testnet {
+        let st = state.lock().unwrap();
+        if st.assets.is_empty() {
+            println!("WARN: no testnet assets loaded. Fund treasury address above, then restart.");
+        } else {
+            println!("Loaded {} test assets: {}", st.assets.len(),
+                st.assets.keys().cloned().collect::<Vec<_>>().join(", "));
+        }
+    }
 
     for mut req in server.incoming_requests() {
+        if req.method() == &Method::Options {
+            let _ = req.respond(
+                Response::from_string("")
+                    .with_status_code(204)
+                    .with_header(cors_header())
+                    .with_header(Header::from_bytes(
+                        &b"Access-Control-Allow-Methods"[..],
+                        &b"GET, POST, OPTIONS"[..],
+                    ).expect("header"))
+                    .with_header(Header::from_bytes(
+                        &b"Access-Control-Allow-Headers"[..],
+                        &b"Content-Type"[..],
+                    ).expect("header")),
+            );
+            continue;
+        }
+
+        let method = req.method().clone();
+        let url = req.url().split('?').next().unwrap_or("/").to_string();
+
+        // Static assets and SPA root
+        let is_static = method == Method::Get
+            && (url == "/"
+                || url == "/index.html"
+                || url.starts_with("/assets/")
+                || url.starts_with("/fonts/"));
+        if is_static {
+            serve_static(req, &url);
+            continue;
+        }
+
         let (status, payload) = route(&mut req, &state);
         if status == 0 {
-            let header = Header::from_bytes(&b"Content-Type"[..], &b"text/html; charset=utf-8"[..])
-                .expect("valid header");
-            let _ = req.respond(Response::from_string(INDEX_HTML).with_header(header));
+            let hdr = Header::from_bytes(&b"Content-Type"[..], &b"text/html; charset=utf-8"[..])
+                .expect("header");
+            let _ = req.respond(
+                Response::from_string(INDEX_HTML).with_header(hdr).with_header(cors_header()),
+            );
         } else {
             let body = serde_json::to_string(&payload).unwrap_or_else(|_| "{}".into());
-            let header =
-                Header::from_bytes(&b"Content-Type"[..], &b"application/json"[..]).expect("hdr");
+            let hdr = Header::from_bytes(&b"Content-Type"[..], &b"application/json"[..])
+                .expect("header");
             let _ = req.respond(
-                Response::from_string(body).with_status_code(status).with_header(header),
+                Response::from_string(body).with_status_code(status)
+                    .with_header(hdr).with_header(cors_header()),
             );
         }
     }
     Ok(())
 }
 
-/// Dispatch one request; `(0, _)` means "serve the HTML page".
+fn cors_header() -> Header {
+    Header::from_bytes(&b"Access-Control-Allow-Origin"[..], &b"*"[..]).expect("header")
+}
+
 fn route(req: &mut Request, state: &Mutex<AppState>) -> (u16, Value) {
     let method = req.method().clone();
     let url = req.url().split('?').next().unwrap_or("/").to_string();
 
     let result: Result<Value> = match (&method, url.as_str()) {
-        (Method::Get, "/") | (Method::Get, "/index.html") => return (0, Value::Null),
-        (Method::Get, "/api/state") => api_state(state),
-        (Method::Post, "/api/fund") => api_fund(req, state),
-        (Method::Post, "/api/make-offer") => api_make_offer(req, state),
-        (Method::Post, "/api/take-offer") => api_take_offer(req, state),
-        (Method::Post, "/api/reclaim") => api_reclaim(req, state),
-        (Method::Post, "/api/contract") => api_contract(req, state),
+        (Method::Get,  "/api/state")        => api_state(state),
+        (Method::Post, "/api/demo/seed")    => api_demo_seed(state),
+        (Method::Post, "/api/demo/volume")  => api_demo_volume(state),
+        (Method::Post, "/api/fund")         => api_fund_selected(req, state),
+        (Method::Post, "/api/fund/maker")   => api_fund(state, "maker"),
+        (Method::Post, "/api/fund/taker")   => api_fund(state, "taker"),
+        (Method::Post, "/api/make-offer")   => api_make_offer(req, state),
+        (Method::Post, "/api/take-offer")   => api_take_offer(req, state),
+        (Method::Post, "/api/reclaim")      => api_reclaim(req, state),
+        (Method::Post, "/api/contract")     => api_contract(req, state),
+        // Market data API
+        (Method::Get, "/api/orderbook")     => api_orderbook(req, state),
+        (Method::Get, "/api/trades")        => api_trades(req, state),
+        (Method::Get, "/api/chart")         => api_chart(req, state),
+        (Method::Get, "/api/depth")         => api_depth(req, state),
+        (Method::Get, "/api/user/orders")   => api_user_orders(state),
+        (Method::Post, "/api/cancel")       => api_cancel(req, state),
         _ => return (404, json!({ "error": "not found" })),
     };
 
     match result {
-        Ok(v) => (200, v),
+        Ok(v)  => (200, v),
         Err(e) => (400, json!({ "error": e.to_string() })),
     }
 }
 
-/// Parse a JSON request body, defaulting to `null` on an empty/invalid body.
 fn body(req: &mut Request) -> Value {
     let mut raw = String::new();
     let _ = req.as_reader().read_to_string(&mut raw);
     serde_json::from_str(&raw).unwrap_or(Value::Null)
 }
 
-/// Raw balance (smallest unit) of `asset` from a `getbalance` map.
-fn raw_balance(balances: &Value, asset: &str) -> u64 {
-    balances
-        .get(asset)
-        .and_then(Value::as_f64)
-        .map(|v| (v * 1e8).round() as u64)
-        .unwrap_or(0)
+fn wallet_label(label: &str) -> Result<&'static str> {
+    match label {
+        "maker" | "user" => Ok("maker"),
+        "taker" => Ok("taker"),
+        other => anyhow::bail!("unknown wallet '{other}'"),
+    }
 }
 
-/// Make sure the test assets are issued; returns the `name -> id` map.
-fn ensure_assets(state: &Mutex<AppState>) -> Result<BTreeMap<String, String>> {
-    let mut st = state.lock().unwrap();
-    if st.assets.is_empty() {
-        let treasury = treasury();
-        for name in TEST_ASSETS {
-            let (id, _) = treasury.issue_asset(100_000.0, 0.0)?;
-            st.assets.insert(name.to_string(), id);
+fn wallet_from_body<'a>(body: &'a Value, fields: &[&str], default: &'static str) -> Result<&'static str> {
+    for field in fields {
+        if let Some(label) = body.get(*field).and_then(Value::as_str) {
+            return wallet_label(label);
         }
-        treasury.generate(1)?;
     }
+    Ok(default)
+}
+
+fn wallet_name(label: &str) -> &'static str {
+    match label {
+        "maker" => "Maker wallet",
+        "taker" => "Taker wallet",
+        _ => "Wallet",
+    }
+}
+
+fn build_commit() -> &'static str {
+    option_env!("MOSAIK_BUILD_COMMIT").unwrap_or("dev")
+}
+
+fn wallet_rpc(label: &str) -> Result<ElementsRpc> {
+    match wallet_label(label)? {
+        "maker" => Ok(maker_rpc()),
+        "taker" => Ok(taker_rpc()),
+        _ => unreachable!(),
+    }
+}
+
+fn lwk_wallet<'a>(lwk: &'a LwkNode, label: &str) -> Result<&'a LwkWallet> {
+    match wallet_label(label)? {
+        "maker" => Ok(&lwk.maker),
+        "taker" => Ok(&lwk.taker),
+        _ => unreachable!(),
+    }
+}
+
+fn raw_balance(balances: &Value, asset: &str) -> u64 {
+    balances.get(asset).and_then(Value::as_f64)
+        .map(|v| (v * 1e8).round() as u64).unwrap_or(0)
+}
+
+fn ensure_assets(state: &Mutex<AppState>) -> Result<BTreeMap<String, String>> {
+    {
+        let st = state.lock().unwrap();
+        if !st.assets.is_empty() { return Ok(st.assets.clone()); }
+    }
+    if !is_regtest() {
+        // Testnet: return empty assets map so L-BTC-only flows work
+        return Ok(BTreeMap::new());
+    }
+    let mut st = state.lock().unwrap();
+    let t = treasury();
+    for name in TEST_ASSETS {
+        let (id, _) = t.issue_asset(100_000.0, 0.0)?;
+        st.assets.insert(name.to_string(), id);
+    }
+    t.generate(1)?;
     Ok(st.assets.clone())
 }
 
-/// Resolve a UI asset label (`"BTC"` or a test-asset name) to a display-order
-/// asset id. `"BTC"` stays `"BTC"` — `make_offer` resolves it to the policy id.
+fn load_assets_file(path: &str) -> Result<BTreeMap<String, String>> {
+    let raw = std::fs::read_to_string(path)
+        .map_err(|e| anyhow!("read {path}: {e}"))?;
+    let v: Value = serde_json::from_str(&raw)
+        .map_err(|e| anyhow!("parse {path}: {e}"))?;
+    let obj = v.as_object().ok_or_else(|| anyhow!("{path}: expected JSON object"))?;
+    let mut out = BTreeMap::new();
+    for (name, val) in obj {
+        let s = val.as_str().ok_or_else(|| anyhow!("{path}/{name}: expected string"))?;
+        out.insert(name.clone(), s.to_string());
+    }
+    Ok(out)
+}
+
+fn persist_assets_file(assets: &BTreeMap<String, String>) -> Result<()> {
+    let Ok(path) = std::env::var(TESTNET_ASSETS_ENV) else { return Ok(()); };
+    let raw = serde_json::to_string_pretty(assets)?;
+    std::fs::write(&path, raw).map_err(|e| anyhow!("write {path}: {e}"))?;
+    Ok(())
+}
+
+fn load_history_file(path: &str) -> Result<Vec<SwapRecord>> {
+    let raw = std::fs::read_to_string(path)
+        .map_err(|e| anyhow!("read {path}: {e}"))?;
+    serde_json::from_str(&raw).map_err(|e| anyhow!("parse {path}: {e}"))
+}
+
+fn persist_history_file(history: &[SwapRecord]) -> Result<()> {
+    let Ok(path) = std::env::var(TESTNET_HISTORY_ENV) else { return Ok(()); };
+    let raw = serde_json::to_string_pretty(history)?;
+    std::fs::write(&path, raw).map_err(|e| anyhow!("write {path}: {e}"))?;
+    Ok(())
+}
+
 fn label_to_id(assets: &BTreeMap<String, String>, label: &str, lbtc: &str) -> Result<String> {
     match label {
         "BTC" | "L-BTC" | "LBTC" => Ok(lbtc.to_string()),
-        name => assets
-            .get(name)
-            .cloned()
-            .ok_or_else(|| anyhow!("unknown asset '{name}' — fund a wallet to issue it")),
+        name => assets.get(name).cloned()
+            .ok_or_else(|| anyhow!("unknown asset '{name}'")),
     }
 }
 
-/// Human name for a display-order asset id, given the test-asset map.
 fn id_to_name(assets: &BTreeMap<String, String>, id: &str, lbtc: &str) -> String {
-    if id == lbtc {
-        return "L-BTC".to_string();
-    }
-    for (name, aid) in assets {
-        if aid == id {
-            return name.clone();
-        }
-    }
-    format!("{}…", &id[..id.len().min(8)])
+    if id == lbtc { return "L-BTC".to_string(); }
+    assets.iter().find(|(_, v)| v.as_str() == id)
+        .map(|(k, _)| k.clone())
+        .unwrap_or_else(|| format!("{}…", &id[..id.len().min(8)]))
+}
+
+fn norm(t: &str) -> &str {
+    match t { "L-BTC" | "LBTC" => "BTC", other => other }
 }
 
 fn now_secs() -> u64 {
-    SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0)
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs()
 }
 
-// ---- endpoints -------------------------------------------------------------
+fn format_timestamp(ts: u64) -> String {
+    let mins = (ts / 60) % 60;
+    let hours = (ts / 3600) % 24;
+    let days = (ts / 86400) % 31 + 1;
+    let months = ((ts / 86400) / 31) % 12 + 1;
+    format!("{:02}:{:02} {:02}/{:02}/{}", hours, mins, days, months, 2019)
+}
 
-/// A `{ address, lbtc_sats, assets:{name:raw} }` snapshot of one wallet.
-fn wallet_snapshot(rpc: &ElementsRpc, assets: &BTreeMap<String, String>) -> Result<Value> {
+// ── endpoints ────────────────────────────────────────────────────────────────
+
+fn wallet_snapshot_rpc(rpc: &ElementsRpc, assets: &BTreeMap<String, String>) -> Result<Value> {
     let balances = rpc.balances()?;
     let mut map = serde_json::Map::new();
     for (name, id) in assets {
         map.insert(name.clone(), json!(raw_balance(&balances, id)));
     }
     Ok(json!({
-        "address": rpc.new_unconfidential_address()?,
+        "address":   rpc.new_unconfidential_address()?,
         "lbtc_sats": raw_balance(&balances, "bitcoin"),
-        "assets": map,
+        "assets":    map,
     }))
 }
 
-/// The user wallet, chain height, the test assets, the open offers, the tape.
+fn wallet_snapshot_lwk(wallet: &LwkWallet, lbtc: &str, assets: &BTreeMap<String, String>) -> Result<Value> {
+    let balances = wallet.balances()?;
+    let mut map = serde_json::Map::new();
+    for (name, id) in assets {
+        map.insert(name.clone(), json!(raw_balance(&balances, id)));
+    }
+    Ok(json!({
+        "address":   wallet.unconfidential_address()?,
+        "lbtc_sats": raw_balance(&balances, lbtc),
+        "assets":    map,
+    }))
+}
+
 fn api_state(state: &Mutex<AppState>) -> Result<Value> {
-    let lbtc = node_rpc().policy_asset()?;
-    let (offers, assets, trades) = {
+    let (offers, offer_makers, assets, history, lwk) = {
         let st = state.lock().unwrap();
-        (st.offers.clone(), st.assets.clone(), st.trades.clone())
+        (
+            st.offers.clone(),
+            st.offer_makers.clone(),
+            st.assets.clone(),
+            st.history.clone(),
+            st.lwk.clone(),
+        )
     };
 
-    let offers: Vec<Value> = offers
-        .iter()
-        .enumerate()
-        .map(|(i, lo)| {
-            let o = &lo.offer;
-            let compiled = o.tessera.compile().ok();
-            // asset_b is stored internal-order; reverse for the display id.
-            let mut ab = o.tessera.asset_b.to_vec();
-            ab.reverse();
-            let asset_b = hex::encode(ab);
-            let lock_name = id_to_name(&assets, &o.asset_a, &lbtc);
-            let want_name = id_to_name(&assets, &asset_b, &lbtc);
-            json!({
-                "index": i,
-                "outpoint": o.outpoint,
-                "amount_a": o.amount_a,
-                "amount_b": o.tessera.amount_b,
-                "lock_name": lock_name,
-                "want_name": want_name,
-                "timeout": o.tessera.timeout,
-                "maker_address": o.maker_address,
-                "maker": lo.maker,
-                "maker_name": lo.maker_name,
-                "covenant_address": compiled.as_ref().and_then(|c| c.address().ok())
-                    .map(|a| a.to_string()),
-                "cmr": compiled.as_ref().map(|c| c.cmr_hex()),
-                "nostr": {
-                    "kind": mosaik_relay::TESSERA_OFFER_KIND,
-                    "event_id": lo.event_id,
-                    "pubkey": lo.pubkey,
-                    "order_id": lo.order_id,
-                    "created_at": lo.created_at,
-                    "relay": RELAY_URL,
-                },
-            })
+    let (lbtc, block_count, maker, taker) = if let Some(ref lwk) = lwk {
+        let lbtc = lwk.policy_asset()?;
+        let maker = wallet_snapshot_lwk(&lwk.maker, &lbtc, &assets)?;
+        let taker = wallet_snapshot_lwk(&lwk.taker, &lbtc, &assets)?;
+        let block_count = lwk.block_count().unwrap_or(0);
+        (lbtc, block_count, maker, taker)
+    } else {
+        let lbtc = node().policy_asset()?;
+        let maker = wallet_snapshot_rpc(&maker_rpc(), &assets)?;
+        let taker = wallet_snapshot_rpc(&taker_rpc(), &assets)?;
+        let block_count = node().block_count().unwrap_or(0);
+        (lbtc, block_count, maker, taker)
+    };
+
+    let offers: Vec<Value> = offers.iter().enumerate().map(|(i, o)| {
+        let maker_label = offer_makers.get(i).map(String::as_str).unwrap_or("maker");
+        let compiled = o.tessera.compile().ok();
+        let mut ab = o.tessera.asset_b.to_vec(); ab.reverse();
+        let asset_b = hex::encode(ab);
+        json!({
+            "index":            i,
+            "outpoint":         o.outpoint,
+            "amount_a":         o.amount_a,
+            "amount_b":         o.tessera.amount_b,
+            "lock_name":        id_to_name(&assets, &o.asset_a, &lbtc),
+            "want_name":        id_to_name(&assets, &asset_b, &lbtc),
+            "timeout":          o.tessera.timeout,
+            "maker":            maker_label,
+            "maker_name":       wallet_name(maker_label),
+            "maker_address":    o.maker_address,
+            "covenant_address": o.covenant_address,
+            "cmr":              compiled.as_ref().map(|c| c.cmr_hex()),
+            "status":           "ready",
+            "event_id":         "local",
         })
-        .collect();
+    }).collect();
 
-    // A snapshot of every wallet, so the UI can switch the active trader and
-    // test cross-user buys and sells.
-    let mut wallets = serde_json::Map::new();
-    for (label, wname, _) in MAKERS {
-        wallets.insert(label.to_string(), wallet_snapshot(&wallet_rpc(wname), &assets)?);
-    }
+    let wallets = json!({
+        "maker": maker.clone(),
+        "taker": taker.clone(),
+    });
+    let makers = json!([
+        { "label": "maker", "name": wallet_name("maker") },
+        { "label": "taker", "name": wallet_name("taker") },
+    ]);
+    let trades: Vec<Value> = history.iter().rev().take(50).map(|r| json!({
+        "lock_name":  r.from_ticker,
+        "want_name":  r.to_ticker,
+        "amount_a":   r.from_amount,
+        "amount_b":   r.to_amount,
+        "txid":       r.txid,
+        "maker":      r.maker_label,
+        "maker_name": wallet_name(&r.maker_label),
+        "sample":     r.sample,
+        "timestamp":  r.timestamp,
+    })).collect();
 
     Ok(json!({
-        "block_count": node_rpc().block_count()?,
-        "assets": assets.keys().cloned().collect::<Vec<_>>(),
-        "makers": MAKERS.iter().map(|(l, _, n)| json!({ "label": l, "name": n }))
-            .collect::<Vec<_>>(),
-        "wallets": wallets,
-        "offers": offers,
-        "trades": trades,
-        "relay": RELAY_URL,
+        "network":     if is_regtest() { "regtest" } else { "testnet" },
+        "block_count": block_count,
+        "version":     { "app": APP_VERSION, "commit": build_commit() },
+        "assets":      assets.keys().cloned().collect::<Vec<_>>(),
+        "wallets":     wallets,
+        "makers":      makers,
+        "maker":       maker,
+        "taker":       taker,
+        "offers":      offers,
+        "trades":      trades,
+        "relay":       "local",
     }))
 }
 
-/// Treasury -> wallet: top up with 1 L-BTC and 100 of every test asset, so the
-/// wallet can be a maker or a taker for any pair. Body: `{ "wallet": "user" }`.
-fn api_fund(req: &mut Request, state: &Mutex<AppState>) -> Result<Value> {
+fn api_fund_selected(req: &mut Request, state: &Mutex<AppState>) -> Result<Value> {
     let b = body(req);
-    let label = b.get("wallet").and_then(Value::as_str).unwrap_or("user");
-    let (_, wallet, name) = maker_entry(label)?;
+    let target = wallet_from_body(&b, &["wallet"], "maker")?;
+    api_fund(state, target)
+}
 
-    let assets = ensure_assets(state)?;
-    let treasury = treasury();
-    let target = wallet_rpc(wallet);
-
-    let addr = target.new_unconfidential_address()?;
-    let lbtc_txid = treasury.send_to_address(&addr, 1.0)?;
-
-    // Explicit (unconfidential) UTXOs — a covenant settlement cannot spend a
-    // blinded input.
-    for id in assets.values() {
-        let addr = target.new_unconfidential_address()?;
-        treasury.send_asset_to(&addr, 100.0, id)?;
+fn api_demo_seed(state: &Mutex<AppState>) -> Result<Value> {
+    if is_regtest() {
+        ensure_assets(state)?;
+        seed_sample_history(state);
+        return Ok(json!({ "ok": true, "mode": "regtest", "seeded": "history" }));
     }
-    treasury.generate(1)?;
+
+    let lwk = {
+        let st = state.lock().unwrap();
+        st.lwk.clone().ok_or_else(|| anyhow!("LWK backend is not available"))?
+    };
+
+    let mut issued = Vec::new();
+    let mut assets = { state.lock().unwrap().assets.clone() };
+    for (ticker, name) in DEMO_ASSETS {
+        if assets.contains_key(ticker) { continue; }
+        lwk.sync().ok();
+        let (asset_id, _token_id, txid) = lwk.treasury.issue_named_asset(ticker, name, 10_000 * 100_000_000)?;
+        assets.insert(ticker.to_string(), asset_id.clone());
+        issued.push(json!({ "ticker": ticker, "asset": asset_id, "txid": txid }));
+        lwk.sync().ok();
+    }
+    if !issued.is_empty() {
+        {
+            let mut st = state.lock().unwrap();
+            st.assets = assets.clone();
+        }
+        persist_assets_file(&assets)?;
+    }
+
+    fund_lwk_wallet_for_demo(&lwk, &lwk.maker, &assets)?;
+    fund_lwk_wallet_for_demo(&lwk, &lwk.taker, &assets)?;
+    lwk.sync().ok();
+    seed_sample_history(state);
+
+    let timeout = lwk.block_count().unwrap_or(0) as u32 + 120;
+    let mut offers = Vec::new();
+    let mut errors = Vec::new();
+    if state.lock().unwrap().offers.is_empty() {
+        for (label, maker, lock, want, amount_a, amount_b) in [
+            ("maker sells L-BTC for USDT", "maker", "BTC",  "USDT", 3_000,       1_500_000),
+            ("taker sells USDT for L-BTC", "taker", "USDT", "BTC",  2_200_000,   2_000),
+            ("maker sells EURx for USDT",  "maker", "EURx", "USDT", 4_500_000,   4_900_000),
+            ("taker sells USDT for EURx",  "taker", "USDT", "EURx", 3_000_000,   2_750_000),
+            ("maker sells XAUT for L-BTC", "maker", "XAUT", "BTC",  100_000,     2_500),
+            ("taker sells L-BTC for XAUT", "taker", "BTC",  "XAUT", 2_800,       120_000),
+        ] {
+            match create_offer(state, maker, lock, want, amount_a, amount_b, timeout) {
+                Ok(v) => offers.push(json!({ "label": label, "offer": v })),
+                Err(e) => errors.push(json!({ "label": label, "error": e.to_string() })),
+            }
+        }
+    }
+
     Ok(json!({
-        "ok": true,
-        "txid": lbtc_txid,
-        "wallet": label,
-        "funded": format!("{name} funded — 1 L-BTC + 100 of each asset"),
+        "ok": errors.is_empty(),
+        "issued": issued,
+        "assets": assets,
+        "offers": offers,
+        "errors": errors,
     }))
 }
 
-/// Maker: fund a covenant UTXO and register the offer.
-///
-/// Body: `{ amount_a, amount_b, lock, want, timeout, maker? }`. `maker`
-/// defaults to `"user"` — the UI wallet — but the seed script passes `mm-a`,
-/// `mm-b`, `mm-c` so the book carries liquidity from several distinct makers.
+fn api_demo_volume(state: &Mutex<AppState>) -> Result<Value> {
+    seed_sample_history(state);
+    let trades = state.lock().unwrap().history.iter().filter(|r| r.sample).count();
+    Ok(json!({ "ok": true, "sample_trades": trades }))
+}
+
+fn fund_lwk_wallet_for_demo(
+    lwk: &LwkNode,
+    wallet: &LwkWallet,
+    assets: &BTreeMap<String, String>,
+) -> Result<()> {
+    lwk.sync().ok();
+    let lbtc = lwk.policy_asset()?;
+    let balances = wallet.balances()?;
+    let addr = wallet.address()?;
+    if raw_balance(&balances, &lbtc) < 20_000 {
+        lwk.treasury.send_to_address(&addr, 0.00025, None)?;
+        lwk.sync().ok();
+    }
+    for id in assets.values() {
+        if raw_balance(&balances, id) < 20 * 100_000_000 {
+            lwk.sync().ok();
+            lwk.treasury.send_to_address(&addr, 100.0, Some(id))?;
+            lwk.sync().ok();
+        }
+    }
+    Ok(())
+}
+
+fn seed_sample_history(state: &Mutex<AppState>) {
+    let now = now_secs();
+    let mut st = state.lock().unwrap();
+    st.history.retain(|r| !r.sample);
+    for (i, (from, to, amount_a, amount_b, maker)) in [
+        ("L-BTC", "USDT", 8_500, 4_220_000, "maker"),
+        ("L-BTC", "USDT", 6_200, 3_080_000, "taker"),
+        ("USDT", "L-BTC", 5_100_000, 10_300, "maker"),
+        ("EURx", "USDT", 7_500_000, 8_120_000, "taker"),
+        ("USDT", "EURx", 6_200_000, 5_760_000, "maker"),
+        ("XAUT", "L-BTC", 180_000, 3_950, "maker"),
+        ("L-BTC", "XAUT", 4_400, 205_000, "taker"),
+        ("EURx", "XAUT", 9_000_000, 310_000, "maker"),
+    ].into_iter().enumerate() {
+        st.history.push(SwapRecord {
+            from_ticker: from.to_string(),
+            to_ticker: to.to_string(),
+            from_amount: amount_a,
+            to_amount: amount_b,
+            txid: format!("sample-volume-{i:03}"),
+            maker_label: maker.to_string(),
+            sample: true,
+            timestamp: now.saturating_sub((8 - i as u64) * 420),
+        });
+    }
+    if let Err(e) = persist_history_file(&st.history) {
+        eprintln!("WARN: could not persist sample history: {e}");
+    }
+}
+
+fn api_fund(state: &Mutex<AppState>, target_name: &str) -> Result<Value> {
+    let target_name = wallet_label(target_name)?;
+    let assets = ensure_assets(state)?;
+    let (lbtc_amount, asset_amount, funded_label) = if is_regtest() {
+        (1.0, 100.0, "1 L-BTC + 100 of each asset")
+    } else {
+        (0.00010, 10.0, "0.0001 L-BTC + 10 of each asset (testnet: ~1 min to confirm)")
+    };
+
+    let st = state.lock().unwrap();
+    if let Some(ref lwk) = st.lwk {
+        let target = lwk_wallet(lwk, target_name)?;
+        lwk.treasury.sync().ok();
+        let addr = target.address()?;
+        let lbtc_txid = lwk.treasury.send_to_address(&addr, lbtc_amount, None)
+            .map_err(|e| {
+                if e.to_string().contains("Insufficient funds") {
+                    anyhow!("treasury out of L-BTC — fund the treasury address and retry")
+                } else { e }
+            })?;
+        for id in assets.values() {
+            lwk.treasury.sync().ok();
+            let a = target.address()?;
+            lwk.treasury.send_to_address(&a, asset_amount, Some(id))?;
+        }
+        lwk.sync().ok();
+        Ok(json!({ "ok": true, "txid": lbtc_txid, "funded": funded_label }))
+    } else {
+        let target_rpc = wallet_rpc(target_name)?;
+        let treasury = treasury();
+        let addr = target_rpc.new_unconfidential_address()?;
+        let lbtc_txid = treasury.send_to_address(&addr, lbtc_amount)
+            .map_err(|e| {
+                if e.to_string().contains("Insufficient funds") && !is_regtest() {
+                    anyhow!("treasury out of L-BTC — run ./scripts/testnet.sh fund to top up")
+                } else { e }
+            })?;
+        for id in assets.values() {
+            let a = target_rpc.new_unconfidential_address()?;
+            treasury.send_asset_to(&a, asset_amount, id)?;
+        }
+        if is_regtest() { treasury.generate(1)?; }
+        Ok(json!({ "ok": true, "txid": lbtc_txid, "funded": funded_label }))
+    }
+}
+
 fn api_make_offer(req: &mut Request, state: &Mutex<AppState>) -> Result<Value> {
     let b = body(req);
     let amount_a = b.get("amount_a").and_then(Value::as_u64).ok_or_else(|| anyhow!("amount_a"))?;
     let amount_b = b.get("amount_b").and_then(Value::as_u64).ok_or_else(|| anyhow!("amount_b"))?;
-    let timeout = b.get("timeout").and_then(Value::as_u64).unwrap_or(500) as u32;
+    let timeout  = b.get("timeout").and_then(Value::as_u64).unwrap_or(500) as u32;
     let lock = b.get("lock").and_then(Value::as_str).unwrap_or("BTC");
     let want = b.get("want").and_then(Value::as_str).unwrap_or("USDT");
-    let maker_label = b.get("maker").and_then(Value::as_str).unwrap_or("user");
-    if lock == want {
-        anyhow::bail!("lock and want assets must differ");
-    }
-    let (maker, wallet, maker_name) = maker_entry(maker_label)?;
+    let maker_label = wallet_from_body(&b, &["maker", "wallet"], "maker")?;
+    // Note: lock == want is allowed for testnet L-BTC-only covenant testing
+    create_offer(state, maker_label, lock, want, amount_a, amount_b, timeout)
+}
 
-    let rpc = wallet_rpc(wallet);
-    let lbtc = rpc.policy_asset()?;
-    let assets = { state.lock().unwrap().assets.clone() };
-    let maker_address = rpc.new_unconfidential_address()?;
+fn create_offer(
+    state: &Mutex<AppState>,
+    maker_label: &str,
+    lock: &str,
+    want: &str,
+    amount_a: u64,
+    amount_b: u64,
+    timeout: u32,
+) -> Result<Value> {
+    let st = state.lock().unwrap();
+    let assets = st.assets.clone();
+    let lwk = st.lwk.clone();
+    drop(st);
 
-    // The covenant enforces the maker's counter-payment in the `want` asset.
-    let want_id = label_to_id(&assets, want, &lbtc)?;
-    let tessera = if want_id == lbtc {
-        lbtc_tessera(&rpc, &maker_address, amount_b, timeout)?
+    let offer = if let Some(ref lwk) = lwk {
+        let lbtc = lwk.policy_asset()?;
+        let maker_wallet = lwk_wallet(lwk, maker_label)?;
+        let maker_address = maker_wallet.unconfidential_address()?;
+        let want_id = label_to_id(&assets, want, &lbtc)?;
+        let addr: simplicityhl::elements::Address = maker_address.parse()
+            .map_err(|e| anyhow!("invalid maker address: {e}"))?;
+        let script = addr.script_pubkey();
+        let spk = script.as_bytes();
+        let tessera = mosaik_core::build_tessera(spk, &want_id, amount_b, timeout)?;
+        let lock_label = if lock == "BTC" { "BTC".to_string() } else { label_to_id(&assets, lock, &lbtc)? };
+        let offer = LwkMaker::new(maker_wallet, lwk).make_offer(&lock_label, amount_a, &tessera, &maker_address)?;
+        lwk.sync().ok();
+        offer
     } else {
-        tessera_for(&rpc, &maker_address, &want_id, amount_b, timeout)?
+        let maker = wallet_rpc(maker_label)?;
+        let lbtc = maker.policy_asset()?;
+        let maker_address = maker.new_unconfidential_address()?;
+        let want_id = label_to_id(&assets, want, &lbtc)?;
+        let tessera = if want_id == lbtc {
+            lbtc_tessera(&maker, &maker_address, amount_b, timeout)?
+        } else {
+            tessera_for(&maker, &maker_address, &want_id, amount_b, timeout)?
+        };
+        let lock_label = if lock == "BTC" { "BTC".to_string() } else { label_to_id(&assets, lock, &lbtc)? };
+        MosaikMaker::new(maker).make_offer(&lock_label, amount_a, &tessera, &maker_address)?
     };
-
-    // `lock` is what the maker locks in the covenant UTXO.
-    let lock_label =
-        if lock == "BTC" { "BTC".to_string() } else { label_to_id(&assets, lock, &lbtc)? };
-    let offer = MosaikMaker::new(rpc).make_offer(&lock_label, amount_a, &tessera, &maker_address)?;
-
-    // Publish the offer as a real Nostr event (kind 30050) so discovery over
-    // Nostr is visible in the UI. The event is built locally — no relay needed.
-    let index = { state.lock().unwrap().offers.len() };
-    let order_id = format!("mosaik-{maker}-{index}");
-    let created_at = now_secs();
-    let tessera_offer = TesseraOffer {
-        order_id: order_id.clone(),
-        offer: offer.clone(),
-        expiry: created_at + 3600,
-        status: OfferStatus::Active,
-    };
-    let keys = Keys::generate();
-    let event = tessera_offer.to_event(&keys)?;
-    let event_id = event.id.to_hex();
-    let pubkey = keys.public_key().to_hex();
 
     let mut st = state.lock().unwrap();
     let index = st.offers.len();
-    st.offers.push(ListedOffer {
-        offer: offer.clone(),
-        maker,
-        maker_name,
-        order_id,
-        event_id: event_id.clone(),
-        pubkey,
-        created_at,
-    });
-
+    st.offers.push(offer.clone());
+    st.offer_makers.push(maker_label.to_string());
     Ok(json!({
         "ok": true,
         "index": index,
         "outpoint": offer.outpoint,
+        "maker": maker_label,
+        "maker_name": wallet_name(maker_label),
         "maker_address": offer.maker_address,
-        "maker": maker,
-        "event_id": event_id,
+        "event_id": "local",
     }))
 }
 
-/// Taker: fill a registered offer — the node executes the covenant.
-///
-/// The `taker` field picks which wallet fills the offer (`user` | `mm-a` |
-/// `mm-b` | `mm-c`), so the UI can switch the active trader and test
-/// cross-user buys and sells. Defaults to `user`.
-///
-/// An optional `cheat` field (`underpay` | `wrong_recipient` | `wrong_index`)
-/// builds a deliberately fraudulent settlement. The transaction is well-formed
-/// and balanced, so the node's mempool would accept it — but the covenant must
-/// reject it. The endpoint reports the rejection as the expected outcome, and
-/// flags a `covenant_bug` if a cheat ever broadcasts.
 fn api_take_offer(req: &mut Request, state: &Mutex<AppState>) -> Result<Value> {
     let b = body(req);
     let index = b.get("index").and_then(Value::as_u64).ok_or_else(|| anyhow!("index"))? as usize;
-    let cheat = Cheat::parse(b.get("cheat").and_then(Value::as_str).unwrap_or("none"));
-    let taker_label = b.get("taker").and_then(Value::as_str).unwrap_or("user");
-    let (_, taker_wallet, _) = maker_entry(taker_label)?;
-
-    let listed = {
+    let cheat  = Cheat::parse(b.get("cheat").and_then(Value::as_str).unwrap_or("none"));
+    let taker_label = wallet_from_body(&b, &["taker", "wallet"], "taker")?;
+    let (offer, maker_label, assets) = {
         let st = state.lock().unwrap();
-        st.offers.get(index).cloned().ok_or_else(|| anyhow!("no offer #{index}"))?
+        let offer = st.offers.get(index).cloned()
+            .ok_or_else(|| anyhow!("no offer #{index}"))?;
+        let maker_label = st.offer_makers.get(index)
+            .cloned()
+            .unwrap_or_else(|| "maker".to_string());
+        (offer, maker_label, st.assets.clone())
     };
-    let offer = listed.offer.clone();
 
-    let result = MosaikTaker::new(wallet_rpc(taker_wallet)).settle(&offer, cheat);
+    let lwk = state.lock().unwrap().lwk.clone();
+    let result = if let Some(ref lwk) = lwk {
+        LwkTaker::new(lwk_wallet(lwk, taker_label)?, lwk).settle(&offer, cheat)
+    } else {
+        MosaikTaker::new(wallet_rpc(taker_label)?).settle(&offer, cheat)
+    };
 
     match (cheat, result) {
-        // Honest fill that succeeded: confirm it, record the trade, drop the offer.
         (Cheat::None, Ok(txid)) => {
-            treasury().generate(1)?;
-            let lbtc = node_rpc().policy_asset()?;
-            let block = node_rpc().block_count()?;
-            let mut ab = offer.tessera.asset_b.to_vec();
-            ab.reverse();
-            let asset_b = hex::encode(ab);
-            let amount_a = offer.amount_a;
-            let amount_b = offer.tessera.amount_b;
-            let rate = if amount_a > 0 { amount_b as f64 / amount_a as f64 } else { 0.0 };
-
-            let mut st = state.lock().unwrap();
-            let lock_name = id_to_name(&st.assets, &offer.asset_a, &lbtc);
-            let want_name = id_to_name(&st.assets, &asset_b, &lbtc);
-            // Newest first — the real trade tape.
-            st.trades.insert(
-                0,
-                json!({
-                    "pair": format!("{lock_name}/{want_name}"),
-                    "lock_name": lock_name,
-                    "want_name": want_name,
-                    "amount_a": amount_a,
-                    "amount_b": amount_b,
-                    "rate": rate,
-                    "txid": txid,
-                    "block": block,
-                    "maker_name": listed.maker_name,
-                }),
-            );
-            if index < st.offers.len() {
-                st.offers.remove(index);
+            if is_regtest() { treasury().generate(1)?; }
+            if let Some(ref lwk) = lwk {
+                lwk.sync().ok();
+            }
+            let lbtc = if let Some(ref lwk) = lwk {
+                lwk.policy_asset()?
+            } else {
+                node().policy_asset()?
+            };
+            let mut asset_b = offer.tessera.asset_b.to_vec();
+            asset_b.reverse();
+            let asset_b = hex::encode(asset_b);
+            let record = SwapRecord {
+                from_ticker: id_to_name(&assets, &offer.asset_a, &lbtc),
+                to_ticker: id_to_name(&assets, &asset_b, &lbtc),
+                from_amount: offer.amount_a,
+                to_amount: offer.tessera.amount_b,
+                txid: txid.clone(),
+                maker_label,
+                sample: false,
+                timestamp: now_secs(),
+            };
+            let history = {
+                let mut st = state.lock().unwrap();
+                if index < st.offers.len() { st.offers.remove(index); }
+                if index < st.offer_makers.len() { st.offer_makers.remove(index); }
+                st.history.push(record);
+                st.history.clone()
+            };
+            if let Err(e) = persist_history_file(&history) {
+                eprintln!("WARN: could not persist settlement history: {e}");
             }
             Ok(json!({ "ok": true, "txid": txid }))
         }
         (Cheat::None, Err(e)) => Err(e),
-        // A cheat the covenant rejected — the expected, correct outcome. The
-        // offer is untouched and still fillable honestly.
-        (_, Err(e)) => Ok(json!({
-            "ok": true,
-            "rejected": true,
-            "reason": e.to_string(),
-        })),
-        // A cheat that broadcast: the covenant failed to enforce its terms.
+        (_, Err(e)) => Ok(json!({ "ok": true, "rejected": true, "reason": e.to_string() })),
         (_, Ok(txid)) => {
-            treasury().generate(1)?;
-            Ok(json!({
-                "ok": false,
-                "covenant_bug": true,
-                "txid": txid,
-                "reason": "a fraudulent settlement was accepted on-chain",
-            }))
+            if is_regtest() { treasury().generate(1)?; }
+            Ok(json!({ "ok": false, "covenant_bug": true, "txid": txid,
+                        "reason": "a fraudulent settlement was accepted on-chain" }))
         }
     }
 }
 
-/// Reclaim an unfilled offer via the covenant's keyless REFUND path.
-///
-/// The path is keyless — *any* wallet may sweep it, and the covenant still
-/// forces the locked asset back to the maker. The `wallet` field picks which
-/// wallet broadcasts the sweep; it defaults to the offer's own maker.
 fn api_reclaim(req: &mut Request, state: &Mutex<AppState>) -> Result<Value> {
     let b = body(req);
     let index = b.get("index").and_then(Value::as_u64).ok_or_else(|| anyhow!("index"))? as usize;
+    let wallet_label = wallet_from_body(&b, &["wallet", "maker"], "maker")?;
+    let offer = { state.lock().unwrap().offers.get(index).cloned()
+        .ok_or_else(|| anyhow!("no offer #{index}"))? };
 
-    let listed = {
-        let st = state.lock().unwrap();
-        st.offers.get(index).cloned().ok_or_else(|| anyhow!("no offer #{index}"))?
+    let lwk = state.lock().unwrap().lwk.clone();
+    let txid = if let Some(ref lwk) = lwk {
+        let txid = LwkMaker::new(lwk_wallet(lwk, wallet_label)?, lwk).reclaim(&offer)?;
+        lwk.sync().ok();
+        txid
+    } else {
+        MosaikMaker::new(wallet_rpc(wallet_label)?).reclaim(&offer)?
     };
-    let sweeper = b.get("wallet").and_then(Value::as_str).unwrap_or(listed.maker);
-    let (_, wallet, _) = maker_entry(sweeper)?;
 
-    let txid = MosaikMaker::new(wallet_rpc(wallet)).reclaim(&listed.offer)?;
-    treasury().generate(1)?; // confirm the reclaim
-
+    if is_regtest() { treasury().generate(1)?; }
     let mut st = state.lock().unwrap();
-    if index < st.offers.len() {
-        st.offers.remove(index);
-    }
+    if index < st.offers.len() { st.offers.remove(index); }
+    if index < st.offer_makers.len() { st.offer_makers.remove(index); }
     Ok(json!({ "ok": true, "txid": txid }))
 }
 
-/// Inspect the Simplicity covenant behind an offer — the on-chain "contract".
 fn api_contract(req: &mut Request, state: &Mutex<AppState>) -> Result<Value> {
     let b = body(req);
     let index = b.get("index").and_then(Value::as_u64).ok_or_else(|| anyhow!("index"))? as usize;
-
-    let listed = {
-        let st = state.lock().unwrap();
-        st.offers.get(index).cloned().ok_or_else(|| anyhow!("no offer #{index}"))?
-    };
-    let offer = &listed.offer;
+    let offer = { state.lock().unwrap().offers.get(index).cloned()
+        .ok_or_else(|| anyhow!("no offer #{index}"))? };
     let compiled = offer.tessera.compile()?;
-
+    let address = match network() {
+        Network::Testnet => compiled.address_for(
+            &simplicityhl::elements::AddressParams::LIQUID_TESTNET)?,
+        Network::Regtest => compiled.address()?,
+    };
     Ok(json!({
-        "source": offer.tessera.render(),
-        "cmr": compiled.cmr_hex(),
-        "address": compiled.address()?.to_string(),
-        "settle": "Taker path: spends the UTXO if output 0 pays the maker exactly \
-            `amount_b` of `asset_b`. The node runs the covenant and rejects any \
-            transaction that underpays. The locked asset is never inspected.",
-        "refund": "Keyless path: once the chain reaches the refund block height \
-            ANYONE may sweep the coin — but the covenant only accepts a spend \
-            that returns the locked asset to the maker, so the worst a griefer \
-            can do is pay the network fee to hand the maker their coin back. \
-            No signature, no maker key.",
-        "nostr": {
-            "kind": mosaik_relay::TESSERA_OFFER_KIND,
-            "event_id": listed.event_id,
-            "pubkey": listed.pubkey,
-            "order_id": listed.order_id,
-            "created_at": listed.created_at,
-            "relay": RELAY_URL,
-        },
+        "source":  offer.tessera.render(),
+        "cmr":     compiled.cmr_hex(),
+        "address": address.to_string(),
+        "settle":  "Taker path: spends the UTXO if output 0 pays the maker exactly \" +
+                    \"`amount_b` of `asset_b`.",
+        "refund":  "Maker path: once the chain reaches the refund block height the \" +
+                    \"maker reclaims the locked asset with a BIP-340 signature.",
     }))
+}
+
+// ── Market data API ---------------------------------------------------------
+
+fn api_orderbook(_req: &mut Request, state: &Mutex<AppState>) -> Result<Value> {
+    let st = state.lock().unwrap();
+    let lbtc = if let Some(ref lwk) = st.lwk {
+        lwk.policy_asset().unwrap_or_default()
+    } else {
+        node().policy_asset().unwrap_or_default()
+    };
+
+    let mut bids: Vec<Value> = Vec::new();
+    let mut asks: Vec<Value> = Vec::new();
+
+    for offer in &st.offers {
+        let mut ab = offer.tessera.asset_b.to_vec();
+        ab.reverse();
+        let asset_b = hex::encode(ab);
+        let lock_name = id_to_name(&st.assets, &offer.asset_a, &lbtc);
+        let want_name = id_to_name(&st.assets, &asset_b, &lbtc);
+
+        if offer.amount_a == 0 { continue; }
+
+        if lock_name == "L-BTC" && want_name == "USDT" {
+            let price = offer.tessera.amount_b as f64 / offer.amount_a as f64;
+            let price = (price * 100.0).round() / 100.0;
+            asks.push(json!({
+                "price": price,
+                "amount": offer.amount_a as f64 / 1e8,
+                "total": offer.tessera.amount_b as f64 / 1e8,
+            }));
+        } else if lock_name == "USDT" && want_name == "L-BTC" {
+            let price = offer.amount_a as f64 / offer.tessera.amount_b as f64;
+            let price = (price * 100.0).round() / 100.0;
+            bids.push(json!({
+                "price": price,
+                "amount": offer.tessera.amount_b as f64 / 1e8,
+                "total": offer.amount_a as f64 / 1e8,
+            }));
+        } else if lock_name == "L-BTC" && want_name == "EURx" {
+            let price = offer.tessera.amount_b as f64 / offer.amount_a as f64;
+            let price = (price * 100.0).round() / 100.0;
+            asks.push(json!({
+                "price": price,
+                "amount": offer.amount_a as f64 / 1e8,
+                "total": offer.tessera.amount_b as f64 / 1e8,
+            }));
+        } else if lock_name == "EURx" && want_name == "L-BTC" {
+            let price = offer.amount_a as f64 / offer.tessera.amount_b as f64;
+            let price = (price * 100.0).round() / 100.0;
+            bids.push(json!({
+                "price": price,
+                "amount": offer.tessera.amount_b as f64 / 1e8,
+                "total": offer.amount_a as f64 / 1e8,
+            }));
+        }
+    }
+
+    bids.sort_by(|a, b| {
+        let pa = a.get("price").and_then(Value::as_f64).unwrap_or(0.0);
+        let pb = b.get("price").and_then(Value::as_f64).unwrap_or(0.0);
+        pb.partial_cmp(&pa).unwrap_or(std::cmp::Ordering::Equal)
+    });
+    asks.sort_by(|a, b| {
+        let pa = a.get("price").and_then(Value::as_f64).unwrap_or(0.0);
+        let pb = b.get("price").and_then(Value::as_f64).unwrap_or(0.0);
+        pa.partial_cmp(&pb).unwrap_or(std::cmp::Ordering::Equal)
+    });
+
+    let mut bid_cum = 0.0;
+    for b in &mut bids {
+        let amt = b.get("amount").and_then(Value::as_f64).unwrap_or(0.0);
+        bid_cum += amt;
+        b.as_object_mut().unwrap().insert("total".to_string(), json!(bid_cum));
+    }
+    let mut ask_cum = 0.0;
+    for a in &mut asks {
+        let amt = a.get("amount").and_then(Value::as_f64).unwrap_or(0.0);
+        ask_cum += amt;
+        a.as_object_mut().unwrap().insert("total".to_string(), json!(ask_cum));
+    }
+
+    Ok(json!({ "bids": bids, "asks": asks }))
+}
+
+fn api_trades(req: &mut Request, state: &Mutex<AppState>) -> Result<Value> {
+    let url = req.url().to_string();
+    let limit = url.split('?').nth(1).unwrap_or("")
+        .split('&').find_map(|kv| {
+            let (k, v) = kv.split_once('=')?;
+            if k == "limit" { v.parse::<usize>().ok() } else { None }
+        }).unwrap_or(50);
+
+    let st = state.lock().unwrap();
+    let records: Vec<Value> = st.history.iter().rev().take(limit).map(|r| {
+        let side = if r.to_ticker == "L-BTC" || r.to_ticker == "BTC" { "buy" } else { "sell" };
+        let price = if r.to_amount > 0 { r.from_amount as f64 / r.to_amount as f64 } else { 0.0 };
+        let dt = format_timestamp(r.timestamp);
+        json!({
+            "price": (price * 100.0).round() / 100.0,
+            "amount": r.to_amount as f64 / 1e8,
+            "side": side,
+            "time": dt,
+        })
+    }).collect();
+    Ok(json!(records))
+}
+
+fn api_chart(req: &mut Request, _state: &Mutex<AppState>) -> Result<Value> {
+    let url = req.url().to_string();
+    let tf = url.split('?').nth(1).unwrap_or("")
+        .split('&').find_map(|kv| {
+            let (k, v) = kv.split_once('=')?;
+            if k == "tf" { Some(v.to_string()) } else { None }
+        }).unwrap_or_else(|| "1h".to_string());
+
+    let limit = url.split('?').nth(1).unwrap_or("")
+        .split('&').find_map(|kv| {
+            let (k, v) = kv.split_once('=')?;
+            if k == "limit" { v.parse::<usize>().ok() } else { None }
+        }).unwrap_or(200);
+
+    let seconds_per_candle: i64 = match tf.as_str() {
+        "1m" => 60, "15m" => 900, "1h" => 3600,
+        "4h" => 14400, "1d" => 86400, "1w" => 604800,
+        _ => 3600,
+    };
+
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH).unwrap().as_secs() as i64;
+
+    let base_price = BTC_USDT;
+    let mut candles = Vec::new();
+    let mut price = base_price;
+
+    for i in (0..limit as i64).rev() {
+        let time = (now - i * seconds_per_candle) * 1000;
+        let volatility = price * 0.005;
+        let change = (i * 7919 % 100) as f64 / 100.0 * volatility * 2.0 - volatility;
+        let open = price;
+        let close = price + change;
+        let high = open.max(close) + volatility * 0.3;
+        let low = open.min(close) - volatility * 0.3;
+        let volume = (i * 104729 % 1000) as f64 + 100.0;
+        candles.push(json!({
+            "time": time,
+            "open": (open * 100.0).round() / 100.0,
+            "high": (high * 100.0).round() / 100.0,
+            "low": (low * 100.0).round() / 100.0,
+            "close": (close * 100.0).round() / 100.0,
+            "volume": (volume * 100.0).round() / 100.0,
+        }));
+        price = close;
+    }
+
+    Ok(json!(candles))
+}
+
+fn api_depth(_req: &mut Request, state: &Mutex<AppState>) -> Result<Value> {
+    let st = state.lock().unwrap();
+    let lbtc = if let Some(ref lwk) = st.lwk {
+        lwk.policy_asset().unwrap_or_default()
+    } else {
+        node().policy_asset().unwrap_or_default()
+    };
+
+    let mut bid_points: Vec<(f64, f64)> = Vec::new();
+    let mut ask_points: Vec<(f64, f64)> = Vec::new();
+
+    for offer in &st.offers {
+        let mut ab = offer.tessera.asset_b.to_vec();
+        ab.reverse();
+        let asset_b = hex::encode(ab);
+        let lock_name = id_to_name(&st.assets, &offer.asset_a, &lbtc);
+        let want_name = id_to_name(&st.assets, &asset_b, &lbtc);
+
+        if offer.amount_a == 0 { continue; }
+
+        if lock_name == "L-BTC" && (want_name == "USDT" || want_name == "EURx") {
+            let price = offer.tessera.amount_b as f64 / offer.amount_a as f64;
+            let price = (price * 100.0).round() / 100.0;
+            ask_points.push((price, offer.amount_a as f64 / 1e8));
+        } else if (lock_name == "USDT" || lock_name == "EURx") && want_name == "L-BTC" {
+            let price = offer.amount_a as f64 / offer.tessera.amount_b as f64;
+            let price = (price * 100.0).round() / 100.0;
+            bid_points.push((price, offer.tessera.amount_b as f64 / 1e8));
+        }
+    }
+
+    bid_points.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
+    ask_points.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
+
+    let mut points: Vec<Value> = Vec::new();
+    let mut cum = 0.0;
+    for (price, amt) in bid_points {
+        cum += amt;
+        points.push(json!({ "price": price, "bidDepth": cum, "askDepth": 0 }));
+    }
+    cum = 0.0;
+    for (price, amt) in ask_points {
+        cum += amt;
+        points.push(json!({ "price": price, "bidDepth": 0, "askDepth": cum }));
+    }
+
+    points.sort_by(|a, b| {
+        let pa = a.get("price").and_then(Value::as_f64).unwrap_or(0.0);
+        let pb = b.get("price").and_then(Value::as_f64).unwrap_or(0.0);
+        pa.partial_cmp(&pb).unwrap_or(std::cmp::Ordering::Equal)
+    });
+
+    Ok(json!(points))
+}
+
+fn api_user_orders(state: &Mutex<AppState>) -> Result<Value> {
+    let st = state.lock().unwrap();
+    let lbtc = if let Some(ref lwk) = st.lwk {
+        lwk.policy_asset().unwrap_or_default()
+    } else {
+        node().policy_asset().unwrap_or_default()
+    };
+
+    let orders: Vec<Value> = st.offers.iter().enumerate().map(|(i, o)| {
+        let mut ab = o.tessera.asset_b.to_vec();
+        ab.reverse();
+        let asset_b = hex::encode(ab);
+        let lock_name = id_to_name(&st.assets, &o.asset_a, &lbtc);
+        let want_name = id_to_name(&st.assets, &asset_b, &lbtc);
+        let is_sell = lock_name == "L-BTC";
+        let price = if is_sell {
+            if o.amount_a > 0 { (o.tessera.amount_b as f64 / o.amount_a as f64 * 100.0).round() / 100.0 } else { 0.0 }
+        } else {
+            if o.tessera.amount_b > 0 { (o.amount_a as f64 / o.tessera.amount_b as f64 * 100.0).round() / 100.0 } else { 0.0 }
+        };
+        let pair = format!("{}/{}", lock_name, want_name);
+        let typ = if is_sell { "SELL" } else { "BUY" };
+        let amount = if is_sell { o.amount_a as f64 / 1e8 } else { o.tessera.amount_b as f64 / 1e8 };
+        let total = if is_sell { o.tessera.amount_b as f64 / 1e8 } else { o.amount_a as f64 / 1e8 };
+        json!({
+            "id": i, "type": typ, "pair": pair, "price": price,
+            "amount": amount, "filled": 0.0, "total": total,
+            "status": "open", "outpoint": o.outpoint,
+        })
+    }).collect();
+
+    Ok(json!(orders))
+}
+
+fn api_cancel(req: &mut Request, state: &Mutex<AppState>) -> Result<Value> {
+    api_reclaim(req, state)
 }

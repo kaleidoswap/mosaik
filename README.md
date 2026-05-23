@@ -187,7 +187,7 @@ tools/elementsd -version | head -1
 `hal-simplicity` must be on `PATH` (step 2 puts it in `~/.cargo/bin`), or set
 `HAL_SIMPLICITY=/path/to/hal-simplicity`.
 
-## Run
+## Run — regtest (local, full demo)
 
 ```sh
 # 1. start a local Elements regtest with the Simplicity-capable node
@@ -218,11 +218,9 @@ In the UI:
 To populate the book with offers from several makers, run
 `./scripts/demo-seed.sh` while the server is up.
 
-Stop everything with `./scripts/regtest.sh down` and `pkill -f 'mosaik serve'`.
+Stop everything: `./scripts/regtest.sh down` and `pkill -f 'mosaik serve'`.
 
-### CLI
-
-The same flow without the browser:
+### CLI (no browser)
 
 ```sh
 cargo run -p mosaik-cli -- --help
@@ -232,9 +230,64 @@ cargo run -p mosaik-cli -- take-offer --offer offer.json
 cargo run -p mosaik-cli -- serve-relay --port 7777   # local Nostr orderbook
 ```
 
-The Simplicity contract itself is developed in
-**[Blockstream/simplicity-codespace](https://github.com/Blockstream/simplicity-codespace)** —
-see [`crates/tessera/contracts/tessera.simf`](crates/tessera/contracts/tessera.simf).
+## Run — Liquid testnet (local node, full demo)
+
+The same UI as regtest, pointed at a local Liquid testnet `elementsd`. The
+treasury is bootstrapped from the public testnet faucet; the demo assets
+(USDT, EURx) are issued once and persisted to `.testnet/assets.json`. From
+then on, the experience is identical to regtest — except blocks arrive on
+their own schedule (~1 min/block) instead of being mined on demand.
+
+### One-time bootstrap
+
+```sh
+# 1. Start elementsd on liquidtestnet and create the three wallets.
+#    Idempotent — re-run to recheck sync progress. First sync takes 15–30 min.
+export ELEMENTSD_EXEC="$PWD/tools/elementsd"
+./scripts/testnet.sh up
+
+# 2. Once the chain is synced, hit the faucet for the treasury wallet,
+#    then issue the demo test assets (USDT, EURx).
+./scripts/testnet.sh fund
+```
+
+`fund` is idempotent: it tops up the treasury with one faucet drop (~100k
+sats of L-BTC), then issues USDT/EURx **only on first run** and persists the
+resulting asset ids to `.testnet/assets.json`. Subsequent runs just refill
+the treasury.
+
+### Running the demo
+
+```sh
+# Serve the UI on http://127.0.0.1:8081
+./scripts/testnet.sh serve
+
+# Open it in a browser
+open http://127.0.0.1:8081
+```
+
+The flow is identical to regtest (Fund maker / Fund taker / Make offer /
+Take offer / Attack / Reclaim / View covenant), with two notes:
+
+- **Funding sends smaller amounts.** The treasury only holds one faucet drop,
+  so Fund maker / Fund taker each move 0.001 L-BTC + 100 USDT + 100 EURx
+  (vs 1 L-BTC + 100 of each on regtest).
+- **Wait for confirmations.** Every action takes ~1 min to confirm on testnet
+  because the network mines, not us. The wallet UI polls every 15s and
+  balances update once the tx confirms.
+
+### Other commands
+
+```sh
+./scripts/testnet.sh cli getblockchaininfo   # passthrough to elements-cli
+./scripts/testnet.sh down                    # stop the node
+```
+
+### Faucet hints
+
+`https://liquidtestnet.com/faucet` is shared infrastructure. If `fund`
+errors out, the faucet is likely rate-limiting your IP. Visit the URL in a
+browser to confirm, then retry.
 
 ## References
 
