@@ -1,6 +1,6 @@
-# Mosaik — Industrialization Plan
+# Mosaik — Covenant-DEX Platform Plan
 
-**Branch:** `feat/industrialize-covenant-dex`
+**Branch:** `feat/covenant-dex-platform`
 **Companion docs:** `docs/BANCO_INTEGRATION_PLAN.md` (backend pivot details)
 
 ## Context
@@ -11,7 +11,7 @@ binary, one settlement backend. The product thesis has since broadened: the
 `OfferKind` abstraction now spans **multiple keyless-covenant L2s** (Liquid
 today; Arkade via banco next; Bitcoin L1 once it gains covenant opcodes).
 
-This plan industrialises Mosaik into a small, multi-service **covenant-DEX
+This plan grows Mosaik into a small, multi-service **covenant-DEX
 platform**: real services with their own images, a Vite SPA frontend, a
 purpose-built Nostr relay as part of the project (not an external dependency),
 the banco backend on Mutinynet, and a docker-compose that brings the whole
@@ -31,7 +31,7 @@ thing up reproducibly.
 - **Frontend as a real product** — a Vite SPA delivered as an `nginx:alpine`
   image, talking to the mosaik-api over JSON-REST + a Nostr WS subscription
   for live order updates.
-- **Industrial hygiene** — CI on every PR, ghcr-published images on tag,
+- **Production hygiene** — CI on every PR, ghcr-published images on tag,
   pinned upstream versions, integration tests against a live mutinynet stack
   in nightly CI.
 
@@ -99,7 +99,7 @@ mosaik/
 ├── docs/
 │   ├── ARCHITECTURE.md       # NEW — service map + sequence diagrams
 │   ├── BANCO_INTEGRATION_PLAN.md
-│   ├── INDUSTRIALIZATION_PLAN.md
+│   ├── PLATFORM_PLAN.md
 │   ├── PROTOCOL.md           # NEW — Nostr kind-30050 spec + OfferKind schema
 │   └── existing hackathon docs
 └── .github/workflows/        # NEW — CI per service
@@ -149,7 +149,7 @@ mosaik/
 ### 3. `services/mosaik-relay-server` (NEW — Nostr relay)
 
 A purpose-built Nostr relay shipped as part of Mosaik. Two options; we pick
-B for industrial use:
+B for production use:
 
 - **A.** Keep `mosaik_relay::run_local_relay` (built on `nostr-relay-builder`)
   as the in-process demo relay. Fine for tests; not for production.
@@ -257,7 +257,7 @@ keys. Mutinynet wallet seeds are dev-only and clearly marked `regtest-only`.
 ## Migration plan (phased)
 
 ### Phase 0 — branch hygiene (this PR)
-- [x] Branch `feat/industrialize-covenant-dex` cut from `main`.
+- [x] Branch `feat/covenant-dex-platform` cut from `main`.
 - [x] `docs/BANCO_INTEGRATION_PLAN.md` carried over.
 - [x] This document.
 
@@ -367,4 +367,4 @@ service of. Three claims:
    maker-can-go-offline sibling. That's the moat.
 
 Everything in Phases 1–7 exists to make Phase 8 plausible. The
-industrialisation is the foundation, the cross-chain swap is the building.
+platform is the foundation, the cross-chain swap is the building.
