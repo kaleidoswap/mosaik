@@ -33,6 +33,27 @@ services:
     # probe (no curl in the slim image). A real readiness probe lives in the
     # /healthz endpoint and is what orchestrators (k8s, etc.) should hit.
 
+  # ─── mosaik-webapp ─────────────────────────────────────────────────────────
+  # Vite SPA served by nginx. Reverse-proxies /api and /healthz to
+  # mosaik-api on the docker network — the env vars below let the same
+  # image talk to a different upstream in a non-compose deployment.
+  mosaik-webapp:
+    image: ${MOSAIK_WEBAPP_IMAGE}
+    build:
+      context: ../webapp
+      dockerfile: Dockerfile
+    container_name: mosaik-webapp
+    restart: unless-stopped
+    depends_on:
+      - mosaik-api
+    ports:
+      - "5173:80"
+    environment:
+      MOSAIK_API_HOST: mosaik-api
+      MOSAIK_API_PORT: "8080"
+    networks:
+      - mosaik
+
   # ─── mosaik-relay-server ───────────────────────────────────────────────────
   # A curated nostr-rs-relay restricted to kinds 30050 / 30051 / 5 — the
   # covenant DEX protocol. Schema validation of offer JSON happens at the

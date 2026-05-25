@@ -32,10 +32,12 @@ use tower_http::{cors::CorsLayer, trace::TraceLayer};
 pub mod handlers;
 pub use handlers::AppState;
 
-/// The single-page wallet UI, baked into the binary. Phase 5 replaces this
-/// with a separate Vite SPA image; for now it ships with the API so the
-/// existing demo keeps working.
-const INDEX_HTML: &str = include_str!("../../../webapp/index.html");
+/// The hackathon-era vanilla-HTML wallet UI, baked into the binary. The
+/// new Vite SPA lives in `webapp/` and ships as its own `mosaik-webapp`
+/// service; this legacy build is kept embedded one release longer so a
+/// bare `mosaik-api` container still serves a usable demo with no extra
+/// services attached.
+const INDEX_HTML: &str = include_str!("../../../webapp-legacy/index.html");
 
 type SharedState = Arc<Mutex<AppState>>;
 

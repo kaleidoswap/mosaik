@@ -1,0 +1,57 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply min-h-screen antialiased;
+    background:
+      radial-gradient(1200px 600px at 80% -20%, rgba(94, 231, 223, 0.08), transparent),
+      radial-gradient(900px 500px at 0% 110%, rgba(167, 139, 250, 0.08), transparent),
+      theme('colors.ink.900');
+  }
+  ::selection {
+    background: rgba(94, 231, 223, 0.25);
+  }
+}
+
+@layer components {
+  .panel {
+    @apply rounded-xl border border-ink-500/60 bg-ink-700/40 backdrop-blur-sm;
+  }
+  .panel-header {
+    @apply flex items-center justify-between border-b border-ink-500/60 px-4 py-2.5;
+  }
+  .panel-title {
+    @apply text-xs font-mono uppercase tracking-widest text-zinc-400;
+  }
+  .chip {
+    @apply inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[10px] font-mono uppercase tracking-wider;
+  }
+  .chip-liquid {
+    @apply chip bg-mosaic-cyan/15 text-mosaic-cyan ring-1 ring-mosaic-cyan/30;
+  }
+  .chip-banco {
+    @apply chip bg-mosaic-violet/15 text-mosaic-violet ring-1 ring-mosaic-violet/30;
+  }
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 rounded-md px-3 py-1.5 text-sm font-medium transition;
+  }
+  .btn-primary {
+    @apply btn bg-mosaic-cyan/90 text-ink-900 hover:bg-mosaic-cyan shadow-glow;
+  }
+  .btn-secondary {
+    @apply btn bg-ink-500/60 text-zinc-100 hover:bg-ink-500 ring-1 ring-ink-400/40;
+  }
+  .input {
+    @apply w-full rounded-md border border-ink-500/60 bg-ink-800/80 px-2.5 py-1.5 text-sm
+           text-zinc-100 placeholder-zinc-500 focus:border-mosaic-cyan/60 focus:outline-none;
+  }
+  .label {
+    @apply block text-[11px] font-mono uppercase tracking-wider text-zinc-400 mb-1;
+  }
+  .pill {
+    @apply rounded-full px-2 py-0.5 text-[10px] font-mono uppercase tracking-wider
+           bg-ink-500/60 text-zinc-300 ring-1 ring-ink-400/40;
+  }
+}

@@ -24,9 +24,13 @@ docker/**/.env
 webapp/node_modules/
 webapp/dist/
 webapp/.vite/
+# tsc -b can leak .js siblings into src/ if tsconfig forgets noEmit
+webapp/src/**/*.js
+webapp/src/**/*.js.map
 
 # TypeScript services
 services/**/node_modules/
 services/**/dist/
 services/**/.tsbuildinfo
 services/**/*.log
+webapp/vite.config.js

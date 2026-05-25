@@ -50,7 +50,15 @@ logs: ## Follow logs for one service: make logs SERVICE=arkd
 ## ─── image builds ───────────────────────────────────────────────────────────
 
 .PHONY: build-images
-build-images: build-mosaik-api build-mosaik-relay build-banco-proxy ## Build all first-party Mosaik images
+build-images: build-mosaik-api build-mosaik-relay build-banco-proxy build-mosaik-webapp ## Build all first-party Mosaik images
+
+.PHONY: build-mosaik-webapp
+build-mosaik-webapp: ## Build mosaik-webapp:dev image (Vite SPA + nginx)
+	docker build -f webapp/Dockerfile -t mosaik-webapp:dev webapp
+
+.PHONY: webapp-dev
+webapp-dev: ## Run the webapp Vite dev server on :5173 (proxies to mosaik-api on :8080)
+	cd webapp && npm install && npm run dev
 
 .PHONY: build-banco-proxy
 build-banco-proxy: ## Build banco-proxy:dev image
