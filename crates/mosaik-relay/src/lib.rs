@@ -60,9 +60,7 @@ impl TesseraOffer {
             .tag(custom_tag("covenant_utxo", &self.offer.outpoint))
             .tag(custom_tag("expiry", &self.expiry.to_string()));
 
-        builder
-            .sign_with_keys(keys)
-            .context("signing offer event")
+        builder.sign_with_keys(keys).context("signing offer event")
     }
 
     /// Parse a Tessera offer from a Nostr event.
@@ -160,11 +158,7 @@ mod tests {
     fn offer_carries_filterable_tags() {
         let keys = Keys::generate();
         let event = sample_offer().to_event(&keys).unwrap();
-        let tag_values: Vec<String> = event
-            .tags
-            .iter()
-            .flat_map(|t| t.clone().to_vec())
-            .collect();
+        let tag_values: Vec<String> = event.tags.iter().flat_map(|t| t.clone().to_vec()).collect();
         assert!(tag_values.iter().any(|v| v == "order-001"));
         assert!(tag_values.iter().any(|v| v == "BTC"));
         assert!(tag_values.iter().any(|v| v.contains(':')));

@@ -23,7 +23,9 @@ enum Backend {
 
 #[derive(Parser)]
 #[command(name = "mosaik")]
-#[command(about = "Mosaik — a DEX on Liquid where every order is a Tessera, a self-enforcing Simplicity covenant")]
+#[command(
+    about = "Mosaik — a DEX on Liquid where every order is a Tessera, a self-enforcing Simplicity covenant"
+)]
 struct Cli {
     #[command(subcommand)]
     command: Command,
@@ -278,20 +280,13 @@ fn main() -> Result<()> {
             ttl,
         } => publish_offer(&offer, &relay, &order_id, ttl),
         Command::BrowseOffers { relay } => browse_offers(&relay),
-        Command::ServeRelay { port } => {
-            block_on(mosaik_relay::run_local_relay(port))
-        }
+        Command::ServeRelay { port } => block_on(mosaik_relay::run_local_relay(port)),
         Command::ServeWallet { port } => block_on(mosaik_api::run(port)),
     }
 }
 
 /// Maker: fund a covenant UTXO on the regtest, print the offer JSON to stdout.
-fn make_offer(
-    amount_a: u64,
-    amount_b: u64,
-    asset_b: Option<&str>,
-    timeout: u32,
-) -> Result<()> {
+fn make_offer(amount_a: u64, amount_b: u64, asset_b: Option<&str>, timeout: u32) -> Result<()> {
     use mosaik_core::{lbtc_tessera, rpc::ElementsRpc, tessera_for, MakeOffer, MosaikMaker};
 
     let rpc = ElementsRpc::regtest_wallet();
@@ -308,7 +303,8 @@ fn make_offer(
     eprintln!("  locked        : {} sats L-BTC", offer.amount_a);
     eprintln!(
         "  maker wants   : {} sats paid to {}",
-        offer.tessera()?.amount_b, offer.maker_address
+        offer.tessera()?.amount_b,
+        offer.maker_address
     );
     println!("{}", serde_json::to_string(&offer)?);
     Ok(())
@@ -392,9 +388,10 @@ fn browse_offers(relay: &str) -> Result<()> {
             use mosaik_core::OfferKind;
             let (amount_b, asset_label) = match &o.offer.kind {
                 OfferKind::Liquid(t) => (t.amount_b, hex::encode(&t.asset_b[..4])),
-                OfferKind::Banco(b) => {
-                    (b.want_amount, b.want_asset.clone().unwrap_or_else(|| "BTC".into()))
-                }
+                OfferKind::Banco(b) => (
+                    b.want_amount,
+                    b.want_asset.clone().unwrap_or_else(|| "BTC".into()),
+                ),
             };
             println!(
                 "  [{}] {} ({}) {} of {}  →  wants {} of asset {}  ({})",
@@ -424,8 +421,7 @@ fn unix_now() -> u64 {
 
 /// Read and parse an offer JSON file.
 fn read_offer(path: &str) -> Result<mosaik_core::Offer> {
-    let json = std::fs::read_to_string(path)
-        .map_err(|e| anyhow::anyhow!("reading {path}: {e}"))?;
+    let json = std::fs::read_to_string(path).map_err(|e| anyhow::anyhow!("reading {path}: {e}"))?;
     serde_json::from_str(&json).map_err(|e| anyhow::anyhow!("parsing {path}: {e}"))
 }
 

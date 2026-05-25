@@ -62,12 +62,18 @@ pub struct AppState {
 
 impl AppState {
     pub fn new() -> Self {
-        Self { offers: Vec::new(), assets: BTreeMap::new(), trades: Vec::new() }
+        Self {
+            offers: Vec::new(),
+            assets: BTreeMap::new(),
+            trades: Vec::new(),
+        }
     }
 }
 
 impl Default for AppState {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 fn treasury() -> ElementsRpc {
@@ -140,7 +146,10 @@ fn id_to_name(assets: &BTreeMap<String, String>, id: &str, lbtc: &str) -> String
 }
 
 fn now_secs() -> u64 {
-    SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0)
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
 }
 
 fn wallet_snapshot(rpc: &ElementsRpc, assets: &BTreeMap<String, String>) -> Result<Value> {
@@ -206,7 +215,10 @@ pub fn api_state(state: &Mutex<AppState>) -> Result<Value> {
 
     let mut wallets = serde_json::Map::new();
     for (label, wname, _) in MAKERS {
-        wallets.insert(label.to_string(), wallet_snapshot(&wallet_rpc(wname), &assets)?);
+        wallets.insert(
+            label.to_string(),
+            wallet_snapshot(&wallet_rpc(wname), &assets)?,
+        );
     }
 
     Ok(json!({
@@ -246,8 +258,14 @@ pub fn api_fund(body: &Value, state: &Mutex<AppState>) -> Result<Value> {
 }
 
 pub fn api_make_offer(body: &Value, state: &Mutex<AppState>) -> Result<Value> {
-    let amount_a = body.get("amount_a").and_then(Value::as_u64).ok_or_else(|| anyhow!("amount_a"))?;
-    let amount_b = body.get("amount_b").and_then(Value::as_u64).ok_or_else(|| anyhow!("amount_b"))?;
+    let amount_a = body
+        .get("amount_a")
+        .and_then(Value::as_u64)
+        .ok_or_else(|| anyhow!("amount_a"))?;
+    let amount_b = body
+        .get("amount_b")
+        .and_then(Value::as_u64)
+        .ok_or_else(|| anyhow!("amount_b"))?;
     let timeout = body.get("timeout").and_then(Value::as_u64).unwrap_or(500) as u32;
     let lock = body.get("lock").and_then(Value::as_str).unwrap_or("BTC");
     let want = body.get("want").and_then(Value::as_str).unwrap_or("USDT");
@@ -269,9 +287,13 @@ pub fn api_make_offer(body: &Value, state: &Mutex<AppState>) -> Result<Value> {
         tessera_for(&rpc, &maker_address, &want_id, amount_b, timeout)?
     };
 
-    let lock_label =
-        if lock == "BTC" { "BTC".to_string() } else { label_to_id(&assets, lock, &lbtc)? };
-    let offer = MosaikMaker::new(rpc).make_offer(&lock_label, amount_a, &tessera, &maker_address)?;
+    let lock_label = if lock == "BTC" {
+        "BTC".to_string()
+    } else {
+        label_to_id(&assets, lock, &lbtc)?
+    };
+    let offer =
+        MosaikMaker::new(rpc).make_offer(&lock_label, amount_a, &tessera, &maker_address)?;
 
     let index = { state.lock().unwrap().offers.len() };
     let order_id = format!("mosaik-{maker}-{index}");
@@ -310,14 +332,20 @@ pub fn api_make_offer(body: &Value, state: &Mutex<AppState>) -> Result<Value> {
 }
 
 pub fn api_take_offer(body: &Value, state: &Mutex<AppState>) -> Result<Value> {
-    let index = body.get("index").and_then(Value::as_u64).ok_or_else(|| anyhow!("index"))? as usize;
+    let index = body
+        .get("index")
+        .and_then(Value::as_u64)
+        .ok_or_else(|| anyhow!("index"))? as usize;
     let cheat = Cheat::parse(body.get("cheat").and_then(Value::as_str).unwrap_or("none"));
     let taker_label = body.get("taker").and_then(Value::as_str).unwrap_or("user");
     let (_, taker_wallet, _) = maker_entry(taker_label)?;
 
     let listed = {
         let st = state.lock().unwrap();
-        st.offers.get(index).cloned().ok_or_else(|| anyhow!("no offer #{index}"))?
+        st.offers
+            .get(index)
+            .cloned()
+            .ok_or_else(|| anyhow!("no offer #{index}"))?
     };
     let offer = listed.offer.clone();
 
@@ -334,7 +362,11 @@ pub fn api_take_offer(body: &Value, state: &Mutex<AppState>) -> Result<Value> {
             let asset_b = hex::encode(ab);
             let amount_a = offer.amount_a;
             let amount_b = tessera.amount_b;
-            let rate = if amount_a > 0 { amount_b as f64 / amount_a as f64 } else { 0.0 };
+            let rate = if amount_a > 0 {
+                amount_b as f64 / amount_a as f64
+            } else {
+                0.0
+            };
 
             let mut st = state.lock().unwrap();
             let lock_name = id_to_name(&st.assets, &offer.asset_a, &lbtc);
@@ -377,13 +409,22 @@ pub fn api_take_offer(body: &Value, state: &Mutex<AppState>) -> Result<Value> {
 }
 
 pub fn api_reclaim(body: &Value, state: &Mutex<AppState>) -> Result<Value> {
-    let index = body.get("index").and_then(Value::as_u64).ok_or_else(|| anyhow!("index"))? as usize;
+    let index = body
+        .get("index")
+        .and_then(Value::as_u64)
+        .ok_or_else(|| anyhow!("index"))? as usize;
 
     let listed = {
         let st = state.lock().unwrap();
-        st.offers.get(index).cloned().ok_or_else(|| anyhow!("no offer #{index}"))?
+        st.offers
+            .get(index)
+            .cloned()
+            .ok_or_else(|| anyhow!("no offer #{index}"))?
     };
-    let sweeper = body.get("wallet").and_then(Value::as_str).unwrap_or(listed.maker);
+    let sweeper = body
+        .get("wallet")
+        .and_then(Value::as_str)
+        .unwrap_or(listed.maker);
     let (_, wallet, _) = maker_entry(sweeper)?;
 
     let txid = MosaikMaker::new(wallet_rpc(wallet)).reclaim(&listed.offer)?;
@@ -397,11 +438,17 @@ pub fn api_reclaim(body: &Value, state: &Mutex<AppState>) -> Result<Value> {
 }
 
 pub fn api_contract(body: &Value, state: &Mutex<AppState>) -> Result<Value> {
-    let index = body.get("index").and_then(Value::as_u64).ok_or_else(|| anyhow!("index"))? as usize;
+    let index = body
+        .get("index")
+        .and_then(Value::as_u64)
+        .ok_or_else(|| anyhow!("index"))? as usize;
 
     let listed = {
         let st = state.lock().unwrap();
-        st.offers.get(index).cloned().ok_or_else(|| anyhow!("no offer #{index}"))?
+        st.offers
+            .get(index)
+            .cloned()
+            .ok_or_else(|| anyhow!("no offer #{index}"))?
     };
     let offer = &listed.offer;
     let tessera = offer.tessera()?;

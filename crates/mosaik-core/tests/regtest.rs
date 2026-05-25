@@ -34,13 +34,15 @@ fn two_asset_offer(rpc: &ElementsRpc, amount_b: u64) -> (Offer, String) {
     rpc.generate(1).expect("confirm issuance");
 
     // A Tessera settlement must spend an explicit asset input.
-    let unconf = rpc.new_unconfidential_address().expect("unconfidential address");
-    rpc.send_asset_to(&unconf, 50.0, &asset).expect("explicit asset UTXO");
+    let unconf = rpc
+        .new_unconfidential_address()
+        .expect("unconfidential address");
+    rpc.send_asset_to(&unconf, 50.0, &asset)
+        .expect("explicit asset UTXO");
     rpc.generate(1).expect("confirm asset UTXO");
 
     let maker_addr = rpc.new_unconfidential_address().expect("maker address");
-    let tessera = tessera_for(rpc, &maker_addr, &asset, amount_b, 500)
-        .expect("build tessera");
+    let tessera = tessera_for(rpc, &maker_addr, &asset, amount_b, 500).expect("build tessera");
     let offer = MosaikMaker::regtest()
         .make_offer("BTC", 1_000_000, &tessera, &maker_addr)
         .expect("make_offer");
@@ -111,7 +113,10 @@ fn make_offer_funds_a_real_covenant_utxo() {
     let txout = rpc
         .call("gettxout", json!([txid, vout.parse::<u64>().unwrap()]))
         .expect("gettxout");
-    assert!(!txout.is_null(), "covenant UTXO must be present in the UTXO set");
+    assert!(
+        !txout.is_null(),
+        "covenant UTXO must be present in the UTXO set"
+    );
 
     let value_btc = txout.get("value").and_then(|v| v.as_f64()).unwrap_or(0.0);
     assert!(
@@ -129,22 +134,33 @@ fn take_offer_settles_and_pays_the_maker() {
     let (offer, asset) = two_asset_offer(&rpc, amount_b);
 
     // Taker fills it — spends the covenant UTXO via SETTLE.
-    let txid = MosaikTaker::regtest().take_offer(&offer).expect("take_offer");
+    let txid = MosaikTaker::regtest()
+        .take_offer(&offer)
+        .expect("take_offer");
     assert_eq!(txid.len(), 64);
     rpc.generate(1).expect("confirm settlement");
 
     // The covenant UTXO is now spent.
     let (cov_txid, cov_vout) = offer.outpoint.split_once(':').unwrap();
     let spent = rpc
-        .call("gettxout", json!([cov_txid, cov_vout.parse::<u64>().unwrap()]))
+        .call(
+            "gettxout",
+            json!([cov_txid, cov_vout.parse::<u64>().unwrap()]),
+        )
         .expect("gettxout");
-    assert!(spent.is_null(), "covenant UTXO must be spent after take_offer");
+    assert!(
+        spent.is_null(),
+        "covenant UTXO must be spent after take_offer"
+    );
 
     // The settlement tx's output 0 paid the maker exactly 3.0 of the asset.
     let settle = rpc.raw_transaction(&txid).expect("settlement tx");
     let out0 = &settle.get("vout").and_then(|v| v.as_array()).unwrap()[0];
     let paid = out0.get("value").and_then(|v| v.as_f64()).unwrap_or(0.0);
-    assert!((paid - 3.0).abs() < 1e-8, "maker output should be 3.0 units, got {paid}");
+    assert!(
+        (paid - 3.0).abs() < 1e-8,
+        "maker output should be 3.0 units, got {paid}"
+    );
     assert_eq!(
         out0.get("asset").and_then(|v| v.as_str()),
         Some(asset.as_str()),
@@ -170,7 +186,9 @@ fn covenant_rejects_cheating_settlements() {
     }
 
     // The offer is still fillable honestly after the failed attacks.
-    let txid = MosaikTaker::regtest().take_offer(&offer).expect("honest take_offer");
+    let txid = MosaikTaker::regtest()
+        .take_offer(&offer)
+        .expect("honest take_offer");
     assert_eq!(txid.len(), 64);
 }
 
@@ -181,23 +199,23 @@ fn reclaim_returns_the_locked_lbtc_after_the_timeout() {
     // An L-BTC-locked offer refundable from height 1 — i.e. immediately.
     let maker_addr = rpc.new_unconfidential_address().expect("maker address");
     let lbtc = rpc.policy_asset().expect("policy asset");
-    let tessera = tessera_for(&rpc, &maker_addr, &lbtc, 600_000, 1)
-        .expect("build tessera");
+    let tessera = tessera_for(&rpc, &maker_addr, &lbtc, 600_000, 1).expect("build tessera");
     let offer = MosaikMaker::regtest()
         .make_offer("BTC", 1_000_000, &tessera, &maker_addr)
         .expect("make_offer");
 
     // The maker reclaims via the covenant's REFUND path.
-    let txid = MosaikMaker::regtest()
-        .reclaim(&offer)
-        .expect("reclaim");
+    let txid = MosaikMaker::regtest().reclaim(&offer).expect("reclaim");
     assert_eq!(txid.len(), 64);
     rpc.generate(1).expect("confirm reclaim");
 
     // The covenant UTXO is spent.
     let (cov_txid, cov_vout) = offer.outpoint.split_once(':').unwrap();
     let spent = rpc
-        .call("gettxout", json!([cov_txid, cov_vout.parse::<u64>().unwrap()]))
+        .call(
+            "gettxout",
+            json!([cov_txid, cov_vout.parse::<u64>().unwrap()]),
+        )
         .expect("gettxout");
     assert!(spent.is_null(), "covenant UTXO must be spent after reclaim");
 
@@ -219,8 +237,8 @@ fn reclaim_rejected_before_the_timeout() {
     let height = rpc.block_count().expect("block count") as u32;
     let maker_addr = rpc.new_unconfidential_address().expect("maker address");
     let lbtc = rpc.policy_asset().expect("policy asset");
-    let tessera = tessera_for(&rpc, &maker_addr, &lbtc, 600_000, height + 10_000)
-        .expect("build tessera");
+    let tessera =
+        tessera_for(&rpc, &maker_addr, &lbtc, 600_000, height + 10_000).expect("build tessera");
     let offer = MosaikMaker::regtest()
         .make_offer("BTC", 1_000_000, &tessera, &maker_addr)
         .expect("make_offer");

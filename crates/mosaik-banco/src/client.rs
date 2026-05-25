@@ -153,7 +153,9 @@ impl BancoClient {
     /// `POST /banco/maker/offer` — build, fund, and publish a banco offer.
     pub fn create_offer(&self, req: &CreateOfferRequest) -> Result<BuiltOffer> {
         let body = serde_json::to_value(req)?;
-        Ok(serde_json::from_value(self.post_json("/banco/maker/offer", body)?)?)
+        Ok(serde_json::from_value(
+            self.post_json("/banco/maker/offer", body)?,
+        )?)
     }
 
     /// `POST /banco/maker/cancel` — cancel an offer (after its `cancel_delay`).
@@ -169,8 +171,9 @@ impl BancoClient {
 
     /// `GET /banco/maker/offers?swapPkScript=…` — list this wallet's offer VTXOs.
     pub fn list_maker_offers(&self, swap_pk_script: &str) -> Result<Vec<MakerOffer>> {
-        let v = self
-            .get_json(&format!("/banco/maker/offers?swapPkScript={swap_pk_script}"))?;
+        let v = self.get_json(&format!(
+            "/banco/maker/offers?swapPkScript={swap_pk_script}"
+        ))?;
         Ok(serde_json::from_value(v)?)
     }
 

@@ -109,16 +109,22 @@ fn run_refund(timeout: u32, locked: u64, refunded: u64, lock_height: u32) -> Res
     let compiled = CompiledProgram::new(source, Arguments::default(), false)
         .map_err(|e| format!("compile: {e}"))?;
 
-    let witness: WitnessValues = serde_json::from_str(
-        r#"{ "PATH": { "value": "Right(0)", "type": "Either<u32, u32>" } }"#,
-    )
-    .map_err(|e| format!("witness: {e}"))?;
-    let satisfied = compiled.satisfy(witness).map_err(|e| format!("satisfy: {e}"))?;
+    let witness: WitnessValues =
+        serde_json::from_str(r#"{ "PATH": { "value": "Right(0)", "type": "Either<u32, u32>" } }"#)
+            .map_err(|e| format!("witness: {e}"))?;
+    let satisfied = compiled
+        .satisfy(witness)
+        .map_err(|e| format!("satisfy: {e}"))?;
 
     let env = env_for(sweep_tx(refunded, lock_height), locked);
-    let pruned = satisfied.redeem().prune(&env).map_err(|e| format!("prune: {e}"))?;
+    let pruned = satisfied
+        .redeem()
+        .prune(&env)
+        .map_err(|e| format!("prune: {e}"))?;
     let mut mac = BitMachine::for_program(&pruned).map_err(|e| format!("machine: {e}"))?;
-    mac.exec(&pruned, &env).map(|_| ()).map_err(|e| format!("run: {e}"))
+    mac.exec(&pruned, &env)
+        .map(|_| ())
+        .map_err(|e| format!("run: {e}"))
 }
 
 #[test]
@@ -139,20 +145,25 @@ fn refund_accepts_a_full_sweep_after_the_timeout() {
 #[test]
 fn refund_allows_a_fee_within_max_fee() {
     // The sweep returns 999_000 of the locked 1_000_000 — a 1_000 fee, < MAX_FEE.
-    run_refund(100, 1_000_000, 999_000, 150)
-        .expect("REFUND must allow a sweep fee within MAX_FEE");
+    run_refund(100, 1_000_000, 999_000, 150).expect("REFUND must allow a sweep fee within MAX_FEE");
 }
 
 #[test]
 fn refund_rejects_a_skimming_sweep() {
     // The sweep returns only 994_000 of 1_000_000 — a 6_000 skim, over MAX_FEE.
     let result = run_refund(100, 1_000_000, 994_000, 150);
-    assert!(result.is_err(), "REFUND must reject a skim larger than MAX_FEE");
+    assert!(
+        result.is_err(),
+        "REFUND must reject a skim larger than MAX_FEE"
+    );
 }
 
 #[test]
 fn refund_rejects_before_the_timeout() {
     // timeout 200; the tx only locks to height 150.
     let result = run_refund(200, 1_000_000, 1_000_000, 150);
-    assert!(result.is_err(), "REFUND must reject before the timeout height");
+    assert!(
+        result.is_err(),
+        "REFUND must reject before the timeout height"
+    );
 }

@@ -60,12 +60,13 @@ fn run_settle(tessera: &Tessera, output_amount: u64) -> Result<(), String> {
         .map_err(|e| format!("compile: {e}"))?;
 
     // SETTLE: PATH = Left(0) — the maker output is at index 0.
-    let witness: WitnessValues = serde_json::from_str(
-        r#"{ "PATH": { "value": "Left(0)", "type": "Either<u32, u32>" } }"#,
-    )
-    .map_err(|e| format!("witness: {e}"))?;
+    let witness: WitnessValues =
+        serde_json::from_str(r#"{ "PATH": { "value": "Left(0)", "type": "Either<u32, u32>" } }"#)
+            .map_err(|e| format!("witness: {e}"))?;
 
-    let satisfied = compiled.satisfy(witness).map_err(|e| format!("satisfy: {e}"))?;
+    let satisfied = compiled
+        .satisfy(witness)
+        .map_err(|e| format!("satisfy: {e}"))?;
 
     let env = simplicityhl::dummy_env::dummy_with_tx(tx_paying_maker(output_amount));
     let pruned = satisfied
@@ -73,19 +74,23 @@ fn run_settle(tessera: &Tessera, output_amount: u64) -> Result<(), String> {
         .prune(&env)
         .map_err(|e| format!("prune: {e}"))?;
     let mut mac = BitMachine::for_program(&pruned).map_err(|e| format!("machine: {e}"))?;
-    mac.exec(&pruned, &env).map(|_| ()).map_err(|e| format!("run: {e}"))
+    mac.exec(&pruned, &env)
+        .map(|_| ())
+        .map_err(|e| format!("run: {e}"))
 }
 
 #[test]
 fn settle_accepts_a_transaction_that_pays_the_maker() {
-    run_settle(&matching_tessera(), MAKER_AMOUNT)
-        .expect("SETTLE must accept a correct payment");
+    run_settle(&matching_tessera(), MAKER_AMOUNT).expect("SETTLE must accept a correct payment");
 }
 
 #[test]
 fn settle_rejects_a_transaction_that_underpays() {
     let result = run_settle(&matching_tessera(), MAKER_AMOUNT - 1);
-    assert!(result.is_err(), "SETTLE must reject an underpaying transaction, got {result:?}");
+    assert!(
+        result.is_err(),
+        "SETTLE must reject an underpaying transaction, got {result:?}"
+    );
 }
 
 #[test]
@@ -93,5 +98,8 @@ fn settle_rejects_payment_to_the_wrong_destination() {
     let mut tessera = matching_tessera();
     tessera.maker_spk_hash = [0xff; 32];
     let result = run_settle(&tessera, MAKER_AMOUNT);
-    assert!(result.is_err(), "SETTLE must reject payment to the wrong script, got {result:?}");
+    assert!(
+        result.is_err(),
+        "SETTLE must reject payment to the wrong script, got {result:?}"
+    );
 }

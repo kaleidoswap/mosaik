@@ -1,0 +1,136 @@
+name: ci
+
+# Runs on every PR and on pushes to long-lived branches. Each job is gated
+# so a Rust-only change doesn't waste compute on a webapp Docker rebuild.
+#
+# Security: this workflow only consumes controlled inputs (our own matrix
+# values, our own env block, source tree from checkout). No untrusted
+# event payloads (issue titles, PR bodies, commit messages) are
+# interpolated into run: scripts.
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - "feat/**"
+
+env:
+  RUST_TOOLCHAIN: "1.85"
+  NODE_VERSION: "22.12"
+  CARGO_TERM_COLOR: always
+
+permissions:
+  contents: read
+
+jobs:
+  # ─── Rust workspace ─────────────────────────────────────────────────────────
+  rust:
+    name: rust (fmt · clippy · test)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+          components: rustfmt, clippy
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: fmt --check
+        run: cargo fmt --all -- --check
+
+      - name: clippy
+        run: cargo clippy --all-targets -- -D warnings
+
+      - name: test
+        run: cargo test --workspace
+
+  # ─── banco-proxy (TypeScript) ───────────────────────────────────────────────
+  banco-proxy:
+    name: banco-proxy (typecheck · build)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: services/banco-proxy
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: services/banco-proxy/package-lock.json
+
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run build
+
+  # ─── mosaik-webapp (Vite SPA) ───────────────────────────────────────────────
+  webapp:
+    name: webapp (typecheck · build)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: webapp
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: webapp/package-lock.json
+
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run build
+
+  # ─── Compose validation ─────────────────────────────────────────────────────
+  # Fast: catches typos in versions / env-file paths without a real bring-up.
+  compose:
+    name: compose config
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: validate
+        run: |
+          docker compose --env-file docker/.versions.env \
+                         -f docker/compose.yaml \
+                         -f docker/compose.arkade-mutinynet.yaml \
+                         config --quiet
+
+  # ─── Docker image builds (no push) ──────────────────────────────────────────
+  # One job per image so failures localise. Buildx is set up but nothing is
+  # pushed — that's release.yaml's job. depends-on the language jobs so we
+  # don't burn minutes on broken source.
+  docker:
+    name: docker · ${{ matrix.image.name }}
+    runs-on: ubuntu-latest
+    needs: [rust, banco-proxy, webapp]
+    strategy:
+      fail-fast: false
+      matrix:
+        image:
+          - name: mosaik-api
+            context: .
+            dockerfile: docker/mosaik-api.Dockerfile
+          - name: mosaik-webapp
+            context: webapp
+            dockerfile: webapp/Dockerfile
+          - name: banco-proxy
+            context: services/banco-proxy
+            dockerfile: services/banco-proxy/Dockerfile
+          - name: mosaik-relay-server
+            context: services/mosaik-relay-server
+            dockerfile: services/mosaik-relay-server/Dockerfile
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.image.context }}
+          file: ${{ matrix.image.dockerfile }}
+          push: false
+          load: true
+          tags: ${{ matrix.image.name }}:ci
+          cache-from: type=gha,scope=${{ matrix.image.name }}
+          cache-to: type=gha,scope=${{ matrix.image.name }},mode=max

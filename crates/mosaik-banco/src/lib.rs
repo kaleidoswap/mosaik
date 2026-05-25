@@ -71,7 +71,10 @@ impl BancoMaker {
 
         Ok(Offer {
             outpoint: format!("{}:{}", built.funding_txid, built.funding_vout),
-            asset_a: terms.sell_asset.clone().unwrap_or_else(|| "BTC".to_string()),
+            asset_a: terms
+                .sell_asset
+                .clone()
+                .unwrap_or_else(|| "BTC".to_string()),
             amount_a: terms.sell_amount,
             kind: OfferKind::Banco(banco),
             maker_address: String::new(),

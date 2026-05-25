@@ -154,7 +154,12 @@ pub fn tessera_for(
         .try_into()
         .map_err(|_| anyhow::anyhow!("asset_b id is not 32 bytes"))?;
 
-    Ok(Tessera { asset_b, amount_b, maker_spk_hash, timeout })
+    Ok(Tessera {
+        asset_b,
+        amount_b,
+        maker_spk_hash,
+        timeout,
+    })
 }
 
 /// A maker that publishes offers against an Elements node.
@@ -214,7 +219,8 @@ impl MakeOffer for MosaikMaker {
         let txid = if asset_a_id == lbtc {
             self.rpc.send_to_address(&address.to_string(), amount)?
         } else {
-            self.rpc.send_asset_to(&address.to_string(), amount, &asset_a_id)?
+            self.rpc
+                .send_asset_to(&address.to_string(), amount, &asset_a_id)?
         };
         self.rpc.generate(1)?;
 
@@ -268,8 +274,7 @@ impl MosaikTaker {
 }
 
 /// The BIP-341 NUMS internal key the Tessera covenant uses (no key-path spend).
-const NUMS_INTERNAL_KEY: &str =
-    "50929b74c1a04954b78b4b6035e97a5e078a5a0f28ec96d547bfee9ace803ac0";
+const NUMS_INTERNAL_KEY: &str = "50929b74c1a04954b78b4b6035e97a5e078a5a0f28ec96d547bfee9ace803ac0";
 
 /// A deliberately-broken settlement, used to demonstrate that the covenant
 /// rejects bad fills. [`Cheat::None`] is an honest fill.
@@ -347,9 +352,7 @@ impl MosaikTaker {
         let (b_txid, b_vout, b_amount) = self
             .rpc
             .unspent_of_asset(&asset_b, amount_b)?
-            .ok_or_else(|| {
-                anyhow::anyhow!("taker has no {asset_b} UTXO of at least {amount_b}")
-            })?;
+            .ok_or_else(|| anyhow::anyhow!("taker has no {asset_b} UTXO of at least {amount_b}"))?;
 
         // Per-asset inflow ledger: the covenant input (asset A) and the taker's
         // asset-B input. The settlement balances each asset exactly.
@@ -442,8 +445,18 @@ impl MosaikTaker {
         let covenant_spk = hex::encode(compiled.address()?.script_pubkey().as_bytes());
         let input_utxo = format!("{covenant_spk}:{asset_a}:{}", btc(amount_a));
         let pset = hal_pset(&[
-            "simplicity", "pset", "update-input", "-r", &pset, "0",
-            "-i", &input_utxo, "-c", &compiled.cmr_hex(), "-p", NUMS_INTERNAL_KEY,
+            "simplicity",
+            "pset",
+            "update-input",
+            "-r",
+            &pset,
+            "0",
+            "-i",
+            &input_utxo,
+            "-c",
+            &compiled.cmr_hex(),
+            "-p",
+            NUMS_INTERNAL_KEY,
         ])?;
 
         let w = tessera.settle_witness(0)?;
@@ -451,8 +464,14 @@ impl MosaikTaker {
             base64::engine::Engine::encode(&base64::engine::general_purpose::STANDARD, bytes)
         };
         let pset = hal_pset(&[
-            "simplicity", "pset", "finalize", "-r", &pset, "0",
-            &b64(&w.program), &b64(&w.witness),
+            "simplicity",
+            "pset",
+            "finalize",
+            "-r",
+            &pset,
+            "0",
+            &b64(&w.program),
+            &b64(&w.witness),
         ])?;
         let raw_tx = hal_run(&["simplicity", "pset", "extract", "-r", &pset])?;
         let raw_tx = raw_tx.trim().trim_matches('"').to_string();
@@ -553,7 +572,10 @@ impl ReclaimOffer for MosaikMaker {
         ]);
         let raw_hex = self
             .rpc
-            .call("createrawtransaction", serde_json::json!([inputs, outputs, timeout]))?
+            .call(
+                "createrawtransaction",
+                serde_json::json!([inputs, outputs, timeout]),
+            )?
             .as_str()
             .ok_or_else(|| anyhow::anyhow!("createrawtransaction: no hex"))?
             .to_string();
@@ -564,14 +586,8 @@ impl ReclaimOffer for MosaikMaker {
         // Keyless: prune the covenant against this exact transaction and drop
         // the witness onto the single covenant input — no signing, no PSET.
         // The maker output is at index 0.
-        let raw_tx = tessera.build_refund_tx(
-            &raw_hex,
-            0,
-            0,
-            &covenant_spk_bytes,
-            &lbtc,
-            amount_a,
-        )?;
+        let raw_tx =
+            tessera.build_refund_tx(&raw_hex, 0, 0, &covenant_spk_bytes, &lbtc, amount_a)?;
 
         if std::env::var("MOSAIK_DEBUG_TX").is_ok() {
             eprintln!("RECLAIM raw_hex (unsigned): {raw_hex}");
@@ -589,8 +605,7 @@ mod tests {
     #[test]
     fn offer_roundtrips_json() {
         let offer = Offer {
-            outpoint: "0000000000000000000000000000000000000000000000000000000000000001:0"
-                .into(),
+            outpoint: "0000000000000000000000000000000000000000000000000000000000000001:0".into(),
             asset_a: "aa".repeat(32),
             amount_a: 100_000,
             kind: OfferKind::Liquid(Tessera {

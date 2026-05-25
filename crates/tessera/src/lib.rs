@@ -136,8 +136,7 @@ fn build_witness(source: &str, path_value: &str) -> Result<TesseraWitness> {
     let compiled = CompiledProgram::new(source.to_string(), Arguments::default(), false)
         .map_err(|e| anyhow::anyhow!("compile: {e}"))?;
 
-    let wit_json =
-        format!(r#"{{ "PATH": {{ "value": "{path_value}", "type": "{PATH_TYPE}" }} }}"#);
+    let wit_json = format!(r#"{{ "PATH": {{ "value": "{path_value}", "type": "{PATH_TYPE}" }} }}"#);
     let witness_values: WitnessValues =
         serde_json::from_str(&wit_json).map_err(|e| anyhow::anyhow!("witness: {e}"))?;
     let satisfied = compiled
@@ -248,8 +247,12 @@ fn refund_tx_impl(
         .input
         .get_mut(input_index)
         .ok_or_else(|| anyhow::anyhow!("no input #{input_index} in the transaction"))?;
-    txin.witness.script_witness =
-        vec![witness, program, leaf_script.into_bytes(), control_block.serialize()];
+    txin.witness.script_witness = vec![
+        witness,
+        program,
+        leaf_script.into_bytes(),
+        control_block.serialize(),
+    ];
     Ok(serialize_hex(&tx))
 }
 
@@ -299,8 +302,7 @@ fn taproot_spend_info(
         Script,
     };
 
-    const NUMS_X_ONLY: &str =
-        "50929b74c1a04954b78b4b6035e97a5e078a5a0f28ec96d547bfee9ace803ac0";
+    const NUMS_X_ONLY: &str = "50929b74c1a04954b78b4b6035e97a5e078a5a0f28ec96d547bfee9ace803ac0";
     let nums = hex::decode(NUMS_X_ONLY).expect("valid NUMS hex");
     let internal_key =
         XOnlyPublicKey::from_slice(&nums).map_err(|e| anyhow::anyhow!("NUMS key: {e}"))?;
@@ -374,7 +376,10 @@ mod tests {
         assert!(rendered.contains("= 50000; // TESSERA_PARAM:AMOUNT_B"));
         assert!(rendered.contains("= 200; // TESSERA_PARAM:TIMEOUT"));
         assert!(rendered.contains(&format!("0x{}; // TESSERA_PARAM:ASSET_B", "11".repeat(32))));
-        assert!(rendered.contains(&format!("0x{}; // TESSERA_PARAM:MAKER_SPK", "22".repeat(32))));
+        assert!(rendered.contains(&format!(
+            "0x{}; // TESSERA_PARAM:MAKER_SPK",
+            "22".repeat(32)
+        )));
         // no all-zero placeholder literal survives substitution
         assert!(!rendered.contains(&"0".repeat(64)));
         assert!(rendered.contains("fn main"));
@@ -383,7 +388,9 @@ mod tests {
 
     #[test]
     fn covenant_compiles_and_yields_a_cmr() {
-        let compiled = sample_tessera().compile().expect("the covenant must compile");
+        let compiled = sample_tessera()
+            .compile()
+            .expect("the covenant must compile");
         assert_ne!(compiled.cmr, [0u8; 32], "CMR must not be all-zero");
         assert_eq!(compiled.cmr_hex().len(), 64);
     }

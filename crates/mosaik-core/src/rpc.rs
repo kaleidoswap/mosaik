@@ -24,7 +24,11 @@ pub struct ElementsRpc {
 impl ElementsRpc {
     /// Node-level RPC at the root path (no wallet).
     pub fn node(base_url: &str, user: &str, pass: &str) -> Self {
-        Self { url: base_url.trim_end_matches('/').to_string(), user: user.into(), pass: pass.into() }
+        Self {
+            url: base_url.trim_end_matches('/').to_string(),
+            user: user.into(),
+            pass: pass.into(),
+        }
     }
 
     /// Wallet-scoped RPC — appends `/wallet/<name>` to the base URL.
@@ -139,7 +143,11 @@ impl ElementsRpc {
         let res = self.call("generatetoaddress", json!([n, addr]))?;
         Ok(res
             .as_array()
-            .map(|a| a.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+            .map(|a| {
+                a.iter()
+                    .filter_map(|v| v.as_str().map(String::from))
+                    .collect()
+            })
             .unwrap_or_default())
     }
 
@@ -168,8 +176,16 @@ impl ElementsRpc {
     /// Issue a new Liquid asset; returns `(asset_id, issuance_txid)`.
     pub fn issue_asset(&self, asset_amount: f64, token_amount: f64) -> Result<(String, String)> {
         let res = self.call("issueasset", json!([asset_amount, token_amount]))?;
-        let asset = res.get("asset").and_then(Value::as_str).unwrap_or_default().to_string();
-        let txid = res.get("txid").and_then(Value::as_str).unwrap_or_default().to_string();
+        let asset = res
+            .get("asset")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string();
+        let txid = res
+            .get("txid")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string();
         Ok((asset, txid))
     }
 
@@ -260,8 +276,16 @@ fn basic_auth(user: &str, pass: &str) -> String {
         let n = (b[0] as u32) << 16 | (b[1] as u32) << 8 | b[2] as u32;
         let _ = write!(out, "{}", B64[(n >> 18 & 63) as usize] as char);
         let _ = write!(out, "{}", B64[(n >> 12 & 63) as usize] as char);
-        out.push(if chunk.len() > 1 { B64[(n >> 6 & 63) as usize] as char } else { '=' });
-        out.push(if chunk.len() > 2 { B64[(n & 63) as usize] as char } else { '=' });
+        out.push(if chunk.len() > 1 {
+            B64[(n >> 6 & 63) as usize] as char
+        } else {
+            '='
+        });
+        out.push(if chunk.len() > 2 {
+            B64[(n & 63) as usize] as char
+        } else {
+            '='
+        });
     }
     out
 }
