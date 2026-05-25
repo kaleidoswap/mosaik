@@ -86,7 +86,8 @@ services:
     depends_on:
       - nbxplorer
     env_file:
-      - banco-mutinynet/.env
+      - path: banco-mutinynet/.env
+        required: false
     environment:
       ARKD_WALLET_NETWORK: mutinynet
       ARKD_WALLET_NBXPLORER_URL: http://nbxplorer:32838
@@ -106,7 +107,8 @@ services:
     depends_on:
       - arkd-wallet
     env_file:
-      - banco-mutinynet/.env
+      - path: banco-mutinynet/.env
+        required: false
     environment:
       ARKD_NETWORK: mutinynet
       ARKD_ESPLORA_URL: https://mutinynet.com/api
@@ -129,7 +131,8 @@ services:
     depends_on:
       - arkd
     env_file:
-      - banco-mutinynet/.env
+      - path: banco-mutinynet/.env
+        required: false
     environment:
       INTROSPECTOR_NO_TLS: "true"
       INTROSPECTOR_PORT: "7073"

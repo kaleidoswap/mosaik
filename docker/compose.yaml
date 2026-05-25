@@ -33,16 +33,26 @@ services:
     # probe (no curl in the slim image). A real readiness probe lives in the
     # /healthz endpoint and is what orchestrators (k8s, etc.) should hit.
 
-  # ─── mosaik-relay-server (placeholder) ─────────────────────────────────────
-  # Phase 4 brings up a curated nostr-rs-relay with the kind-30050 policy
-  # plugin. Defined here as a commented stub so the compose graph already
-  # shows the topology; uncomment + add the image when the relay ships.
-  #
-  # mosaik-relay:
-  #   image: ${MOSAIK_RELAY_IMAGE}
-  #   container_name: mosaik-relay
-  #   ports: ["7777:7777"]
-  #   networks: [mosaik]
+  # ─── mosaik-relay-server ───────────────────────────────────────────────────
+  # A curated nostr-rs-relay restricted to kinds 30050 / 30051 / 5 — the
+  # covenant DEX protocol. Schema validation of offer JSON happens at the
+  # publisher (mosaik-api) until the dedicated validation hook lands.
+  mosaik-relay:
+    image: ${MOSAIK_RELAY_IMAGE}
+    build:
+      context: ../services/mosaik-relay-server
+      dockerfile: Dockerfile
+    container_name: mosaik-relay
+    restart: unless-stopped
+    ports:
+      - "7777:7777"
+    volumes:
+      - mosaik-relay-data:/usr/src/app/db
+    networks:
+      - mosaik
+
+volumes:
+  mosaik-relay-data:
 
 networks:
   mosaik:
