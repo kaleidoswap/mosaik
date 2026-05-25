@@ -1115,6 +1115,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "mosaik-banco"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "hex",
+ "mosaik-core",
+ "serde",
+ "serde_json",
+ "ureq",
+]
+
+[[package]]
 name = "mosaik-cli"
 version = "0.1.0"
 dependencies = [
@@ -1122,6 +1134,7 @@ dependencies = [
  "clap",
  "hex",
  "mosaik-api",
+ "mosaik-banco",
  "mosaik-core",
  "mosaik-relay",
  "serde_json",

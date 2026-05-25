@@ -171,20 +171,33 @@ services:
   #     - "7081:7081"
   #   networks: [mosaik]
 
-  # ─── banco-proxy (Phase 2 — placeholder) ───────────────────────────────────
+  # ─── banco-proxy ───────────────────────────────────────────────────────────
   # The TS gateway that exposes @arkade-os/banco Maker/Taker as a REST API
-  # mosaik-api can call. Defined here so the topology is visible; the image
-  # is built by services/banco-proxy in Phase 2.
-  #
-  # banco-proxy:
-  #   image: ${BANCO_PROXY_IMAGE}
-  #   container_name: mosaik-banco-proxy
-  #   depends_on: [arkd, introspector]
-  #   ports: ["3001:3001"]
-  #   environment:
-  #     ARK_SERVER_URL: http://arkd:7070
-  #     INTROSPECTOR_URL: http://introspector:7073
-  #   networks: [mosaik]
+  # mosaik-api can call. SDK calls are stubbed until upstream banco hits a
+  # stable channel; the HTTP contract is final.
+  banco-proxy:
+    image: ${BANCO_PROXY_IMAGE}
+    build:
+      context: ../services/banco-proxy
+      dockerfile: Dockerfile
+    container_name: mosaik-banco-proxy
+    restart: unless-stopped
+    depends_on:
+      - arkd
+      - introspector
+    ports:
+      - "3001:3001"
+    environment:
+      BANCO_PROXY_PORT: "3001"
+      ARK_SERVER_URL: http://arkd:7070
+      INTROSPECTOR_URL: http://introspector:7073
+      LOG_LEVEL: info
+      # Set BANCO_PROXY_JWT_SECRET in production via env_file.
+    env_file:
+      - path: banco-mutinynet/.env
+        required: false
+    networks:
+      - mosaik
 
 volumes:
   bitcoind-data:

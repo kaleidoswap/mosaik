@@ -50,7 +50,11 @@ logs: ## Follow logs for one service: make logs SERVICE=arkd
 ## ─── image builds ───────────────────────────────────────────────────────────
 
 .PHONY: build-images
-build-images: build-mosaik-api build-mosaik-relay ## Build all first-party Mosaik images
+build-images: build-mosaik-api build-mosaik-relay build-banco-proxy ## Build all first-party Mosaik images
+
+.PHONY: build-banco-proxy
+build-banco-proxy: ## Build banco-proxy:dev image
+	docker build -f services/banco-proxy/Dockerfile -t banco-proxy:dev services/banco-proxy
 
 .PHONY: build-mosaik-api
 build-mosaik-api: ## Build mosaik-api:dev image

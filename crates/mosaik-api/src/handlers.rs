@@ -168,8 +168,12 @@ pub fn api_state(state: &Mutex<AppState>) -> Result<Value> {
         .enumerate()
         .map(|(i, lo)| {
             let o = &lo.offer;
-            let compiled = o.tessera.compile().ok();
-            let mut ab = o.tessera.asset_b.to_vec();
+            // The webapp is Liquid-only; non-Liquid offers shouldn't reach here.
+            let tessera = o
+                .tessera()
+                .expect("mosaik-api state currently only renders Liquid offers");
+            let compiled = tessera.compile().ok();
+            let mut ab = tessera.asset_b.to_vec();
             ab.reverse();
             let asset_b = hex::encode(ab);
             let lock_name = id_to_name(&assets, &o.asset_a, &lbtc);
@@ -178,10 +182,10 @@ pub fn api_state(state: &Mutex<AppState>) -> Result<Value> {
                 "index": i,
                 "outpoint": o.outpoint,
                 "amount_a": o.amount_a,
-                "amount_b": o.tessera.amount_b,
+                "amount_b": tessera.amount_b,
                 "lock_name": lock_name,
                 "want_name": want_name,
-                "timeout": o.tessera.timeout,
+                "timeout": tessera.timeout,
                 "maker_address": o.maker_address,
                 "maker": lo.maker,
                 "maker_name": lo.maker_name,
@@ -324,11 +328,12 @@ pub fn api_take_offer(body: &Value, state: &Mutex<AppState>) -> Result<Value> {
             treasury().generate(1)?;
             let lbtc = node_rpc().policy_asset()?;
             let block = node_rpc().block_count()?;
-            let mut ab = offer.tessera.asset_b.to_vec();
+            let tessera = offer.tessera()?;
+            let mut ab = tessera.asset_b.to_vec();
             ab.reverse();
             let asset_b = hex::encode(ab);
             let amount_a = offer.amount_a;
-            let amount_b = offer.tessera.amount_b;
+            let amount_b = tessera.amount_b;
             let rate = if amount_a > 0 { amount_b as f64 / amount_a as f64 } else { 0.0 };
 
             let mut st = state.lock().unwrap();
@@ -399,10 +404,11 @@ pub fn api_contract(body: &Value, state: &Mutex<AppState>) -> Result<Value> {
         st.offers.get(index).cloned().ok_or_else(|| anyhow!("no offer #{index}"))?
     };
     let offer = &listed.offer;
-    let compiled = offer.tessera.compile()?;
+    let tessera = offer.tessera()?;
+    let compiled = tessera.compile()?;
 
     Ok(json!({
-        "source": offer.tessera.render(),
+        "source": tessera.render(),
         "cmr": compiled.cmr_hex(),
         "address": compiled.address()?.to_string(),
         "settle": "Taker path: spends the UTXO if output 0 pays the maker exactly \

@@ -11,7 +11,7 @@
 //! See `docs/NOSTR_PROTOCOL.md`.
 
 use anyhow::{Context, Result};
-use mosaik_core::Offer;
+use mosaik_core::{Offer, OfferKind};
 use nostr::{Event, EventBuilder, Filter, Kind, Tag, TagKind, Timestamp};
 use serde::{Deserialize, Serialize};
 
@@ -45,11 +45,16 @@ impl TesseraOffer {
     /// `content` is the whole offer as JSON; tags carry the filterable fields.
     pub fn to_event(&self, keys: &Keys) -> Result<Event> {
         let content = serde_json::to_string(self).context("serialising offer")?;
-        let asset_to = hex::encode(self.offer.tessera.asset_b);
+        // The asset-to tag is backend-specific.
+        let asset_to = match &self.offer.kind {
+            OfferKind::Liquid(t) => hex::encode(t.asset_b),
+            OfferKind::Banco(b) => b.want_asset.clone().unwrap_or_else(|| "BTC".to_string()),
+        };
 
         let builder = EventBuilder::new(Kind::Custom(TESSERA_OFFER_KIND), content)
             .tag(Tag::identifier(self.order_id.clone()))
             .tag(custom_tag("status", status_str(&self.status)))
+            .tag(custom_tag("backend", self.offer.backend()))
             .tag(custom_tag("asset_from", &self.offer.asset_a))
             .tag(custom_tag("asset_to", &asset_to))
             .tag(custom_tag("covenant_utxo", &self.offer.outpoint))
@@ -122,12 +127,12 @@ mod tests {
                 outpoint: "aa".repeat(32) + ":0",
                 asset_a: "BTC".into(),
                 amount_a: 1_000_000,
-                tessera: Tessera {
+                kind: OfferKind::Liquid(Tessera {
                     asset_b: [0x11; 32],
                     amount_b: 600_000,
                     maker_spk_hash: [0x22; 32],
                     timeout: 500,
-                },
+                }),
                 maker_address: "ert1qexample".into(),
             },
             expiry: 9_999_999_999,
@@ -147,7 +152,7 @@ mod tests {
         let back = TesseraOffer::from_event(&event).expect("parse event");
         assert_eq!(back.order_id, offer.order_id);
         assert_eq!(back.offer.amount_a, 1_000_000);
-        assert_eq!(back.offer.tessera.amount_b, 600_000);
+        assert_eq!(back.offer.tessera().unwrap().amount_b, 600_000);
         assert_eq!(back.status, OfferStatus::Active);
     }
 

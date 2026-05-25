@@ -8,8 +8,18 @@
 //!
 
 use anyhow::Result;
-use clap::{Parser, Subcommand};
+use clap::{Parser, Subcommand, ValueEnum};
 use tessera::Tessera;
+
+/// Which settlement backend a command targets.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum, Default)]
+enum Backend {
+    /// Liquid Network — a Simplicity-covenant Tessera (the original backend).
+    #[default]
+    Liquid,
+    /// Arkade — a banco covenant VTXO via the banco-proxy gateway.
+    Banco,
+}
 
 #[derive(Parser)]
 #[command(name = "mosaik")]
@@ -21,33 +31,69 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
-    /// Maker: fund a covenant UTXO on the regtest and print the offer JSON.
+    /// Maker: publish a covenant offer.
     MakeOffer {
-        /// Sats of L-BTC the maker locks in the covenant.
+        /// Settlement backend.
+        #[arg(long, value_enum, default_value_t = Backend::Liquid)]
+        backend: Backend,
+        /// Raw units the maker locks (L-BTC for Liquid; BTC-on-Ark for banco).
         #[arg(long)]
         amount_a: u64,
-        /// Raw units of `asset_b` the covenant requires the taker to pay the maker.
+        /// Raw units of `asset_b` the maker requires the taker to pay.
         #[arg(long)]
         amount_b: u64,
-        /// Asset id (RPC display order) the maker wants to be paid in.
-        /// Defaults to L-BTC (the network policy asset).
+        /// (Liquid) Asset id (RPC display order) the maker wants — defaults to L-BTC.
         #[arg(long)]
         asset_b: Option<String>,
-        /// Block height after which the maker may reclaim (REFUND).
+        /// (Liquid) Block height after which the maker may reclaim.
         #[arg(long, default_value_t = 500)]
         timeout: u32,
+        /// (banco) Unix-second timestamp after which the maker may cancel.
+        /// Defaults to two hours from now.
+        #[arg(long)]
+        cancel_delay: Option<u64>,
+        /// (banco) Accept partial fills?
+        #[arg(long, default_value_t = false)]
+        partial_fill: bool,
+        /// (banco) banco-proxy gateway URL.
+        #[arg(long, default_value = "http://127.0.0.1:3001")]
+        banco_proxy_url: String,
+        /// (banco) banco-proxy wallet id to act as.
+        #[arg(long, default_value = "maker")]
+        wallet_id: String,
     },
-    /// Taker: fill a published offer — the node executes the covenant (SETTLE).
+    /// Taker: fill a published offer.
     TakeOffer {
+        /// Settlement backend.
+        #[arg(long, value_enum, default_value_t = Backend::Liquid)]
+        backend: Backend,
         /// Path to the offer JSON produced by `make-offer`.
         #[arg(long)]
         offer: String,
+        /// (banco) Optional partial-fill amount (raw units of `want_asset`).
+        #[arg(long)]
+        fill_amount: Option<u64>,
+        /// (banco) banco-proxy gateway URL.
+        #[arg(long, default_value = "http://127.0.0.1:3001")]
+        banco_proxy_url: String,
+        /// (banco) banco-proxy wallet id to act as.
+        #[arg(long, default_value = "taker")]
+        wallet_id: String,
     },
-    /// Maker: reclaim an unfilled offer after its timeout (REFUND path).
+    /// Maker: reclaim/cancel an unfilled offer after its timeout.
     Reclaim {
+        /// Settlement backend.
+        #[arg(long, value_enum, default_value_t = Backend::Liquid)]
+        backend: Backend,
         /// Path to the offer JSON.
         #[arg(long)]
         offer: String,
+        /// (banco) banco-proxy gateway URL.
+        #[arg(long, default_value = "http://127.0.0.1:3001")]
+        banco_proxy_url: String,
+        /// (banco) banco-proxy wallet id to act as.
+        #[arg(long, default_value = "maker")]
+        wallet_id: String,
     },
     /// Print the parameterised SimplicityHL covenant for a Tessera.
     ShowTessera {
@@ -145,13 +191,46 @@ fn main() -> Result<()> {
 
     match cli.command {
         Command::MakeOffer {
+            backend,
             amount_a,
             amount_b,
             asset_b,
             timeout,
-        } => make_offer(amount_a, amount_b, asset_b.as_deref(), timeout),
-        Command::TakeOffer { offer } => take_offer(&offer),
-        Command::Reclaim { offer } => reclaim(&offer),
+            cancel_delay,
+            partial_fill,
+            banco_proxy_url,
+            wallet_id,
+        } => match backend {
+            Backend::Liquid => make_offer(amount_a, amount_b, asset_b.as_deref(), timeout),
+            Backend::Banco => banco_make_offer(
+                amount_a,
+                amount_b,
+                asset_b.as_deref(),
+                cancel_delay,
+                partial_fill,
+                &banco_proxy_url,
+                &wallet_id,
+            ),
+        },
+        Command::TakeOffer {
+            backend,
+            offer,
+            fill_amount,
+            banco_proxy_url,
+            wallet_id,
+        } => match backend {
+            Backend::Liquid => take_offer(&offer),
+            Backend::Banco => banco_take_offer(&offer, fill_amount, &banco_proxy_url, &wallet_id),
+        },
+        Command::Reclaim {
+            backend,
+            offer,
+            banco_proxy_url,
+            wallet_id,
+        } => match backend {
+            Backend::Liquid => reclaim(&offer),
+            Backend::Banco => banco_reclaim(&offer, &banco_proxy_url, &wallet_id),
+        },
         Command::ShowTessera {
             asset_b,
             amount_b,
@@ -229,7 +308,7 @@ fn make_offer(
     eprintln!("  locked        : {} sats L-BTC", offer.amount_a);
     eprintln!(
         "  maker wants   : {} sats paid to {}",
-        offer.tessera.amount_b, offer.maker_address
+        offer.tessera()?.amount_b, offer.maker_address
     );
     println!("{}", serde_json::to_string(&offer)?);
     Ok(())
@@ -310,17 +389,113 @@ fn browse_offers(relay: &str) -> Result<()> {
         }
         println!("Tessera offers on {relay}:\n");
         for o in &offers {
+            use mosaik_core::OfferKind;
+            let (amount_b, asset_label) = match &o.offer.kind {
+                OfferKind::Liquid(t) => (t.amount_b, hex::encode(&t.asset_b[..4])),
+                OfferKind::Banco(b) => {
+                    (b.want_amount, b.want_asset.clone().unwrap_or_else(|| "BTC".into()))
+                }
+            };
             println!(
-                "  [{}] {} {} of {}  →  wants {} of asset {}  ({})",
+                "  [{}] {} ({}) {} of {}  →  wants {} of asset {}  ({})",
                 o.order_id,
                 if o.is_expired() { "EXPIRED" } else { "active" },
+                o.offer.backend(),
                 o.offer.amount_a,
                 o.offer.asset_a,
-                o.offer.tessera.amount_b,
-                hex::encode(&o.offer.tessera.asset_b[..4]),
+                amount_b,
+                asset_label,
                 o.offer.outpoint,
             );
         }
         anyhow::Ok(())
     })
+}
+
+// ─── Arkade banco backend ────────────────────────────────────────────────────
+
+/// Current unix time in seconds.
+fn unix_now() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .expect("system clock before 1970")
+        .as_secs()
+}
+
+/// Read and parse an offer JSON file.
+fn read_offer(path: &str) -> Result<mosaik_core::Offer> {
+    let json = std::fs::read_to_string(path)
+        .map_err(|e| anyhow::anyhow!("reading {path}: {e}"))?;
+    serde_json::from_str(&json).map_err(|e| anyhow::anyhow!("parsing {path}: {e}"))
+}
+
+/// Maker (banco): build, fund, and publish a banco covenant offer. Prints the
+/// offer JSON to stdout (pipe to a file).
+fn banco_make_offer(
+    amount_a: u64,
+    amount_b: u64,
+    want_asset: Option<&str>,
+    cancel_delay: Option<u64>,
+    partial_fill: bool,
+    banco_proxy_url: &str,
+    wallet_id: &str,
+) -> Result<()> {
+    use mosaik_banco::{BancoClient, BancoMaker, OfferTerms};
+
+    let cancel_delay = cancel_delay.unwrap_or_else(|| unix_now() + 7200);
+    let terms = OfferTerms {
+        sell_amount: amount_a,
+        sell_asset: None, // BTC-on-Ark; future: --asset-a flag
+        want_amount: amount_b,
+        want_asset: want_asset.map(str::to_string),
+        cancel_delay,
+        partial_fill,
+    };
+
+    let client = BancoClient::new(banco_proxy_url, wallet_id);
+    let offer = BancoMaker::new(client).make_offer(&terms)?;
+
+    let banco = offer.banco()?;
+    eprintln!("Published a banco covenant offer:");
+    eprintln!("  funding tx    : {}", offer.outpoint);
+    eprintln!("  swap pkScript : {}", banco.swap_pk_script);
+    eprintln!("  locked        : {} of {}", offer.amount_a, offer.asset_a);
+    eprintln!(
+        "  maker wants   : {} of {}",
+        banco.want_amount,
+        banco.want_asset.as_deref().unwrap_or("BTC")
+    );
+    eprintln!("  cancel after  : unix {}", banco.cancel_delay);
+    eprintln!("  partial fills : {}", banco.partial_fill);
+    println!("{}", serde_json::to_string(&offer)?);
+    Ok(())
+}
+
+/// Taker (banco): fulfil a banco covenant offer in a single arkd tx.
+fn banco_take_offer(
+    offer_path: &str,
+    fill_amount: Option<u64>,
+    banco_proxy_url: &str,
+    wallet_id: &str,
+) -> Result<()> {
+    use mosaik_banco::{BancoClient, BancoTaker};
+
+    let offer = read_offer(offer_path)?;
+    let client = BancoClient::new(banco_proxy_url, wallet_id);
+    let txid = BancoTaker::new(client).fulfill(&offer, fill_amount)?;
+    println!("Fulfilled banco offer in a single arkd transaction.");
+    println!("  settlement txid: {txid}");
+    Ok(())
+}
+
+/// Maker (banco): cancel an unfilled offer after its cancel_delay.
+fn banco_reclaim(offer_path: &str, banco_proxy_url: &str, wallet_id: &str) -> Result<()> {
+    use mosaik_banco::{BancoClient, BancoMaker};
+
+    let offer = read_offer(offer_path)?;
+    let client = BancoClient::new(banco_proxy_url, wallet_id);
+    let txid = BancoMaker::new(client).cancel(&offer)?;
+    println!("Cancelled banco offer.");
+    println!("  cancel txid: {txid}");
+    Ok(())
 }

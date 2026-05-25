@@ -11,20 +11,93 @@ pub mod rpc;
 
 pub use tessera::Tessera;
 
+/// The settlement backend an offer is bound to.
+///
+/// Mosaik began on Liquid (Simplicity covenants); `OfferKind` lets a single
+/// [`Offer`] type also describe an Arkade-banco offer, whose covenant
+/// guarantee comes from an Arkade-Script tapscript on a VTXO. Future backends
+/// (Bitcoin L1 once covenant opcodes land, RGB, …) slot in as new variants.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "backend", rename_all = "lowercase")]
+pub enum OfferKind {
+    /// A Liquid offer: a funded Simplicity-covenant UTXO ([`Tessera`]).
+    Liquid(Tessera),
+    /// An Arkade offer: a funded banco covenant VTXO ([`BancoOffer`]).
+    Banco(BancoOffer),
+}
+
+/// The Arkade-banco analogue of a [`Tessera`].
+///
+/// A banco offer is a single covenant VTXO published by funding an Arkade
+/// transaction whose extension packet (type `0x03`) carries the offer terms.
+/// The taker fulfils it in one transaction; the maker can go offline after
+/// publishing. The [`Offer::outpoint`] field mirrors the funding txid+vout so
+/// the relay tags stay backend-agnostic; the canonical, self-describing
+/// representation is [`offer_hex`](Self::offer_hex).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BancoOffer {
+    /// TLV-encoded offer (hex) — the wire form @arkade-os/banco produces.
+    /// Includes asset/amount terms, ratios, and the swap pkScript.
+    pub offer_hex: String,
+    /// Covenant VTXO scriptPubKey (hex). Lets the relay group offers by
+    /// venue without parsing the TLV.
+    pub swap_pk_script: String,
+    /// Asset id the maker wants paid (`None` = native BTC on Arkade).
+    pub want_asset: Option<String>,
+    /// Raw units of `want_asset` the maker wants.
+    pub want_amount: u64,
+    /// Absolute unix-second locktime after which the maker may cancel.
+    pub cancel_delay: u64,
+    /// Whether this offer accepts partial fills.
+    #[serde(default)]
+    pub partial_fill: bool,
+}
+
 /// A published offer: a funded covenant UTXO plus the terms needed to fill it.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Offer {
-    /// The covenant UTXO, as an Elements outpoint string `"txid:vout"`.
+    /// Funding reference — a Liquid outpoint `"txid:vout"` for Liquid offers,
+    /// or the Arkade funding `"txid:vout"` for banco offers.
     pub outpoint: String,
     /// Asset id (hex) locked in the UTXO — the asset the maker is selling.
     pub asset_a: String,
     /// Amount of `asset_a` locked.
     pub amount_a: u64,
-    /// The Tessera — what the maker wants in return, and the refund conditions.
-    pub tessera: Tessera,
-    /// The (unconfidential) address the counter-payment must go to. The
-    /// covenant commits to its scriptPubKey hash via `tessera.maker_spk_hash`.
+    /// What the maker wants in return and the refund conditions — backend-specific.
+    pub kind: OfferKind,
+    /// The address the counter-payment must reach. For Liquid the covenant
+    /// commits to its scriptPubKey hash via `tessera.maker_spk_hash`.
     pub maker_address: String,
+}
+
+impl Offer {
+    /// The Liquid [`Tessera`], or an error if this is an Arkade-banco offer.
+    pub fn tessera(&self) -> Result<&Tessera> {
+        match &self.kind {
+            OfferKind::Liquid(t) => Ok(t),
+            OfferKind::Banco(_) => {
+                anyhow::bail!("offer uses the Arkade-banco backend, not a Liquid Tessera")
+            }
+        }
+    }
+
+    /// The Arkade-banco [`BancoOffer`], or an error if this is a Liquid offer.
+    pub fn banco(&self) -> Result<&BancoOffer> {
+        match &self.kind {
+            OfferKind::Banco(b) => Ok(b),
+            OfferKind::Liquid(_) => {
+                anyhow::bail!("offer uses the Liquid backend, not an Arkade-banco offer")
+            }
+        }
+    }
+
+    /// Settlement backend label — `"liquid"` or `"banco"`.
+    pub fn backend(&self) -> &'static str {
+        match self.kind {
+            OfferKind::Liquid(_) => "liquid",
+            OfferKind::Banco(_) => "banco",
+        }
+    }
 }
 
 /// Maker side — publish an offer.
@@ -154,7 +227,7 @@ impl MakeOffer for MosaikMaker {
             outpoint: format!("{txid}:{vout}"),
             asset_a: asset_a_id,
             amount_a,
-            tessera: tessera.clone(),
+            kind: OfferKind::Liquid(tessera.clone()),
             maker_address: maker_address.to_string(),
         })
     }
@@ -253,8 +326,9 @@ impl MosaikTaker {
             .ok_or_else(|| anyhow::anyhow!("bad outpoint: {}", offer.outpoint))?;
         let covenant_vout: u64 = vout_str.parse()?;
 
+        let tessera = offer.tessera()?;
         let amount_a = offer.amount_a;
-        let amount_b = offer.tessera.amount_b;
+        let amount_b = tessera.amount_b;
         let fee = SETTLE_FEE_SATS;
 
         let lbtc = self.rpc.policy_asset()?;
@@ -262,7 +336,7 @@ impl MosaikTaker {
         let asset_a = offer.asset_a.clone();
         // `asset_b` lives in tx/jet (internal) order in the covenant; the RPC
         // wants display order, which is the reverse.
-        let mut asset_b = offer.tessera.asset_b.to_vec();
+        let mut asset_b = tessera.asset_b.to_vec();
         asset_b.reverse();
         let asset_b = hex::encode(asset_b);
         if asset_a == asset_b {
@@ -364,7 +438,7 @@ impl MosaikTaker {
         let pset = self.rpc.wallet_process_psbt(&pset)?;
 
         // Attach the covenant program + SETTLE witness to input 0 (the covenant).
-        let compiled = offer.tessera.compile()?;
+        let compiled = tessera.compile()?;
         let covenant_spk = hex::encode(compiled.address()?.script_pubkey().as_bytes());
         let input_utxo = format!("{covenant_spk}:{asset_a}:{}", btc(amount_a));
         let pset = hal_pset(&[
@@ -372,7 +446,7 @@ impl MosaikTaker {
             "-i", &input_utxo, "-c", &compiled.cmr_hex(), "-p", NUMS_INTERNAL_KEY,
         ])?;
 
-        let w = offer.tessera.settle_witness(0)?;
+        let w = tessera.settle_witness(0)?;
         let b64 = |bytes: &[u8]| {
             base64::engine::Engine::encode(&base64::engine::general_purpose::STANDARD, bytes)
         };
@@ -458,7 +532,8 @@ impl ReclaimOffer for MosaikMaker {
         if amount_a <= fee {
             anyhow::bail!("offer locks too little to cover the fee");
         }
-        let timeout = offer.tessera.timeout;
+        let tessera = offer.tessera()?;
+        let timeout = tessera.timeout;
 
         // Surface a clear error before the covenant would reject the spend.
         let height = self.rpc.block_count()?;
@@ -483,13 +558,13 @@ impl ReclaimOffer for MosaikMaker {
             .ok_or_else(|| anyhow::anyhow!("createrawtransaction: no hex"))?
             .to_string();
 
-        let compiled = offer.tessera.compile()?;
+        let compiled = tessera.compile()?;
         let covenant_spk_bytes = compiled.address()?.script_pubkey().as_bytes().to_vec();
 
         // Keyless: prune the covenant against this exact transaction and drop
         // the witness onto the single covenant input — no signing, no PSET.
         // The maker output is at index 0.
-        let raw_tx = offer.tessera.build_refund_tx(
+        let raw_tx = tessera.build_refund_tx(
             &raw_hex,
             0,
             0,
@@ -518,18 +593,45 @@ mod tests {
                 .into(),
             asset_a: "aa".repeat(32),
             amount_a: 100_000,
-            tessera: Tessera {
+            kind: OfferKind::Liquid(Tessera {
                 asset_b: [0x11; 32],
                 amount_b: 50_000,
                 maker_spk_hash: [0x22; 32],
                 timeout: 200,
-            },
+            }),
             maker_address: "ert1qexampleexampleexampleexampleexampleex".into(),
         };
         let json = serde_json::to_string(&offer).unwrap();
+        assert!(json.contains("\"backend\":\"liquid\""));
         let back: Offer = serde_json::from_str(&json).unwrap();
         assert_eq!(back.amount_a, 100_000);
-        assert_eq!(back.tessera.amount_b, 50_000);
+        assert_eq!(back.tessera().unwrap().amount_b, 50_000);
         assert_eq!(back.maker_address, offer.maker_address);
+        assert_eq!(back.backend(), "liquid");
+        assert!(back.banco().is_err());
+    }
+
+    #[test]
+    fn banco_offer_roundtrips_json() {
+        let offer = Offer {
+            outpoint: "deadbeef:0".into(),
+            asset_a: "BTC".into(),
+            amount_a: 100_000,
+            kind: OfferKind::Banco(BancoOffer {
+                offer_hex: "deadbeef".into(),
+                swap_pk_script: "00".repeat(34),
+                want_asset: None,
+                want_amount: 50_000,
+                cancel_delay: 2_000_000_000,
+                partial_fill: true,
+            }),
+            maker_address: String::new(),
+        };
+        let json = serde_json::to_string(&offer).unwrap();
+        assert!(json.contains("\"backend\":\"banco\""));
+        let back: Offer = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.banco().unwrap().want_amount, 50_000);
+        assert_eq!(back.backend(), "banco");
+        assert!(back.tessera().is_err());
     }
 }

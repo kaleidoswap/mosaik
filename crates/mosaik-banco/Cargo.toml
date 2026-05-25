@@ -1,0 +1,16 @@
+[package]
+name = "mosaik-banco"
+description = "Mosaik Arkade-banco backend — non-interactive covenant DEX via banco-proxy"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+hex.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+ureq.workspace = true
+mosaik-core = { path = "../mosaik-core" }
