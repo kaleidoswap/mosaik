@@ -11,8 +11,6 @@ use anyhow::Result;
 use clap::{Parser, Subcommand};
 use tessera::Tessera;
 
-mod server;
-
 #[derive(Parser)]
 #[command(name = "mosaik")]
 #[command(about = "Mosaik — a DEX on Liquid where every order is a Tessera, a self-enforcing Simplicity covenant")]
@@ -204,7 +202,7 @@ fn main() -> Result<()> {
         Command::ServeRelay { port } => {
             block_on(mosaik_relay::run_local_relay(port))
         }
-        Command::ServeWallet { port } => server::run(port),
+        Command::ServeWallet { port } => block_on(mosaik_api::run(port)),
     }
 }
 
