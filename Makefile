@@ -72,6 +72,10 @@ build-mosaik-api: ## Build mosaik-api:dev image
 build-mosaik-relay: ## Build mosaik-relay-server:dev image
 	docker build -f services/mosaik-relay-server/Dockerfile -t mosaik-relay-server:dev services/mosaik-relay-server
 
+.PHONY: build-relay-federation
+build-relay-federation: ## Build mosaik-relay-federation:dev sidecar image
+	docker build -f services/mosaik-relay-server/federation/Dockerfile -t mosaik-relay-federation:dev services/mosaik-relay-server/federation
+
 .PHONY: build-bancod
 build-bancod: ## Build bancod:dev image from upstream source
 	docker build -f docker/bancod.Dockerfile -t bancod:dev .

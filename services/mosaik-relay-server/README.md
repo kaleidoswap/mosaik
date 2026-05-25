@@ -67,11 +67,11 @@ offers at admission. Two design options under consideration:
 For now, validation happens at the publisher (`mosaik-api`) before the
 event is signed. The relay is content-agnostic but kind-restricted.
 
-**Federation.** Mosaik relays should peer with each other so a maker
-publishing to one relay reaches takers connected to a different one.
-nostr-rs-relay supports `relay_url` discovery but not active pulling —
-a separate "stream replicator" service (or a fork patch) is the most
-likely path. Tracked for a later phase.
+**Federation** is opt-in via the `federation/` sidecar in this
+directory: a tiny Node process that subscribes to peer Mosaik relays
+and republishes kind-30050/30051/5 events to this relay. nostr-rs-relay
+itself stays vendor-pristine. See
+[`federation/README.md`](federation/README.md) for the bring-up.
 
 **Authentication.** The relay is open. To restrict makers to a known
 set of pubkeys (e.g. paid market makers), populate

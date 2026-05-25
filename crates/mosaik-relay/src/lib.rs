@@ -18,6 +18,13 @@ use serde::{Deserialize, Serialize};
 /// Nostr event kind for a Tessera offer (addressable / replaceable).
 pub const TESSERA_OFFER_KIND: u16 = 30050;
 
+/// Nostr event kind for a Mosaik maker profile (addressable / replaceable).
+///
+/// One profile per maker pubkey: contact handle, supported pairs, typical
+/// fill latency, optional self-attested badges. Lets takers route on
+/// reputation alongside price.
+pub const MAKER_PROFILE_KIND: u16 = 30051;
+
 /// The lifecycle status of an offer.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -91,6 +98,103 @@ fn status_str(s: &OfferStatus) -> &'static str {
 
 fn custom_tag(name: &str, value: &str) -> Tag {
     Tag::custom(TagKind::custom(name.to_string()), [value.to_string()])
+}
+
+// ─── Maker profile (kind 30051) ──────────────────────────────────────────────
+
+/// A trading pair a maker advertises support for.
+///
+/// `lock` / `want` use the same labels as the Mosaik order-book UI
+/// (`"BTC"`, `"USDT"`, or a chain-native asset id). `backend` declares
+/// which settlement layer the maker handles for this pair.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MakerPair {
+    pub backend: String,
+    pub lock: String,
+    pub want: String,
+}
+
+/// Self-attested maker reputation surface. Lives at kind 30051 on the
+/// relay, addressable so a maker can update by re-publishing under the
+/// same `d` tag (typically `"mosaik-maker"`).
+///
+/// All fields are advisory; takers should still re-derive covenant
+/// addresses on-chain before filling — the relay is discovery only.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MakerProfile {
+    /// Addressable identifier, e.g. `"mosaik-maker"`. Re-publishing under
+    /// the same `d` tag replaces the previous profile.
+    pub d_tag: String,
+    /// Human-readable name shown next to offers in the UI.
+    pub name: String,
+    /// Optional short description / motto.
+    #[serde(default)]
+    pub about: Option<String>,
+    /// Optional contact URI (mailto, NIP-05, https URL, …). Not validated.
+    #[serde(default)]
+    pub contact: Option<String>,
+    /// Trading pairs and backends this maker advertises.
+    #[serde(default)]
+    pub pairs: Vec<MakerPair>,
+    /// Self-reported typical fill latency, in seconds. `None` means unspecified.
+    #[serde(default)]
+    pub fill_latency_secs: Option<u32>,
+    /// Self-reported cancel-delay floor (Liquid block-height for Tesseras,
+    /// unix seconds for banco). Lets takers filter out makers whose offers
+    /// would lock funds for too long before reclaim is possible.
+    #[serde(default)]
+    pub min_cancel_delay: Option<u64>,
+    /// Free-form badges (e.g. `["audited", "kyc-optional"]`). Self-attested
+    /// today; future phases may cross-check via signed attestations.
+    #[serde(default)]
+    pub badges: Vec<String>,
+}
+
+impl MakerProfile {
+    /// Build and sign the Nostr profile event.
+    ///
+    /// `content` is the full profile JSON; a handful of tags surface the
+    /// filterable fields so relays / clients can query by backend or pair
+    /// without parsing the body.
+    pub fn to_event(&self, keys: &Keys) -> Result<Event> {
+        let content = serde_json::to_string(self).context("serialising maker profile")?;
+
+        let mut builder = EventBuilder::new(Kind::Custom(MAKER_PROFILE_KIND), content)
+            .tag(Tag::identifier(self.d_tag.clone()))
+            .tag(custom_tag("name", &self.name));
+
+        if let Some(contact) = &self.contact {
+            builder = builder.tag(custom_tag("contact", contact));
+        }
+        for pair in &self.pairs {
+            // One tag per advertised pair so a relay can index them all.
+            builder = builder.tag(custom_tag(
+                "pair",
+                &format!("{}:{}/{}", pair.backend, pair.lock, pair.want),
+            ));
+            builder = builder.tag(custom_tag("backend", &pair.backend));
+        }
+        for badge in &self.badges {
+            builder = builder.tag(custom_tag("badge", badge));
+        }
+
+        builder
+            .sign_with_keys(keys)
+            .context("signing maker profile event")
+    }
+
+    /// Parse a maker profile from a Nostr event.
+    pub fn from_event(event: &Event) -> Result<Self> {
+        if event.kind != Kind::Custom(MAKER_PROFILE_KIND) {
+            anyhow::bail!("not a maker profile event (kind {})", event.kind.as_u16());
+        }
+        serde_json::from_str(&event.content).context("parsing maker profile from event content")
+    }
+
+    /// A Nostr filter that matches maker-profile events.
+    pub fn filter() -> Filter {
+        Filter::new().kind(Kind::Custom(MAKER_PROFILE_KIND))
+    }
 }
 
 mod client;
@@ -171,5 +275,67 @@ mod tests {
             .sign_with_keys(&keys)
             .unwrap();
         assert!(TesseraOffer::from_event(&other).is_err());
+    }
+
+    fn sample_profile() -> MakerProfile {
+        MakerProfile {
+            d_tag: "mosaik-maker".into(),
+            name: "Helix MM".into(),
+            about: Some("Liquid + Arkade liquidity, 24/5".into()),
+            contact: Some("helix@example.com".into()),
+            pairs: vec![
+                MakerPair {
+                    backend: "liquid".into(),
+                    lock: "BTC".into(),
+                    want: "USDT".into(),
+                },
+                MakerPair {
+                    backend: "banco".into(),
+                    lock: "BTC".into(),
+                    want: "USDT".into(),
+                },
+            ],
+            fill_latency_secs: Some(45),
+            min_cancel_delay: Some(120),
+            badges: vec!["audited".into()],
+        }
+    }
+
+    #[test]
+    fn maker_profile_roundtrips_through_a_nostr_event() {
+        let keys = Keys::generate();
+        let profile = sample_profile();
+
+        let event = profile.to_event(&keys).expect("build profile event");
+        assert_eq!(event.kind, Kind::Custom(MAKER_PROFILE_KIND));
+        assert!(event.verify().is_ok(), "profile signature must verify");
+
+        let back = MakerProfile::from_event(&event).expect("parse profile event");
+        assert_eq!(back.d_tag, profile.d_tag);
+        assert_eq!(back.name, "Helix MM");
+        assert_eq!(back.pairs.len(), 2);
+        assert_eq!(back.fill_latency_secs, Some(45));
+        assert_eq!(back.badges, vec!["audited".to_string()]);
+    }
+
+    #[test]
+    fn maker_profile_carries_filterable_pair_tags() {
+        let keys = Keys::generate();
+        let event = sample_profile().to_event(&keys).unwrap();
+        let tag_values: Vec<String> = event.tags.iter().flat_map(|t| t.clone().to_vec()).collect();
+        assert!(tag_values.iter().any(|v| v == "mosaik-maker"));
+        assert!(tag_values.iter().any(|v| v == "Helix MM"));
+        assert!(tag_values.iter().any(|v| v == "liquid:BTC/USDT"));
+        assert!(tag_values.iter().any(|v| v == "banco:BTC/USDT"));
+        assert!(tag_values.iter().any(|v| v == "audited"));
+    }
+
+    #[test]
+    fn maker_profile_rejects_non_profile_event() {
+        let keys = Keys::generate();
+        let other = EventBuilder::new(Kind::TextNote, "hello")
+            .sign_with_keys(&keys)
+            .unwrap();
+        assert!(MakerProfile::from_event(&other).is_err());
     }
 }
