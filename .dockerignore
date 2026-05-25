@@ -1,0 +1,15 @@
+# Keep build context minimal & build layer cache stable.
+target/
+.git/
+.github/
+.regtest/
+.DS_Store
+**/node_modules/
+**/.env
+**/.env.*
+!docker/.versions.env
+docs/
+mintlify-docs/
+webapp/dist/
+webapp/node_modules/
+*.log

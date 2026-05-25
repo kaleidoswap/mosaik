@@ -15,3 +15,12 @@
 .idea/
 .vscode/
 *.swp
+
+# Docker — never commit per-deployment secrets / mnemonics
+docker/**/.env
+!docker/.versions.env
+
+# Frontend (Phase 5)
+webapp/node_modules/
+webapp/dist/
+webapp/.vite/

@@ -1,0 +1,50 @@
+# Mosaik base stack — services that are present in every environment.
+#
+# Layer with one or more network overlays to get a working setup:
+#   docker compose --env-file docker/.versions.env \
+#                  -f docker/compose.yaml \
+#                  -f docker/compose.arkade-mutinynet.yaml \
+#                  up
+#
+# Or use `make dev-arkade` / `make dev-liquid` / `make dev-full`.
+
+name: mosaik
+
+services:
+  # ─── mosaik-api ────────────────────────────────────────────────────────────
+  # The covenant DEX HTTP daemon. Talks to whichever backend(s) are wired
+  # by the active overlay. Phase 5 splits the embedded webapp into its own
+  # service; until then `/` serves the legacy HTML.
+  mosaik-api:
+    image: ${MOSAIK_API_IMAGE}
+    build:
+      context: ..
+      dockerfile: docker/mosaik-api.Dockerfile
+    container_name: mosaik-api
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      MOSAIK_API_PORT: "8080"
+      RUST_LOG: "mosaik_api=info,tower_http=info"
+    networks:
+      - mosaik
+    # The healthcheck in the Dockerfile is intentionally a binary integrity
+    # probe (no curl in the slim image). A real readiness probe lives in the
+    # /healthz endpoint and is what orchestrators (k8s, etc.) should hit.
+
+  # ─── mosaik-relay-server (placeholder) ─────────────────────────────────────
+  # Phase 4 brings up a curated nostr-rs-relay with the kind-30050 policy
+  # plugin. Defined here as a commented stub so the compose graph already
+  # shows the topology; uncomment + add the image when the relay ships.
+  #
+  # mosaik-relay:
+  #   image: ${MOSAIK_RELAY_IMAGE}
+  #   container_name: mosaik-relay
+  #   ports: ["7777:7777"]
+  #   networks: [mosaik]
+
+networks:
+  mosaik:
+    name: mosaik
+    driver: bridge
