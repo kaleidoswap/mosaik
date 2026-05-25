@@ -1127,6 +1127,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "mosaik-bridge"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "hex",
+ "mosaik-core",
+ "mosaik-relay",
+ "nostr",
+ "rand 0.8.6",
+ "serde",
+ "serde_json",
+ "sha2",
+ "thiserror 1.0.69",
+]
+
+[[package]]
 name = "mosaik-cli"
 version = "0.1.0"
 dependencies = [
@@ -1135,8 +1151,10 @@ dependencies = [
  "hex",
  "mosaik-api",
  "mosaik-banco",
+ "mosaik-bridge",
  "mosaik-core",
  "mosaik-relay",
+ "serde",
  "serde_json",
  "tessera",
  "tokio",

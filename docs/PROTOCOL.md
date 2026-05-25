@@ -14,9 +14,10 @@ chain is always the source of truth.
 |-------|-----------------|:-:|---|
 | 30050 | Offer (Tessera / banco) | ✓ | short (default 24h, capped by `expiry`) |
 | 30051 | Maker profile           | ✓ | long (default 7d) |
+| 30052 | Cross-chain swap envelope | ✓ | medium (mirrors `b_refund`) |
 | 5     | Deletion (NIP-09)       | — | indefinite |
 
-All three are whitelisted in `services/mosaik-relay-server/config.toml`.
+All four are whitelisted in `services/mosaik-relay-server/config.toml`.
 Anything else is rejected at admission.
 
 ## Kind 30050 — offer
@@ -131,6 +132,88 @@ A later phase may cross-check `badges` against signed attestations
 from a separate Nostr layer (kind to be assigned). Until then, treat
 badges the same way you treat the description on an exchange's About
 page.
+
+## Kind 30052 — cross-chain swap envelope
+
+A bridge swap pairs **two single-leg offers on two different backends**
+under a shared SHA-256 preimage commitment. The envelope at kind 30052
+is the relay-side announcement; the encoder lives in `mosaik-bridge`
+(see `crates/mosaik-bridge/src/relay.rs`) so the relay crate stays free
+of bridge-specific types. See `docs/CROSS_CHAIN_SWAP.md` for the
+atomicity proof, the timelock-asymmetry math, and the state machine.
+
+### `content` (JSON)
+
+```jsonc
+{
+  "swap_id":       "mosaik-swap-001",        // matches the `d` tag
+  "preimage_hash": "<32-byte hex>",          // SHA256(preimage); never the preimage
+  "leg_a": {                                  // longer-refund leg
+    "backend":  "liquid",
+    "outpoint": "<txid>:<vout>",              // empty until funded
+    "event_id": "<kind-30050 event id>"       // optional
+  },
+  "leg_b": {                                  // shorter-refund leg
+    "backend":  "banco",
+    "outpoint": "<txid>:<vout>",
+    "event_id": "<kind-30050 event id>"
+  },
+  "timelocks": {
+    "a_refund":      1779741208,              // unix seconds
+    "b_refund":      1779737608,
+    "safety_margin": 1800                     // a_refund - b_refund must be >=
+  },
+  "state": {
+    "state": "drafted" | "half_published" | "both_published"
+           | "revealed" | "settled" | "refunded",
+    "reason": "never_published" | "partner_never_published"
+            | "no_taker_arrived" | "maker_missed_claim_window"   // only when state == refunded
+  },
+  "leg_a_offer": { ... },                     // optional full snapshot of the kind-30050
+  "leg_b_offer": { ... }                      // body; lets clients skip the lookup
+}
+```
+
+Validation enforced both at parse time and at publish time
+(`SwapEnvelope::validate`):
+
+- `leg_a.backend != leg_b.backend` (two distinct chains are the point).
+- `b_refund + safety_margin <= a_refund` (the asymmetry constraint).
+- `leg_a.outpoint != leg_b.outpoint` once both legs are funded.
+
+### Tags
+
+| Tag | Value | Purpose |
+|---|---|---|
+| `d` | `swap_id` | Addressable identifier; re-publishing advances state. |
+| `state` | the state's snake-case label | Lifecycle, mirrors the body. |
+| `backend` | one tag per leg backend | Lets clients filter on "swaps involving liquid". |
+| `pair` | `<backend_a>:<outpoint_a>↔<backend_b>:<outpoint_b>` | Groups swaps by venue pair. |
+| `hashlock` | `preimage_hash` hex | Surfaces commitment reuse across announcements. |
+| `a_refund` / `b_refund` | unix seconds | Filterability for near-expiry watch jobs. |
+
+### Lifecycle
+
+The maker re-publishes under the same `swap_id` to advance the state
+field. Clients should treat the most recent kind-30052 event per
+`(pubkey, swap_id)` as authoritative — relays already enforce that via
+NIP-33 replacement semantics for addressable events.
+
+A **kind 5 deletion** of a kind-30052 event is *not* a cancellation of
+the on-chain legs — those refund via their own covenants. Kind 5 here
+is a courtesy to clients so they drop the announcement from view; the
+single-leg `Offer` events the envelope references have their own
+kind-5 cancels.
+
+### Primitive gaps
+
+The kind-30052 envelope is fully exercisable today (parse, validate,
+publish, sign, verify, advance state via the mock orchestrator). The
+**on-chain enforcement** of the preimage-bound covenant on each leg
+depends on two primitive extensions documented in
+`CROSS_CHAIN_SWAP.md` §"Primitive gaps" — until both land, the
+`mosaik bridge-*` CLI surfaces clean error messages pointing at the
+spec rather than pretending to settle.
 
 ## Kind 5 — deletion (NIP-09)
 

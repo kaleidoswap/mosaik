@@ -2,7 +2,8 @@
 #
 # Restricts the relay to the kinds the covenant DEX protocol needs:
 #   30050  Tessera / banco offer (addressable, replaceable)
-#   30051  Maker profile (addressable; future)
+#   30051  Maker profile (addressable)
+#   30052  Cross-chain swap envelope (addressable; Phase 8)
 #   5      Deletion event (NIP-09) — lets makers cancel a published offer
 #
 # Everything else is rejected at admission time. This keeps the relay's
@@ -35,7 +36,7 @@ remote_ip_header  = "x-forwarded-for"
 # ─── Event filtering ────────────────────────────────────────────────────────
 [limits]
 # Whitelist mode: only the kinds we care about are accepted.
-event_kind_allowlist = [5, 30050, 30051]
+event_kind_allowlist = [5, 30050, 30051, 30052]
 
 # Backstops. Tune up for production.
 messages_per_sec        = 10
@@ -55,6 +56,7 @@ max_ws_frame_bytes      = 131_072
 # window is the safety net.
 max_days_30050 = 1
 max_days_30051 = 7
+max_days_30052 = 2
 
 [diagnostics]
 tracing = false

@@ -164,6 +164,58 @@ enum Command {
         #[arg(long, default_value_t = 8080)]
         port: u16,
     },
+
+    /// Cross-chain swap (Phase 8): draft a Liquid-Tessera ↔ Arkade-banco swap.
+    ///
+    /// Today this prints the envelope produced by the in-memory mock
+    /// orchestrator and surfaces the primitive-gap error explaining what's
+    /// blocking a real on-chain run. See docs/CROSS_CHAIN_SWAP.md.
+    BridgeMake {
+        /// Addressable swap id (used as the `d` tag on kind-30052).
+        #[arg(long, default_value = "mosaik-swap")]
+        swap_id: String,
+        /// `T_short` for leg-B (unix seconds). Defaults to now + 1h.
+        #[arg(long)]
+        b_refund: Option<u64>,
+        /// `T_long` for leg-A (unix seconds). Defaults to now + 2h.
+        #[arg(long)]
+        a_refund: Option<u64>,
+        /// Minimum required gap a_refund - b_refund (seconds). Default 1800.
+        #[arg(long, default_value_t = 1800)]
+        safety_margin: u64,
+        /// Write the envelope JSON here. Defaults to `<swap_id>.envelope.json`.
+        #[arg(long)]
+        out: Option<String>,
+        /// Skip publishing the on-chain legs. Today the only behaviour: the
+        /// primitive gaps are not closed yet. Kept as an explicit flag so the
+        /// CLI is forward-compatible.
+        #[arg(long, default_value_t = true)]
+        dry_run: bool,
+    },
+
+    /// Cross-chain swap (Phase 8): fulfil one leg of a swap as the taker.
+    BridgeTake {
+        /// Path to the envelope JSON.
+        #[arg(long)]
+        envelope: String,
+    },
+
+    /// Cross-chain swap (Phase 8): once a leg is spent, claim the other leg
+    /// with the revealed preimage.
+    BridgeClaim {
+        /// Path to the envelope JSON.
+        #[arg(long)]
+        envelope: String,
+        /// The revealed preimage (64-char hex).
+        #[arg(long)]
+        preimage: String,
+    },
+
+    /// Cross-chain swap (Phase 8): print the swap envelope's current state.
+    BridgeStatus {
+        #[arg(long)]
+        envelope: String,
+    },
 }
 
 fn parse_32(label: &str, s: &str) -> Result<[u8; 32]> {
@@ -282,6 +334,18 @@ fn main() -> Result<()> {
         Command::BrowseOffers { relay } => browse_offers(&relay),
         Command::ServeRelay { port } => block_on(mosaik_relay::run_local_relay(port)),
         Command::ServeWallet { port } => block_on(mosaik_api::run(port)),
+
+        Command::BridgeMake {
+            swap_id,
+            b_refund,
+            a_refund,
+            safety_margin,
+            out,
+            dry_run,
+        } => bridge_make(swap_id, b_refund, a_refund, safety_margin, out, dry_run),
+        Command::BridgeTake { envelope } => bridge_take(&envelope),
+        Command::BridgeClaim { envelope, preimage } => bridge_claim(&envelope, &preimage),
+        Command::BridgeStatus { envelope } => bridge_status(&envelope),
     }
 }
 
@@ -494,4 +558,141 @@ fn banco_reclaim(offer_path: &str, banco_proxy_url: &str, wallet_id: &str) -> Re
     println!("Cancelled banco offer.");
     println!("  cancel txid: {txid}");
     Ok(())
+}
+
+// ─── Cross-chain bridge (Phase 8) ────────────────────────────────────────────
+
+/// Draft (and optionally publish, when the primitive gaps close) a
+/// Liquid-Tessera ↔ Arkade-banco swap. Today this only walks the mock
+/// orchestrator; the publish-on-chain path returns a clean primitive-gap
+/// error pointing at docs/CROSS_CHAIN_SWAP.md.
+fn bridge_make(
+    swap_id: String,
+    b_refund: Option<u64>,
+    a_refund: Option<u64>,
+    safety_margin: u64,
+    out: Option<String>,
+    dry_run: bool,
+) -> Result<()> {
+    use mosaik_bridge::{
+        assert_primitives_available, BridgeOrchestrator, LegBackend, MockOrchestrator, SwapTerms,
+        SwapTimelocks,
+    };
+
+    let now = unix_now();
+    let timelocks = SwapTimelocks {
+        a_refund: a_refund.unwrap_or(now + 7200),
+        b_refund: b_refund.unwrap_or(now + 3600),
+        safety_margin,
+    };
+    timelocks
+        .validate()
+        .map_err(|e| anyhow::anyhow!("invalid timelocks: {e}"))?;
+
+    // Always start by drafting through the mock so the envelope is
+    // well-formed and clients have something to point at.
+    let mut orch = MockOrchestrator::new();
+    let (envelope, preimage) = orch
+        .draft(SwapTerms {
+            swap_id: swap_id.clone(),
+            leg_a_backend: LegBackend::Liquid,
+            leg_b_backend: LegBackend::Banco,
+            timelocks,
+        })
+        .map_err(|e| anyhow::anyhow!("{e}"))?;
+
+    let out_path = out.unwrap_or_else(|| format!("{swap_id}.envelope.json"));
+    std::fs::write(&out_path, serde_json::to_string_pretty(&envelope)?)?;
+
+    eprintln!("Drafted cross-chain swap envelope:");
+    eprintln!("  swap_id       : {}", envelope.swap_id);
+    eprintln!("  hashlock      : {}", envelope.preimage_hash.to_hex());
+    eprintln!(
+        "  legs          : {} (refund {}) ↔ {} (refund {})",
+        envelope.leg_a.backend,
+        envelope.timelocks.a_refund,
+        envelope.leg_b.backend,
+        envelope.timelocks.b_refund
+    );
+    eprintln!("  envelope      : {out_path}");
+    eprintln!();
+    eprintln!("  SECRET preimage (keep private, needed for bridge-claim):");
+    eprintln!("  {}", preimage.to_hex());
+
+    if !dry_run {
+        // The default is dry_run=true; this branch is here so the CLI is
+        // forward-compatible. The real publish path lights up when the two
+        // primitive gaps close (see docs/CROSS_CHAIN_SWAP.md §"Primitive gaps").
+        assert_primitives_available(LegBackend::Liquid, LegBackend::Banco)
+            .map_err(|e| anyhow::anyhow!("{e}"))?;
+    } else {
+        eprintln!();
+        eprintln!(
+            "(dry-run) Cross-chain on-chain publication is gated on the two \
+             primitive extensions documented in docs/CROSS_CHAIN_SWAP.md \
+             §\"Primitive gaps\". The envelope above is a valid mock draft."
+        );
+    }
+
+    Ok(())
+}
+
+/// Fulfil one leg of a swap as the taker. Currently surfaces the primitive
+/// gap; the envelope still loads / validates so we exercise the read path.
+fn bridge_take(envelope_path: &str) -> Result<()> {
+    let env: mosaik_bridge::SwapEnvelope = read_json(envelope_path)?;
+    env.validate().map_err(anyhow::Error::msg)?;
+    eprintln!(
+        "Loaded swap envelope: {} ({})",
+        env.swap_id,
+        env.state.label()
+    );
+    let gap = mosaik_bridge::banco_hashlock_gap();
+    Err(anyhow::anyhow!("{gap}"))
+}
+
+/// Claim the second leg once the preimage has been revealed on-chain.
+fn bridge_claim(envelope_path: &str, preimage_hex: &str) -> Result<()> {
+    use mosaik_bridge::Preimage;
+    let env: mosaik_bridge::SwapEnvelope = read_json(envelope_path)?;
+    env.validate().map_err(anyhow::Error::msg)?;
+    let p = Preimage::from_hex(preimage_hex)?;
+    if !env.preimage_hash.matches(&p) {
+        anyhow::bail!("preimage does not hash to the envelope's commitment");
+    }
+    eprintln!("Preimage verified against envelope commitment.");
+    let gap = mosaik_bridge::liquid_hashlock_gap();
+    Err(anyhow::anyhow!("{gap}"))
+}
+
+/// Print the current state of a swap envelope.
+fn bridge_status(envelope_path: &str) -> Result<()> {
+    let env: mosaik_bridge::SwapEnvelope = read_json(envelope_path)?;
+    env.validate().map_err(anyhow::Error::msg)?;
+    println!("swap_id    : {}", env.swap_id);
+    println!("state      : {}", env.state.label());
+    println!("hashlock   : {}", env.preimage_hash.to_hex());
+    println!(
+        "leg-A      : backend={} outpoint={} event={}",
+        env.leg_a.backend,
+        env.leg_a.outpoint,
+        env.leg_a.event_id.as_deref().unwrap_or("-")
+    );
+    println!(
+        "leg-B      : backend={} outpoint={} event={}",
+        env.leg_b.backend,
+        env.leg_b.outpoint,
+        env.leg_b.event_id.as_deref().unwrap_or("-")
+    );
+    println!(
+        "timelocks  : a_refund={} b_refund={} safety_margin={}",
+        env.timelocks.a_refund, env.timelocks.b_refund, env.timelocks.safety_margin
+    );
+    Ok(())
+}
+
+/// Read + parse a JSON file into a typed value.
+fn read_json<T: serde::de::DeserializeOwned>(path: &str) -> Result<T> {
+    let s = std::fs::read_to_string(path).map_err(|e| anyhow::anyhow!("reading {path}: {e}"))?;
+    serde_json::from_str(&s).map_err(|e| anyhow::anyhow!("parsing {path}: {e}"))
 }

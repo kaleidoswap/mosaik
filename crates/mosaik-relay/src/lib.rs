@@ -25,6 +25,17 @@ pub const TESSERA_OFFER_KIND: u16 = 30050;
 /// reputation alongside price.
 pub const MAKER_PROFILE_KIND: u16 = 30051;
 
+/// Nostr event kind for a Mosaik cross-chain swap announcement
+/// (addressable / replaceable). Carries a [`SwapEnvelope`] pairing two
+/// single-leg offers under a shared preimage commitment.
+///
+/// The encoder lives in `mosaik-bridge::relay` so the relay crate doesn't
+/// have to depend on the bridge crate. This constant is declared here only
+/// so all Mosaik event-kind numbers live in one place.
+///
+/// [`SwapEnvelope`]: ../mosaik_bridge/struct.SwapEnvelope.html
+pub const CROSS_CHAIN_SWAP_KIND: u16 = 30052;
+
 /// The lifecycle status of an offer.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]

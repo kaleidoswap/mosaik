@@ -35,7 +35,7 @@ const PEER_RELAYS = (process.env.PEER_RELAYS ?? '')
   .map((s) => s.trim())
   .filter(Boolean);
 const MAX_SEEN = Number(process.env.MAX_SEEN ?? 50_000);
-const SUBSCRIBE_KINDS = [30050, 30051, 5];
+const SUBSCRIBE_KINDS = [30050, 30051, 30052, 5];
 
 if (PEER_RELAYS.length === 0) {
   log.warn(

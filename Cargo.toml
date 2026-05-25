@@ -4,6 +4,7 @@ members = [
     "crates/tessera",
     "crates/mosaik-core",
     "crates/mosaik-banco",
+    "crates/mosaik-bridge",
     "crates/mosaik-relay",
     "crates/mosaik-api",
     "crates/mosaik-cli",
