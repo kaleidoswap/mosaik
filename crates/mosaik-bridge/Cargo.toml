@@ -17,4 +17,5 @@ rand = "0.8"
 thiserror = "1"
 nostr = "0.44"
 mosaik-core = { path = "../mosaik-core" }
+mosaik-banco = { path = "../mosaik-banco" }
 mosaik-relay = { path = "../mosaik-relay" }

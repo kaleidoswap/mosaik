@@ -77,6 +77,12 @@ pub struct MakerOffer {
 }
 
 /// A blocking client for one banco-proxy wallet.
+///
+/// `Clone` is cheap: `ureq::Agent` clones into a shared connection pool,
+/// the cached JWT comes along, the strings are short. Callers that hold
+/// the client across long-lived components are encouraged to wrap in
+/// `Arc<BancoClient>` instead.
+#[derive(Clone)]
 pub struct BancoClient {
     base_url: String,
     wallet_id: String,

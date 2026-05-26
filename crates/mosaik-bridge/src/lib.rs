@@ -22,9 +22,11 @@
 pub mod envelope;
 pub mod orchestrator;
 pub mod preimage;
+pub mod real;
 pub mod relay;
 pub mod state;
 
+pub use real::{LegClient, RealOrchestrator};
 pub use relay::SwapAnnouncement;
 
 pub use envelope::{LegRef, SwapEnvelope, SwapTimelocks};
