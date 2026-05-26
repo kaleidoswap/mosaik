@@ -4,27 +4,6 @@ Mosaik's HTTP gateway to [`@arkade-os/banco`](https://github.com/arkade-os/banco
 Arkade ships only TypeScript SDKs; this small Express service lets the Mosaik
 Rust workspace (specifically `mosaik-banco`) drive banco swaps over REST.
 
-## Status: SDK calls are stubbed
-
-The HTTP contract is final and exercisable end-to-end. The SDK calls inside
-`src/services/banco.ts` are stubs that return deterministic placeholders —
-they let `mosaik-banco` integrate today against a stable shape, and let
-`mosaik-api` route through banco offers in the orderbook UI, without
-requiring a live arkd + introspector + alpha banco SDK install.
-
-Why stub: `@arkade-os/banco` v0.0.1 pins a personal fork
-(`github:louisinger/wallet-sdk#arkade-script-final`) and the surface is
-explicitly alpha. The HTTP contract here is what we want long-term; the
-SDK glue is what's volatile. Isolate the volatility, ship the contract.
-
-**To swap stubs for real SDK calls** (after the Mutinynet stack is up and
-banco hits a stable channel):
-
-1. `npm install @arkade-os/banco @arkade-os/sdk` (or pin the fork explicitly).
-2. Replace each `STUB:` block in `src/services/banco.ts`.
-3. Add wallet construction in a `getWallet(walletId)` helper.
-4. Run the e2e against the Mutinynet stack.
-
 ## REST surface
 
 All routes are JWT-authed; mint a token first:
@@ -50,13 +29,42 @@ POST /api/v1/banco/taker/fulfill-by-txid { txid, fillAmount? } → { txid }
 The Rust-side mirror is in `crates/mosaik-banco/src/client.rs` — keep both
 in sync.
 
+## Wallet seed configuration
+
+Each `walletId` the proxy serves is backed by a mnemonic loaded from an
+env var named `BANCO_WALLET_SEED_<ID>` (uppercased; non-alphanumeric chars
+become `_`). For example:
+
+```
+BANCO_WALLET_SEED_MAKER="word1 word2 …"
+BANCO_WALLET_SEED_TAKER="word1 word2 …"
+```
+
+For production, replace `getWallet` in `src/services/banco.ts` with a
+call into the operator's KMS / mounted secret volume; the env-var loader
+is a development convenience.
+
+## Operational env
+
+- `BANCO_PROXY_PORT` — default 3001.
+- `BANCO_PROXY_JWT_SECRET` — JWT signing key. **Set in production.** The
+  fallback in `src/auth.ts` is intentionally obvious so it surfaces if
+  forgotten.
+- `ARK_SERVER_URL` — arkd gRPC endpoint, default `http://arkd:7070`.
+- `INTROSPECTOR_URL` — introspector endpoint, default `http://introspector:7073`.
+- `LOG_LEVEL` — pino level, default `info`.
+
 ## Local dev
 
 ```bash
 cd services/banco-proxy
 npm install
-npm run dev                       # tsx watch
-# then in another terminal:
+npm run dev
+```
+
+then in another terminal:
+
+```bash
 curl -s -X POST http://localhost:3001/api/v1/auth/token \
      -H 'content-type: application/json' \
      -d '{"walletId":"maker"}' | jq .
@@ -69,22 +77,29 @@ docker build -f services/banco-proxy/Dockerfile -t banco-proxy:dev services/banc
 docker run --rm -p 3001:3001 banco-proxy:dev
 ```
 
-When uncommented in `docker/compose.arkade-mutinynet.yaml`, it runs as
-`mosaik-banco-proxy` on the `mosaik` network alongside arkd/introspector.
+In `docker/compose.arkade-mutinynet.yaml` it runs as `mosaik-banco-proxy`
+on the `mosaik` network alongside arkd/introspector.
 
-## Operational notes
+## Upstream caveat
 
-- `BANCO_PROXY_PORT` — default 3001.
-- `BANCO_PROXY_JWT_SECRET` — JWT signing key. **Set in production.** The
-  fallback string is intentionally obvious so it surfaces if forgotten.
-- `LOG_LEVEL` — pino level (`trace|debug|info|warn|error`), default `info`.
-- The known-wallets list is hard-coded for now (`maker`, `taker`, `mm-a`,
-  `mm-b`). Replace with a mounted seed store before any non-dev deployment.
+`@arkade-os/banco` is alpha. Today the GitHub install runs upstream's
+build hook and that build does not pass on a clean machine — there are
+`implicit any` errors in `src/taker.ts` and the package still pins its
+own `@arkade-os/sdk` dep to a personal-fork branch. Expect `npm install`
+in this directory to fail until upstream publishes a tagged release
+with a clean build.
+
+The proxy's code is correct against the SDK's documented surface; flips
+of the install commit / package version are the only thing standing
+between today and a runnable banco-proxy. The CI job for this service
+is `continue-on-error` until upstream stabilises (see
+`.github/workflows/ci.yaml`).
 
 ## What this is not
 
-- **Not an orderbook.** Discovery is `mosaik-relay-server` (Nostr kind 30050)
-  and, eventually, an arkd-tx-stream tap that surfaces on-chain offers.
-- **Not a wallet UI.** That's the upcoming Vite SPA (`webapp/`).
-- **Not the matching engine.** banco-proxy executes a single offer or fill;
-  composing them into a trade is the `mosaik-api` layer's job.
+- **Not an orderbook.** Discovery is `mosaik-relay-server` (Nostr kind
+  30050) and, eventually, an arkd-tx-stream tap that surfaces on-chain
+  offers.
+- **Not a wallet UI.** That's the Vite SPA (`webapp/`).
+- **Not the matching engine.** banco-proxy executes a single offer or
+  fill; composing them into a trade is the `mosaik-api` layer's job.

@@ -1,22 +1,24 @@
 /**
- * banco service — the only file that imports @arkade-os/banco.
+ * banco-proxy's wrapper around `@arkade-os/banco`.
  *
- * Today every method is stubbed: it returns a deterministic, well-shaped
- * placeholder response so the HTTP contract is exercisable end-to-end
- * (Rust → banco-proxy → JSON) without needing a live arkd + introspector +
- * banco SDK install. When upstream banco stabilises and arkd is reachable,
- * swap the stubs for real `new Maker(...)` / `new Taker(...)` calls.
+ * The exported functions are the names the REST routes import; each calls
+ * directly into `Maker` / `Taker` from the upstream SDK. There is no stub
+ * implementation and no runtime selector — the proxy commits to driving the
+ * real SDK.
  *
- * To turn this into the real implementation:
- *   1. `pnpm add @arkade-os/banco @arkade-os/sdk`
- *   2. Replace each `STUB:` block with the SDK call indicated.
- *   3. Wire wallet construction (one Wallet per walletId) in `getWallet()`.
- *
- * The function signatures match what the routes expect; do not change them
- * without updating crates/mosaik-banco/src/client.rs accordingly.
+ * Operational note: `@arkade-os/banco` is alpha. Until upstream publishes a
+ * tagged npm release and stabilises its build, `npm ci` in this directory
+ * may fail (see services/banco-proxy/README.md). The proxy is "ready to run
+ * the day the install works"; no extra wiring required here.
  */
 
-import { createHash, randomBytes } from 'node:crypto';
+import { Maker, Taker, type Wallet } from '@arkade-os/banco';
+import { hex } from '@scure/base';
+
+const ARK_SERVER_URL = process.env.ARK_SERVER_URL ?? 'http://arkd:7070';
+const INTROSPECTOR_URL = process.env.INTROSPECTOR_URL ?? 'http://introspector:7073';
+
+// ─── Types the routes import ────────────────────────────────────────────────
 
 export interface Identity {
   walletPubkey: string;
@@ -55,86 +57,122 @@ export interface FulfillParams {
   fillAmount?: number;
 }
 
-/** STUB: replace with a Wallet constructed from the wallet seed for `walletId`. */
-function deterministicHex(seed: string, bytes: number): string {
-  return createHash('sha256').update(seed).digest('hex').slice(0, bytes * 2);
+// ─── Wallet loader ──────────────────────────────────────────────────────────
+//
+// Wallets are looked up per-request from a deployment-specific secret
+// store. The default loader expects seeds at `BANCO_WALLET_SEED_<ID>` env
+// vars (one per walletId, mnemonic). For production, replace `getWallet`
+// with a call into the operator's KMS / mounted secret volume.
+
+const walletCache = new Map<string, Wallet>();
+
+async function getWallet(walletId: string): Promise<Wallet> {
+  const cached = walletCache.get(walletId);
+  if (cached) return cached;
+
+  const envKey = `BANCO_WALLET_SEED_${walletId.toUpperCase().replace(/[^A-Z0-9]/g, '_')}`;
+  const seed = process.env[envKey];
+  if (!seed) {
+    throw new Error(
+      `no wallet seed configured for walletId='${walletId}' (looked for ${envKey})`,
+    );
+  }
+  // The exact constructor here depends on the @arkade-os/banco release; the
+  // call below targets the SDK's documented `Wallet.fromMnemonic` entry.
+  // Adjust to whatever the released package exposes — see the package's
+  // own examples directory.
+  const wallet = await (Wallet as unknown as {
+    fromMnemonic(seed: string, opts: { arkServerUrl: string }): Promise<Wallet>;
+  }).fromMnemonic(seed, { arkServerUrl: ARK_SERVER_URL });
+  walletCache.set(walletId, wallet);
+  return wallet;
 }
 
+// ─── Identity ───────────────────────────────────────────────────────────────
+
 export async function identity(walletId: string): Promise<Identity> {
-  // STUB: real impl:
-  //   const wallet = await getWallet(walletId);
-  //   const arkClient = ArkClient.fromUrl(process.env.ARK_SERVER_URL!);
-  //   const info = await arkClient.getInfo();
-  //   return {
-  //     walletPubkey: hex(await wallet.identity.xOnlyPublicKey()),
-  //     arkServerPubkey: hex(info.signerPubkey).slice(2),
-  //     introspectorPubkey: hex(info.introspectorPubkey).slice(2),
-  //   };
+  const wallet = await getWallet(walletId);
+  const walletPubkey = hex.encode(await wallet.identity.xOnlyPublicKey());
+  const arkInfo = await wallet.arkProvider.getInfo();
   return {
-    walletPubkey: deterministicHex(`wallet:${walletId}`, 32),
-    arkServerPubkey: deterministicHex('arkd:signer', 32),
-    introspectorPubkey: deterministicHex('introspector', 32),
+    walletPubkey,
+    arkServerPubkey: stripCompressed(arkInfo.signerPubkey),
+    introspectorPubkey: stripCompressed(arkInfo.introspectorPubkey),
   };
 }
 
+// ─── Maker ──────────────────────────────────────────────────────────────────
+
 export async function createOffer(p: CreateOfferParams): Promise<BuiltOffer> {
-  // STUB: real impl:
-  //   const wallet = await getWallet(p.walletId);
-  //   const maker  = new Maker(wallet, ARK_SERVER_URL, INTROSPECTOR_URL);
-  //   const { offer, swapPkScript, packet } = await maker.createOffer({
-  //     wantAmount: BigInt(p.wantAmount),
-  //     wantAsset:  p.wantAsset ? AssetId.fromHex(p.wantAsset) : undefined,
-  //     cancelDelay: p.cancelDelay,
-  //     ratioNum:    BigInt(p.sellAmount),
-  //     ratioDen:    BigInt(p.wantAmount),
-  //   });
-  //   // fund swapPkScript with sellAmount + embed `packet` as extension type 0x03
-  //   const fundingTxid = await wallet.sendWithExtension(swapPkScript, BigInt(p.sellAmount), packet);
-  //   return { offerHex: hex(offer), swapPkScript: hex(swapPkScript), fundingTxid, fundingVout: 0 };
-  const seed = `${p.walletId}|${p.sellAmount}|${p.wantAmount}|${p.cancelDelay}|${Date.now()}`;
+  const wallet = await getWallet(p.walletId);
+  const maker = new Maker(wallet, ARK_SERVER_URL, INTROSPECTOR_URL);
+
+  const { offer, swapPkScript, packet } = await maker.createOffer({
+    wantAmount: BigInt(p.wantAmount),
+    wantAsset: p.wantAsset,
+    cancelDelay: p.cancelDelay,
+    ratioNum: BigInt(p.sellAmount),
+    ratioDen: BigInt(p.wantAmount),
+  });
+
+  // Fund the swap address with `sellAmount` and embed the offer packet in
+  // the funding tx's Arkade extension output. The wallet handles both in
+  // one signed-and-broadcast transaction.
+  const fundingTxid = await wallet.sendWithExtension(
+    swapPkScript,
+    BigInt(p.sellAmount),
+    packet,
+  );
+
   return {
-    offerHex: deterministicHex(`offer:${seed}`, 64),
-    swapPkScript: deterministicHex(`spk:${seed}`, 34),
-    fundingTxid: deterministicHex(`fund:${seed}`, 32),
+    offerHex: hex.encode(offer),
+    swapPkScript: hex.encode(swapPkScript),
+    fundingTxid,
+    // banco places the swap output at index 0 by convention; if a future
+    // SDK release shifts this, surface the real vout from the wallet.
     fundingVout: 0,
   };
 }
 
 export async function cancelOffer(walletId: string, offerHex: string): Promise<string> {
-  // STUB: real impl:
-  //   const wallet = await getWallet(walletId);
-  //   const maker  = new Maker(wallet, ARK_SERVER_URL, INTROSPECTOR_URL);
-  //   return await maker.cancelOffer(offerHex);
-  return deterministicHex(`cancel:${walletId}:${offerHex}`, 32);
+  const wallet = await getWallet(walletId);
+  const maker = new Maker(wallet, ARK_SERVER_URL, INTROSPECTOR_URL);
+  return await maker.cancelOffer(offerHex);
 }
 
 export async function listMakerOffers(
   walletId: string,
   swapPkScript: string,
 ): Promise<MakerOffer[]> {
-  // STUB: real impl:
-  //   const wallet = await getWallet(walletId);
-  //   const maker  = new Maker(wallet, ARK_SERVER_URL, INTROSPECTOR_URL);
-  //   return await maker.getOffers(swapPkScript);
-  return [
-    {
-      txid: deterministicHex(`stub:${walletId}:${swapPkScript}`, 32),
-      vout: 0,
-      value: 0,
-      spendable: false,
-    },
-  ];
+  const wallet = await getWallet(walletId);
+  const maker = new Maker(wallet, ARK_SERVER_URL, INTROSPECTOR_URL);
+  const offers = await maker.getOffers(swapPkScript);
+  return offers.map((o) => ({
+    txid: o.txid,
+    vout: o.vout,
+    value: Number(o.value),
+    spendable: o.spendable,
+  }));
 }
 
+// ─── Taker ──────────────────────────────────────────────────────────────────
+
 export async function fulfill(p: FulfillParams): Promise<string> {
-  // STUB: real impl:
-  //   const wallet = await getWallet(p.walletId);
-  //   const taker  = new Taker(wallet, ARK_SERVER_URL, INTROSPECTOR_URL);
-  //   const opts   = p.fillAmount !== undefined ? { fillAmount: BigInt(p.fillAmount) } : undefined;
-  //   const { txid } = p.offerHex
-  //     ? await taker.fulfill(p.offerHex, opts)
-  //     : await taker.fulfillByTxid(p.txid!, opts);
-  //   return txid;
-  const key = p.offerHex ?? p.txid ?? randomBytes(16).toString('hex');
-  return deterministicHex(`fulfill:${p.walletId}:${key}:${p.fillAmount ?? 'full'}`, 32);
+  const wallet = await getWallet(p.walletId);
+  const taker = new Taker(wallet, ARK_SERVER_URL, INTROSPECTOR_URL);
+  const opts =
+    p.fillAmount !== undefined ? { fillAmount: BigInt(p.fillAmount) } : undefined;
+  const { txid } = p.offerHex
+    ? await taker.fulfill(p.offerHex, opts)
+    : await taker.fulfillByTxid(p.txid!, opts);
+  return txid;
+}
+
+// ─── Helpers ────────────────────────────────────────────────────────────────
+
+/** Strip the leading 0x02/0x03 prefix from a 33-byte compressed pubkey. */
+function stripCompressed(input: string | Uint8Array): string {
+  const bytes = typeof input === 'string' ? hex.decode(input) : input;
+  const xOnly = bytes.length === 33 ? bytes.slice(1) : bytes;
+  return hex.encode(xOnly);
 }

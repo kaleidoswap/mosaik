@@ -16,6 +16,8 @@
     "node": ">=22.12.0"
   },
   "dependencies": {
+    "@arkade-os/banco": "github:arkade-os/banco",
+    "@scure/base": "^1.2.0",
     "express": "^4.21.1",
     "jsonwebtoken": "^9.0.2",
     "pino": "^9.5.0",
@@ -27,13 +29,5 @@
     "@types/node": "^22.10.1",
     "tsx": "^4.19.2",
     "typescript": "^5.7.2"
-  },
-  "comment": [
-    "@arkade-os/banco is deliberately NOT a direct dependency until upstream",
-    "publishes a stable npm release. The SDK currently pins a personal fork",
-    "(louisinger/wallet-sdk#arkade-script-final) and the surface is alpha.",
-    "When stable, add:",
-    "  \"@arkade-os/banco\": \"^x.y.z\"",
-    "and remove the stubbed handlers in src/services/banco.ts."
-  ]
+  }
 }
