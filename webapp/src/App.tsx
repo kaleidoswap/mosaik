@@ -1,17 +1,20 @@
 import { useState } from 'react';
 import { useApiState } from './api/client';
+import { useRelayFeed } from './api/relay';
 import type { Backend } from './api/types';
 import { Header } from './components/Header';
 import { OrderBook } from './components/OrderBook';
 import { MakeOfferForm } from './components/MakeOfferForm';
 import { TradeTape } from './components/TradeTape';
 import { SwapBoard } from './components/SwapBoard';
+import { RelayFeed } from './components/RelayFeed';
 
 export function App() {
   const [backend, setBackend] = useState<Backend>('liquid');
   const [activeMaker, setActiveMaker] = useState('user');
 
   const state = useApiState();
+  const relay = useRelayFeed();
 
   return (
     <div className="flex min-h-screen flex-col">
@@ -23,6 +26,7 @@ export function App() {
         activeMaker={activeMaker}
         onMakerChange={setActiveMaker}
         wallet={state.data?.wallets?.[activeMaker]}
+        relay={{ status: relay.status, url: relay.url, count: relay.events.length }}
       />
 
       {state.isLoading && <StatusBar>Loading mosaik-api…</StatusBar>}
@@ -48,6 +52,7 @@ export function App() {
             activeMaker={activeMaker}
           />
           <SwapBoard />
+          <RelayFeed events={relay.events} />
         </div>
       </main>
 

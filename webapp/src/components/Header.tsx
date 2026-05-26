@@ -1,5 +1,7 @@
 import type { Backend, Maker, WalletSnapshot } from '../api/types';
+import type { RelayStatus } from '../api/relay';
 import { BackendBadge } from './BackendBadge';
+import { RelayStatusChip } from './RelayStatusChip';
 import { fmtSats } from '../lib/format';
 
 interface Props {
@@ -10,6 +12,7 @@ interface Props {
   activeMaker: string;
   onMakerChange: (m: string) => void;
   wallet?: WalletSnapshot;
+  relay: { status: RelayStatus; url: string; count: number };
 }
 
 export function Header({
@@ -20,6 +23,7 @@ export function Header({
   activeMaker,
   onMakerChange,
   wallet,
+  relay,
 }: Props) {
   return (
     <header className="border-b border-ink-500/60 bg-ink-800/60 backdrop-blur">
@@ -52,6 +56,7 @@ export function Header({
 
         {/* Right cluster */}
         <div className="flex items-center gap-4">
+          <RelayStatusChip status={relay.status} url={relay.url} count={relay.count} />
           {blockCount !== undefined && (
             <span className="pill" title="Chain tip">
               block {blockCount}
