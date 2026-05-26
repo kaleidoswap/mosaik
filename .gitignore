@@ -34,3 +34,4 @@ services/**/dist/
 services/**/.tsbuildinfo
 services/**/*.log
 webapp/vite.config.js
+services/banco-proxy/package-lock.json

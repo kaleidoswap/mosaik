@@ -2,23 +2,31 @@
 #
 #   docker build -f services/banco-proxy/Dockerfile \
 #                -t banco-proxy:dev services/banco-proxy
+#
+# Uses pnpm (not npm) because @arkade-os/banco is installed from git, runs a
+# build hook at install time, and pulls a transitive git-dep
+# (@arkade-os/sdk pinned to a personal fork). Both knobs live in
+# pnpm-workspace.yaml — see the README's "Upstream caveat" for why.
 
 ARG NODE_VERSION=22.12-alpine
 
 # ─── builder ─────────────────────────────────────────────────────────────────
 FROM node:${NODE_VERSION} AS builder
 
+# pnpm via corepack (ships with Node 22).
+RUN corepack enable && corepack prepare pnpm@10.25.0 --activate
+
 WORKDIR /app
 
-# Manifests first so npm install caches across source-only edits.
-COPY package.json tsconfig.json ./
-RUN npm install --no-audit --no-fund
+# Manifests first so install caches across source-only edits.
+COPY package.json tsconfig.json pnpm-workspace.yaml ./
+RUN pnpm install --frozen-lockfile=false
 
 COPY src ./src
-RUN npm run build
+RUN pnpm run build
 
 # Drop dev deps for the runtime layer.
-RUN npm prune --omit=dev
+RUN pnpm prune --prod
 
 # ─── runtime ─────────────────────────────────────────────────────────────────
 FROM node:${NODE_VERSION} AS runtime

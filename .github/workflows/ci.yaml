@@ -47,11 +47,20 @@ jobs:
         run: cargo test --workspace
 
   # ─── banco-proxy (TypeScript) ───────────────────────────────────────────────
-  # @arkade-os/banco is alpha and currently fails to install / build on a
-  # clean machine (see services/banco-proxy/README.md §"Upstream caveat").
-  # Mark as continue-on-error until upstream publishes a tagged release;
-  # this keeps the platform's CI honest about the state of the dep instead
-  # of carrying stubs to game a green check.
+  # @arkade-os/banco is alpha. As of writing it:
+  #   - is not on the npm registry, so the install resolves from
+  #     github:arkade-os/banco (default master);
+  #   - depends transitively on @arkade-os/sdk pinned to a personal-fork
+  #     branch, which pnpm only installs when `blockExoticSubdeps: false`;
+  #   - runs a build hook (`pnpm run build`) at install time, which pnpm
+  #     only runs when the package is in `allowBuilds`.
+  # Both knobs live in services/banco-proxy/pnpm-workspace.yaml.
+  #
+  # Even with a clean typecheck + tsc build, the upstream ESM dist has
+  # extensionless relative imports that crash Node at module-load time
+  # (`Cannot find module './offer'`). Until upstream cuts a release with a
+  # working ESM build, runtime smoke-tests are deferred and this job is
+  # `continue-on-error` — keeping the failure visible without blocking PRs.
   banco-proxy:
     name: banco-proxy (typecheck · build)
     runs-on: ubuntu-latest
@@ -64,12 +73,13 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
-          cache: npm
-          cache-dependency-path: services/banco-proxy/package-lock.json
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
 
-      - run: npm ci
-      - run: npm run typecheck
-      - run: npm run build
+      - run: pnpm install
+      - run: pnpm run typecheck
+      - run: pnpm run build
 
   # ─── mosaik-webapp (Vite SPA) ───────────────────────────────────────────────
   webapp:

@@ -1,0 +1,7 @@
+# pnpm v10 settings to install @arkade-os/banco from git, which itself
+# pulls @arkade-os/sdk from a git fork. Both need explicit opt-in:
+allowBuilds:
+  "@arkade-os/banco": true
+  "@arkade-os/sdk": true
+  esbuild: set this to true or false
+blockExoticSubdeps: false

@@ -1,7 +1,7 @@
 {
   "name": "@kaleidoswap/banco-proxy",
   "version": "0.1.0",
-  "description": "Mosaik's HTTP gateway to @arkade-os/banco — exposes Maker/Taker as REST so the Rust workspace can drive Arkade swaps without an SDK port.",
+  "description": "Mosaik's HTTP gateway to @arkade-os/banco \u2014 exposes Maker/Taker as REST so the Rust workspace can drive Arkade swaps without an SDK port.",
   "private": true,
   "type": "module",
   "main": "dist/index.js",
@@ -21,7 +21,8 @@
     "express": "^4.21.1",
     "jsonwebtoken": "^9.0.2",
     "pino": "^9.5.0",
-    "pino-http": "^10.3.0"
+    "pino-http": "^10.3.0",
+    "@arkade-os/sdk": "github:louisinger/wallet-sdk#arkade-script-final"
   },
   "devDependencies": {
     "@types/express": "^4.17.21",
@@ -29,5 +30,11 @@
     "@types/node": "^22.10.1",
     "tsx": "^4.19.2",
     "typescript": "^5.7.2"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "@arkade-os/banco",
+      "@arkade-os/sdk"
+    ]
   }
 }

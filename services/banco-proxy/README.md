@@ -58,8 +58,8 @@ is a development convenience.
 
 ```bash
 cd services/banco-proxy
-npm install
-npm run dev
+pnpm install
+pnpm run dev
 ```
 
 then in another terminal:
@@ -69,6 +69,10 @@ curl -s -X POST http://localhost:3001/api/v1/auth/token \
      -H 'content-type: application/json' \
      -d '{"walletId":"maker"}' | jq .
 ```
+
+> The proxy requires **pnpm**, not npm, because `@arkade-os/banco` is
+> installed from git and runs a build hook at install time. Both
+> behaviours are gated by `pnpm-workspace.yaml` in this directory.
 
 ## Docker
 
@@ -82,18 +86,23 @@ on the `mosaik` network alongside arkd/introspector.
 
 ## Upstream caveat
 
-`@arkade-os/banco` is alpha. Today the GitHub install runs upstream's
-build hook and that build does not pass on a clean machine — there are
-`implicit any` errors in `src/taker.ts` and the package still pins its
-own `@arkade-os/sdk` dep to a personal-fork branch. Expect `npm install`
-in this directory to fail until upstream publishes a tagged release
-with a clean build.
+`@arkade-os/banco` is alpha. Today:
 
-The proxy's code is correct against the SDK's documented surface; flips
-of the install commit / package version are the only thing standing
-between today and a runnable banco-proxy. The CI job for this service
-is `continue-on-error` until upstream stabilises (see
-`.github/workflows/ci.yaml`).
+| | |
+|---|---|
+| **npm registry** | not published (404). The proxy installs from `github:arkade-os/banco` (default branch `master`). |
+| **transitive dep** | pulls `@arkade-os/sdk` from `github:louisinger/wallet-sdk#arkade-script-final` — a personal fork on a branch ref. |
+| **install hook** | runs `pnpm run build` to compile the SDK's source. Both git-deps must be in `pnpm-workspace.yaml`'s `allowBuilds`; the transitive fork-dep requires `blockExoticSubdeps: false`. Both flags live in `pnpm-workspace.yaml`. |
+| **typecheck + build** | ✅ pass against the real SDK surface. |
+| **runtime** | ❌ upstream's published ESM `dist` emits extensionless relative imports (`import "./offer"` etc.), which crash Node ESM at module-load. |
+
+The proxy's code is correct against the SDK's typed surface; closing
+the runtime gap means waiting for upstream to publish a release with a
+working ESM build (or applying a one-line patch script to rewrite the
+extensionless imports — possible but fragile).
+
+CI runs typecheck + build with `continue-on-error: true` so the
+failure is visible in the run logs without blocking unrelated PRs.
 
 ## What this is not
 
