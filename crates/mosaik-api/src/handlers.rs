@@ -12,21 +12,24 @@
 //! `webapp/index.html` at `/`.
 
 use std::collections::BTreeMap;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::{anyhow, Result};
 use mosaik_banco::{BancoClient, BancoMaker, BancoTaker, OfferTerms};
 use mosaik_bridge::{
-    LegRef, Preimage, RefundReason, SwapEnvelope, SwapStateMachine, SwapTimelocks,
+    LegRef, Preimage, RefundReason, SwapAnnouncement, SwapEnvelope, SwapStateMachine, SwapTimelocks,
 };
 use mosaik_core::rpc::ElementsRpc;
 use mosaik_core::{
     lbtc_tessera, tessera_for, Cheat, MakeOffer, MosaikMaker, MosaikTaker, Offer, OfferKind,
     ReclaimOffer,
 };
-use mosaik_relay::{Keys, MakerPair, MakerProfile, OfferStatus, TesseraOffer};
+use mosaik_relay::{
+    Keys, MakerPair, MakerProfile, MosaikRelay, NostrEvent, OfferStatus, TesseraOffer,
+};
 use serde_json::{json, Value};
+use tokio::runtime::Handle;
 
 const BASE: &str = "http://127.0.0.1:7040";
 const RPC_USER: &str = "user";
@@ -86,18 +89,69 @@ pub struct AppState {
     /// profile per known maker at boot; clients can replace via
     /// `POST /api/maker-profiles`.
     pub maker_profiles: BTreeMap<String, MakerProfile>,
+    /// Long-lived connection to the configured Mosaik relay. Used to
+    /// publish kind-30050 / 30051 / 30052 events on successful writes so
+    /// SPA subscribers see API activity in real time. `None` if no relay
+    /// URL is configured or the initial connect failed at boot.
+    pub relay: Option<Arc<MosaikRelay>>,
+    /// Tokio runtime handle captured at boot. Lets the sync handlers
+    /// (run inside `spawn_blocking`) fire-and-forget async relay
+    /// publishes via `handle.spawn(...)`.
+    pub runtime: Option<Handle>,
+    /// Stable Nostr signing identity for this API process. Used for every
+    /// outbound event so addressable kinds (30050 / 30051 / 30052) replace
+    /// previous versions cleanly on the relay rather than fanning out
+    /// across per-call throwaway pubkeys. Generated fresh per process
+    /// today; production deployments should seed it from a persisted nsec.
+    pub keys: Keys,
 }
 
 impl AppState {
     pub fn new() -> Self {
+        Self::with_relay(None, None, Keys::generate())
+    }
+
+    /// Constructor used by `mosaik_api::run` — receives a connected relay
+    /// client (if available), the tokio runtime handle for spawning
+    /// fire-and-forget publishes, and the API's stable signing keys.
+    pub fn with_relay(
+        relay: Option<Arc<MosaikRelay>>,
+        runtime: Option<Handle>,
+        keys: Keys,
+    ) -> Self {
         Self {
             offers: Vec::new(),
             assets: BTreeMap::new(),
             trades: Vec::new(),
             swaps: BTreeMap::new(),
             maker_profiles: default_maker_profiles(),
+            relay,
+            runtime,
+            keys,
         }
     }
+}
+
+/// Fire-and-forget publish of a pre-signed event to the configured relay.
+///
+/// The handler holds the AppState mutex while building the event, then
+/// releases it before this spawns the async publish. Errors are logged
+/// (via the tracing layer attached to the axum router) but never
+/// propagate — relay reachability is independent of the success of the
+/// underlying write.
+fn publish_to_relay(state: &Mutex<AppState>, event: NostrEvent) {
+    let (relay, runtime) = {
+        let st = state.lock().unwrap();
+        (st.relay.clone(), st.runtime.clone())
+    };
+    let Some(relay) = relay else { return };
+    let Some(rt) = runtime else { return };
+    rt.spawn(async move {
+        match relay.publish_event(event).await {
+            Ok(id) => tracing::debug!(event_id = %id, "relay publish ok"),
+            Err(e) => tracing::warn!(err = %e, "relay publish failed"),
+        }
+    });
 }
 
 /// Seed one MakerProfile per [`MAKERS`] entry so the UI has something to
@@ -451,23 +505,31 @@ pub fn api_make_offer(body: &Value, state: &Mutex<AppState>) -> Result<Value> {
         expiry: created_at + 3600,
         status: OfferStatus::Active,
     };
-    let keys = Keys::generate();
+    let keys = state.lock().unwrap().keys.clone();
     let event = tessera_offer.to_event(&keys)?;
     let event_id = event.id.to_hex();
     let pubkey = keys.public_key().to_hex();
 
-    let mut st = state.lock().unwrap();
-    let index = st.offers.len();
-    st.offers.push(ListedOffer {
-        offer: offer.clone(),
-        maker,
-        maker_name,
-        order_id,
-        event_id: event_id.clone(),
-        pubkey,
-        created_at,
-    });
+    {
+        let mut st = state.lock().unwrap();
+        let _index = st.offers.len();
+        st.offers.push(ListedOffer {
+            offer: offer.clone(),
+            maker,
+            maker_name,
+            order_id,
+            event_id: event_id.clone(),
+            pubkey,
+            created_at,
+        });
+    }
 
+    // Fire-and-forget: SPA subscribers learn about the new offer the same
+    // tick. Publishes use the per-offer throwaway key built above; the
+    // relay's tag whitelist accepts kind-30050.
+    publish_to_relay(state, event.clone());
+
+    let index = state.lock().unwrap().offers.len() - 1;
     Ok(json!({
         "ok": true,
         "index": index,
@@ -742,8 +804,20 @@ pub fn api_swap_draft(body: &Value, state: &Mutex<AppState>) -> Result<Value> {
             },
         );
     }
+    publish_swap_envelope(state, &envelope);
 
     Ok(envelope_json(&envelope))
+}
+
+/// Publish the kind-30052 announcement for a swap envelope. Helper because
+/// the three state-changing swap handlers all need to do the same thing
+/// after the transition lands.
+fn publish_swap_envelope(state: &Mutex<AppState>, envelope: &SwapEnvelope) {
+    let keys = state.lock().unwrap().keys.clone();
+    match SwapAnnouncement(envelope).to_event(&keys) {
+        Ok(event) => publish_to_relay(state, event),
+        Err(e) => tracing::warn!(err = %e, swap_id = %envelope.swap_id, "swap event build failed"),
+    }
 }
 
 /// `POST /api/swaps/:id/advance` — step the state machine forward.
@@ -756,38 +830,43 @@ pub fn api_swap_advance(id: &str, body: &Value, state: &Mutex<AppState>) -> Resu
         .and_then(Value::as_str)
         .ok_or_else(|| anyhow!("missing 'action'"))?;
 
-    let mut st = state.lock().unwrap();
-    let swap = st
-        .swaps
-        .get_mut(id)
-        .ok_or_else(|| anyhow!("no swap with id '{id}'"))?;
+    let envelope = {
+        let mut st = state.lock().unwrap();
+        let swap = st
+            .swaps
+            .get_mut(id)
+            .ok_or_else(|| anyhow!("no swap with id '{id}'"))?;
 
-    match (action, &swap.envelope.state) {
-        ("publish_leg_a", SwapStateMachine::Drafted) => {
-            swap.envelope.leg_a.outpoint = format!("mock-leg-a-{id}");
-            swap.envelope.state = SwapStateMachine::HalfPublished;
+        match (action, &swap.envelope.state) {
+            ("publish_leg_a", SwapStateMachine::Drafted) => {
+                swap.envelope.leg_a.outpoint = format!("mock-leg-a-{id}");
+                swap.envelope.state = SwapStateMachine::HalfPublished;
+            }
+            ("publish_leg_b", SwapStateMachine::HalfPublished) => {
+                swap.envelope.leg_b.outpoint = format!("mock-leg-b-{id}");
+                swap.envelope.state = SwapStateMachine::BothPublished;
+            }
+            ("observe_preimage", SwapStateMachine::BothPublished) => {
+                swap.envelope.state = SwapStateMachine::Revealed;
+            }
+            ("complete", SwapStateMachine::Revealed) => {
+                swap.envelope.state = SwapStateMachine::Settled;
+            }
+            (a, s) => {
+                anyhow::bail!(
+                    "invalid action '{a}' for state '{}'; legal transitions are \
+                     drafted→publish_leg_a→half_published→publish_leg_b→both_published \
+                     →observe_preimage→revealed→complete→settled",
+                    s.label()
+                )
+            }
         }
-        ("publish_leg_b", SwapStateMachine::HalfPublished) => {
-            swap.envelope.leg_b.outpoint = format!("mock-leg-b-{id}");
-            swap.envelope.state = SwapStateMachine::BothPublished;
-        }
-        ("observe_preimage", SwapStateMachine::BothPublished) => {
-            swap.envelope.state = SwapStateMachine::Revealed;
-        }
-        ("complete", SwapStateMachine::Revealed) => {
-            swap.envelope.state = SwapStateMachine::Settled;
-        }
-        (a, s) => {
-            anyhow::bail!(
-                "invalid action '{a}' for state '{}'; legal transitions are \
-                 drafted→publish_leg_a→half_published→publish_leg_b→both_published \
-                 →observe_preimage→revealed→complete→settled",
-                s.label()
-            )
-        }
-    }
 
-    Ok(envelope_json(&swap.envelope))
+        swap.envelope.clone()
+    };
+    publish_swap_envelope(state, &envelope);
+
+    Ok(envelope_json(&envelope))
 }
 
 /// `POST /api/swaps/:id/refund` — terminate via the refund branch.
@@ -801,16 +880,20 @@ pub fn api_swap_refund(id: &str, body: &Value, state: &Mutex<AppState>) -> Resul
     let reason: RefundReason = serde_json::from_value(Value::String(reason_str.to_string()))
         .map_err(|_| anyhow!("unknown refund reason '{reason_str}'"))?;
 
-    let mut st = state.lock().unwrap();
-    let swap = st
-        .swaps
-        .get_mut(id)
-        .ok_or_else(|| anyhow!("no swap with id '{id}'"))?;
-    if matches!(swap.envelope.state, SwapStateMachine::Settled) {
-        anyhow::bail!("cannot refund a settled swap");
-    }
-    swap.envelope.state = SwapStateMachine::Refunded { reason };
-    Ok(envelope_json(&swap.envelope))
+    let envelope = {
+        let mut st = state.lock().unwrap();
+        let swap = st
+            .swaps
+            .get_mut(id)
+            .ok_or_else(|| anyhow!("no swap with id '{id}'"))?;
+        if matches!(swap.envelope.state, SwapStateMachine::Settled) {
+            anyhow::bail!("cannot refund a settled swap");
+        }
+        swap.envelope.state = SwapStateMachine::Refunded { reason };
+        swap.envelope.clone()
+    };
+    publish_swap_envelope(state, &envelope);
+    Ok(envelope_json(&envelope))
 }
 
 // ─── Maker profile (kind-30051) ──────────────────────────────────────────────
@@ -840,9 +923,8 @@ pub fn api_maker_profile_list(state: &Mutex<AppState>) -> Result<Value> {
 
 /// `POST /api/maker-profiles` — replace the profile for a given maker label.
 ///
-/// Body: `{ label, profile: MakerProfile }`. The Nostr publishing path lands
-/// when the API grows a managed signing identity; today the profile is just
-/// stored in memory and reflected back to clients via the GET.
+/// Body: `{ label, profile: MakerProfile }`. Also publishes the kind-30051
+/// event so SPA subscribers see the new profile in their live feed.
 pub fn api_maker_profile_publish(body: &Value, state: &Mutex<AppState>) -> Result<Value> {
     let label = body
         .get("label")
@@ -855,8 +937,17 @@ pub fn api_maker_profile_publish(body: &Value, state: &Mutex<AppState>) -> Resul
     let profile: MakerProfile =
         serde_json::from_value(profile_v.clone()).map_err(|e| anyhow!("invalid profile: {e}"))?;
 
-    let mut st = state.lock().unwrap();
-    st.maker_profiles.insert(label.clone(), profile.clone());
+    // Build the relay event before taking the storage lock so we don't hold
+    // the mutex across the (cheap) signing call.
+    let keys = state.lock().unwrap().keys.clone();
+    let event = profile.to_event(&keys)?;
+
+    {
+        let mut st = state.lock().unwrap();
+        st.maker_profiles.insert(label.clone(), profile.clone());
+    }
+    publish_to_relay(state, event);
+
     Ok(json!({ "ok": true, "label": label, "profile": profile }))
 }
 
@@ -933,23 +1024,26 @@ fn api_make_offer_banco(body: &Value, state: &Mutex<AppState>) -> Result<Value> 
         expiry: created_at + 3600,
         status: OfferStatus::Active,
     };
-    let keys = Keys::generate();
+    let keys = state.lock().unwrap().keys.clone();
     let event = tessera_offer.to_event(&keys)?;
     let event_id = event.id.to_hex();
     let pubkey = keys.public_key().to_hex();
 
-    let mut st = state.lock().unwrap();
-    let index = st.offers.len();
-    st.offers.push(ListedOffer {
-        offer: offer.clone(),
-        maker,
-        maker_name,
-        order_id,
-        event_id: event_id.clone(),
-        pubkey,
-        created_at,
-    });
+    {
+        let mut st = state.lock().unwrap();
+        st.offers.push(ListedOffer {
+            offer: offer.clone(),
+            maker,
+            maker_name,
+            order_id,
+            event_id: event_id.clone(),
+            pubkey,
+            created_at,
+        });
+    }
+    publish_to_relay(state, event.clone());
 
+    let index = state.lock().unwrap().offers.len() - 1;
     Ok(json!({
         "ok": true,
         "backend": "banco",

@@ -30,12 +30,26 @@ impl MosaikRelay {
     /// Publish an offer to the connected relays. Returns the Nostr event id.
     pub async fn publish_offer(&self, offer: &TesseraOffer) -> Result<String> {
         let event = offer.to_event(&self.keys)?;
+        self.publish_event(event).await
+    }
+
+    /// Publish a pre-signed event of any kind to the connected relays.
+    /// Used by callers that build their own events (maker profiles,
+    /// cross-chain swap envelopes, NIP-09 deletions) and only need the
+    /// relay's signing + transport.
+    pub async fn publish_event(&self, event: Event) -> Result<String> {
         let output = self
             .client
             .send_event(&event)
             .await
-            .context("publishing offer event")?;
+            .context("publishing event")?;
         Ok(output.val.to_string())
+    }
+
+    /// Borrow this client's signing keys. mosaik-api needs them to build
+    /// events with the same identity the relay client signed-up under.
+    pub fn keys(&self) -> &Keys {
+        &self.keys
     }
 
     /// Fetch the current Tessera offers from the relays.

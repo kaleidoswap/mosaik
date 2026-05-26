@@ -26,11 +26,18 @@ use axum::{
     routing::{get, post},
     Json, Router,
 };
+use mosaik_relay::{Keys, MosaikRelay};
 use serde_json::{json, Value};
 use tower_http::{cors::CorsLayer, trace::TraceLayer};
 
 pub mod handlers;
 pub use handlers::AppState;
+
+/// Where to publish the API's outbound events. Override via env so a
+/// downstream deployment can repoint without rebuilds.
+fn relay_url() -> String {
+    std::env::var("MOSAIK_RELAY_URL").unwrap_or_else(|_| "ws://127.0.0.1:7777".to_string())
+}
 
 type SharedState = Arc<Mutex<AppState>>;
 
@@ -70,7 +77,35 @@ pub async fn run(port: u16) -> Result<()> {
         tracing::warn!("init_wallets failed (Elements not reachable?): {e}");
         eprintln!("warning: init_wallets failed: {e}");
     }
-    let state: SharedState = Arc::new(Mutex::new(AppState::new()));
+
+    // Stable signing identity for this process. Production deployments
+    // should seed this from a persisted nsec; for the demo we generate
+    // fresh on every boot (and the relay deduplicates by (pubkey, kind, d)
+    // so old events stick around under the previous identity).
+    let keys = Keys::generate();
+    eprintln!("mosaik-api signer pubkey: {}", keys.public_key().to_hex());
+
+    // Best-effort relay connection. None if MOSAIK_RELAY_URL is unreachable;
+    // handlers gracefully no-op on relay publishes when the client is missing.
+    let relay_url = relay_url();
+    let relay = match MosaikRelay::connect(keys.clone(), &[relay_url.as_str()]).await {
+        Ok(c) => {
+            tracing::info!(url = %relay_url, "connected to Mosaik relay");
+            eprintln!("connected to Mosaik relay at {relay_url}");
+            Some(Arc::new(c))
+        }
+        Err(e) => {
+            tracing::warn!(url = %relay_url, err = %e, "relay connect failed; publishes will no-op");
+            eprintln!("warning: relay connect to {relay_url} failed: {e}");
+            None
+        }
+    };
+
+    let state: SharedState = Arc::new(Mutex::new(AppState::with_relay(
+        relay,
+        Some(tokio::runtime::Handle::current()),
+        keys,
+    )));
 
     let addr = SocketAddr::from(([127, 0, 0, 1], port));
     let listener = tokio::net::TcpListener::bind(addr).await?;

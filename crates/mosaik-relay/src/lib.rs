@@ -211,6 +211,11 @@ impl MakerProfile {
 mod client;
 pub use client::MosaikRelay;
 
+/// Re-exported (under the in-scope `Event` import elsewhere in this file)
+/// so dependents (mosaik-api) can build pre-signed events for
+/// `MosaikRelay::publish_event` without taking their own `nostr` dep.
+pub use nostr::Event as NostrEvent;
+
 /// Nostr signing keys, re-exported so callers need not depend on `nostr`.
 pub use nostr::Keys;
 
