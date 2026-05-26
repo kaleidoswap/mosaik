@@ -86,23 +86,21 @@ on the `mosaik` network alongside arkd/introspector.
 
 ## Upstream caveat
 
-`@arkade-os/banco` is alpha. Today:
+`@arkade-os/banco` is alpha. The proxy works around this with a small,
+contained set of install-time accommodations:
 
 | | |
 |---|---|
 | **npm registry** | not published (404). The proxy installs from `github:arkade-os/banco` (default branch `master`). |
 | **transitive dep** | pulls `@arkade-os/sdk` from `github:louisinger/wallet-sdk#arkade-script-final` — a personal fork on a branch ref. |
 | **install hook** | runs `pnpm run build` to compile the SDK's source. Both git-deps must be in `pnpm-workspace.yaml`'s `allowBuilds`; the transitive fork-dep requires `blockExoticSubdeps: false`. Both flags live in `pnpm-workspace.yaml`. |
+| **ESM imports** | upstream's `dist/esm/{index,maker,taker}.js` use extensionless relative imports (`from "./offer"`) which crash Node ESM. Our `postinstall` hook (`scripts/patch-banco-esm.mjs`) rewrites these to add `.js`. Five sites today; the patch is idempotent and self-removes the day upstream ships a working dist. |
 | **typecheck + build** | ✅ pass against the real SDK surface. |
-| **runtime** | ❌ upstream's published ESM `dist` emits extensionless relative imports (`import "./offer"` etc.), which crash Node ESM at module-load. |
+| **runtime** | ✅ daemon starts cleanly; `GET /healthz` and `POST /auth/token` serve. Live banco calls require `BANCO_WALLET_SEED_<ID>` env vars and a reachable arkd. |
 
-The proxy's code is correct against the SDK's typed surface; closing
-the runtime gap means waiting for upstream to publish a release with a
-working ESM build (or applying a one-line patch script to rewrite the
-extensionless imports — possible but fragile).
-
-CI runs typecheck + build with `continue-on-error: true` so the
-failure is visible in the run logs without blocking unrelated PRs.
+When upstream cuts a release with a working ESM build, delete
+`scripts/patch-banco-esm.mjs` and the `postinstall` hook in
+`package.json` — nothing else changes.
 
 ## What this is not
 
