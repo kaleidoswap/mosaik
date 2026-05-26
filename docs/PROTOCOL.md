@@ -20,6 +20,30 @@ chain is always the source of truth.
 All four are whitelisted in `services/mosaik-relay-server/config.toml`.
 Anything else is rejected at admission.
 
+### Who publishes what
+
+| Trigger | Source | Kind |
+|---|---|---|
+| Maker funds a Liquid Tessera | `POST /api/make-offer` (default `backend=liquid`) or `mosaik make-offer` CLI | 30050 |
+| Maker funds a banco offer    | `POST /api/make-offer` with `backend=banco`, or `mosaik make-offer --backend banco` | 30050 |
+| Maker updates their profile  | `POST /api/maker-profiles` | 30051 |
+| Swap is drafted              | `POST /api/swaps/draft` | 30052 |
+| Swap advances state          | `POST /api/swaps/:id/advance` | 30052 (replaces previous) |
+| Swap is refunded             | `POST /api/swaps/:id/refund` | 30052 (replaces previous) |
+| Offer cancel / swap cancel   | NIP-09 kind-5 deletion (clients only — on-chain is the real cancel-of-record) | 5 |
+
+`mosaik-api` signs every outbound event with a **stable per-process
+identity** (`Keys`, logged at boot). That makes NIP-33 addressable
+replacement work cleanly: a swap that advances `drafted → settled`
+shows up as one row in the relay (latest state wins), not five rows
+from five throwaway pubkeys. Production deployments should seed the
+identity from a persisted nsec instead of generating fresh per boot.
+
+`MOSAIK_RELAY_URL` configures the publish target (default
+`ws://127.0.0.1:7777`). The connection is best-effort; if the relay
+isn't up at boot, nostr-sdk's pool retries transparently and publishes
+queue. The API serves regardless.
+
 ## Kind 30050 — offer
 
 A published, funded covenant offer. The event `content` is the full
@@ -214,6 +238,17 @@ depends on two primitive extensions documented in
 `CROSS_CHAIN_SWAP.md` §"Primitive gaps" — until both land, the
 `mosaik bridge-*` CLI surfaces clean error messages pointing at the
 spec rather than pretending to settle.
+
+### RealOrchestrator runway
+
+`crates/mosaik-bridge/src/real.rs` already wires the swap state
+machine against real backend clients (`ElementsRpc` for Liquid,
+`BancoClient` for banco). Its `draft` and `refund` paths work today;
+the `publish_leg_*` / `await_preimage` / `complete` methods return
+`BridgeError::PrimitiveGap` with the spec URL in the message. The
+day either primitive lands, the corresponding `PrimitiveGap` site
+becomes a concrete call — the trait shape, the envelope, and the
+error vocabulary stay unchanged.
 
 ## Kind 5 — deletion (NIP-09)
 

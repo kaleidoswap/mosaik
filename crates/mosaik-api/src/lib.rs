@@ -39,6 +39,24 @@ fn relay_url() -> String {
     std::env::var("MOSAIK_RELAY_URL").unwrap_or_else(|_| "ws://127.0.0.1:7777".to_string())
 }
 
+/// Single attempt at connecting to the configured relay. Logs success +
+/// failure consistently so the boot-time call and the retry loop both
+/// surface the same shape in the tracing layer.
+async fn try_connect_relay(keys: &Keys, url: &str) -> Option<Arc<MosaikRelay>> {
+    match MosaikRelay::connect(keys.clone(), &[url]).await {
+        Ok(c) => {
+            tracing::info!(url = %url, "connected to Mosaik relay");
+            eprintln!("connected to Mosaik relay at {url}");
+            Some(Arc::new(c))
+        }
+        Err(e) => {
+            tracing::warn!(url = %url, err = %e, "relay connect failed; publishes will no-op until it succeeds");
+            eprintln!("warning: relay connect to {url} failed: {e}");
+            None
+        }
+    }
+}
+
 type SharedState = Arc<Mutex<AppState>>;
 
 /// Build the axum router. Exposed so tests can mount it without binding a port.
@@ -85,27 +103,44 @@ pub async fn run(port: u16) -> Result<()> {
     let keys = Keys::generate();
     eprintln!("mosaik-api signer pubkey: {}", keys.public_key().to_hex());
 
-    // Best-effort relay connection. None if MOSAIK_RELAY_URL is unreachable;
-    // handlers gracefully no-op on relay publishes when the client is missing.
+    // Best-effort relay connection. nostr-sdk's `Client::connect()` is
+    // fire-and-forget — it adds the relay to an internal pool that handles
+    // reconnects on its own, so "relay not yet up at boot" is recovered
+    // transparently for every subsequent `send_event` call. The only thing
+    // `MosaikRelay::connect` can fail on is `client.add_relay` returning
+    // Err (URL parse, malformed scheme); the retry loop below is the
+    // safety net for that case.
     let relay_url = relay_url();
-    let relay = match MosaikRelay::connect(keys.clone(), &[relay_url.as_str()]).await {
-        Ok(c) => {
-            tracing::info!(url = %relay_url, "connected to Mosaik relay");
-            eprintln!("connected to Mosaik relay at {relay_url}");
-            Some(Arc::new(c))
-        }
-        Err(e) => {
-            tracing::warn!(url = %relay_url, err = %e, "relay connect failed; publishes will no-op");
-            eprintln!("warning: relay connect to {relay_url} failed: {e}");
-            None
-        }
-    };
+    let relay = try_connect_relay(&keys, &relay_url).await;
 
     let state: SharedState = Arc::new(Mutex::new(AppState::with_relay(
         relay,
         Some(tokio::runtime::Handle::current()),
-        keys,
+        keys.clone(),
     )));
+
+    // If we didn't connect at boot, keep trying. Once connected, the
+    // nostr-sdk Client manages its own reconnects on subsequent network
+    // hiccups; this loop only handles "relay wasn't up yet when we booted."
+    if state.lock().unwrap().relay.is_none() {
+        let state_for_retry = state.clone();
+        let url_for_retry = relay_url.clone();
+        let keys_for_retry = keys;
+        tokio::spawn(async move {
+            loop {
+                tokio::time::sleep(std::time::Duration::from_secs(30)).await;
+                if state_for_retry.lock().unwrap().relay.is_some() {
+                    // Some other code path got there first (or a future
+                    // explicit /api/relay/connect endpoint).
+                    return;
+                }
+                if let Some(client) = try_connect_relay(&keys_for_retry, &url_for_retry).await {
+                    state_for_retry.lock().unwrap().relay = Some(client);
+                    return;
+                }
+            }
+        });
+    }
 
     let addr = SocketAddr::from(([127, 0, 0, 1], port));
     let listener = tokio::net::TcpListener::bind(addr).await?;
