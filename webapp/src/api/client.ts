@@ -9,6 +9,7 @@ import type {
   ApiState,
   ApiError,
   DraftSwapRequest,
+  MakerProfile,
   MakeOfferRequest,
   MakeOfferResponse,
   RefundReason,
@@ -141,5 +142,29 @@ export function useRefundSwap() {
         body: JSON.stringify({ reason: vars.reason }),
       }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['swaps'] }),
+  });
+}
+
+// ─── Maker-profile hooks ────────────────────────────────────────────────────
+
+/** Polls the maker-profiles list. Cheap; defaults to 10s so the order book's
+ *  chip data stays fresh without dragging on every render. */
+export function useMakerProfiles() {
+  return useQuery<{ profiles: MakerProfile[] }>({
+    queryKey: ['maker-profiles'],
+    queryFn: () => request<{ profiles: MakerProfile[] }>('/api/maker-profiles'),
+    refetchInterval: 10_000,
+  });
+}
+
+export function usePublishMakerProfile() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (vars: { label: string; profile: MakerProfile }) =>
+      request<{ ok: true; label: string; profile: MakerProfile }>('/api/maker-profiles', {
+        method: 'POST',
+        body: JSON.stringify(vars),
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['maker-profiles'] }),
   });
 }

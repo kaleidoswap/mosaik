@@ -1,6 +1,8 @@
 import type { Backend, OfferView } from '../api/types';
-import { useTakeOffer, useReclaim } from '../api/client';
+import { useMakerProfiles, useReclaim, useTakeOffer } from '../api/client';
 import { fmtSats, fmtRate, shortId } from '../lib/format';
+import { BackendBadge } from './BackendBadge';
+import { MakerProfileChip } from './MakerProfileChip';
 import clsx from 'clsx';
 
 interface Props {
@@ -12,6 +14,10 @@ interface Props {
 export function OrderBook({ offers, backend, activeTaker }: Props) {
   const takeOffer = useTakeOffer();
   const reclaim = useReclaim();
+  const profiles = useMakerProfiles();
+  const profileByLabel = new Map(
+    (profiles.data?.profiles ?? []).map((p) => [p.label ?? '', p]),
+  );
 
   return (
     <section className="panel flex flex-col min-h-0">
@@ -54,6 +60,11 @@ export function OrderBook({ offers, backend, activeTaker }: Props) {
                         <span className="text-zinc-500">/</span>
                         {o.want_name}
                       </span>
+                      {o.backend && (
+                        <span className="ml-2 align-middle">
+                          <BackendBadge backend={o.backend} />
+                        </span>
+                      )}
                     </td>
                     <td className="px-3 py-2 text-right text-mosaic-cyan">
                       {fmtSats(o.amount_a)}
@@ -65,7 +76,8 @@ export function OrderBook({ offers, backend, activeTaker }: Props) {
                       {fmtRate(o.amount_a, o.amount_b)}
                     </td>
                     <td className="px-3 py-2 text-zinc-300">
-                      {o.maker_name}
+                      <span className="mr-1.5">{o.maker_name}</span>
+                      <MakerProfileChip profile={profileByLabel.get(o.maker)} />
                       {isOwn && <span className="ml-1 pill">you</span>}
                     </td>
                     <td className="px-3 py-2 text-zinc-500">{shortId(o.outpoint, 8, 4)}</td>

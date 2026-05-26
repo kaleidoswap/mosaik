@@ -29,21 +29,27 @@ export interface NostrMeta {
   relay: string;
 }
 
-/** An offer as returned by /api/state — Liquid-shaped today; Phase 2 banco
- *  variant will arrive once mosaik-api routes through mosaik-banco too. */
+/** An offer as returned by /api/state. Both Liquid and banco offers project
+ *  into this shape; the optional fields below are backend-specific. */
 export interface OfferView {
+  backend?: Backend;
   index: number;
   outpoint: string;
   amount_a: number;
   amount_b: number;
   lock_name: string;
   want_name: string;
+  /** Liquid: refund block-height. Banco: unix-seconds cancel_delay. */
   timeout: number;
   maker_address: string;
   maker: string;
   maker_name: string;
   covenant_address: string | null;
   cmr: string | null;
+  /** Banco-only: the swap covenant scriptPubKey. */
+  swap_pk_script?: string;
+  /** Banco-only: whether the offer accepts partial fills. */
+  partial_fill?: boolean;
   nostr: NostrMeta;
 }
 
@@ -69,7 +75,7 @@ export interface ApiState {
   relay: string;
 }
 
-/** POST /api/make-offer body. */
+/** POST /api/make-offer body. `backend` defaults to `liquid` server-side. */
 export interface MakeOfferRequest {
   amount_a: number;
   amount_b: number;
@@ -77,6 +83,9 @@ export interface MakeOfferRequest {
   want: string;
   timeout?: number;
   maker?: string;
+  backend?: Backend;
+  /** banco-only: accept partial fills. */
+  partial_fill?: boolean;
 }
 
 export interface MakeOfferResponse {
@@ -162,4 +171,25 @@ export interface DraftSwapRequest {
   a_refund?: number;
   b_refund?: number;
   safety_margin?: number;
+}
+
+// ─── Maker profile (kind-30051) ─────────────────────────────────────────────
+
+export interface MakerPair {
+  backend: Backend | string;
+  lock: string;
+  want: string;
+}
+
+export interface MakerProfile {
+  /** Convenience field added by the API; not part of the on-relay event. */
+  label?: string;
+  d_tag: string;
+  name: string;
+  about?: string;
+  contact?: string;
+  pairs: MakerPair[];
+  fill_latency_secs?: number;
+  min_cancel_delay?: number;
+  badges: string[];
 }

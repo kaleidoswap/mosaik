@@ -24,5 +24,6 @@ tracing-subscriber.workspace = true
 clap.workspace = true
 tessera = { path = "../tessera" }
 mosaik-core = { path = "../mosaik-core" }
+mosaik-banco = { path = "../mosaik-banco" }
 mosaik-bridge = { path = "../mosaik-bridge" }
 mosaik-relay = { path = "../mosaik-relay" }

@@ -1103,6 +1103,7 @@ dependencies = [
  "axum",
  "clap",
  "hex",
+ "mosaik-banco",
  "mosaik-bridge",
  "mosaik-core",
  "mosaik-relay",

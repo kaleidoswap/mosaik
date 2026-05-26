@@ -54,6 +54,8 @@ pub fn router(state: SharedState) -> Router {
         .route("/api/swaps/:id", get(route_swaps_get))
         .route("/api/swaps/:id/advance", post(route_swaps_advance))
         .route("/api/swaps/:id/refund", post(route_swaps_refund))
+        .route("/api/maker-profiles", get(route_maker_profile_list))
+        .route("/api/maker-profiles", post(route_maker_profile_publish))
         .layer(CorsLayer::permissive())
         .layer(TraceLayer::new_for_http())
         .with_state(state)
@@ -156,7 +158,10 @@ where
         Ok(Ok(v)) => (StatusCode::OK, Json(v)).into_response(),
         Ok(Err(e)) => (
             StatusCode::BAD_REQUEST,
-            Json(json!({ "error": e.to_string() })),
+            // `{:#}` walks the anyhow context chain so callers see the actual
+            // root cause (e.g. the banco-proxy body), not just the outermost
+            // `with_context("POST /banco/maker/offer")` wrapper.
+            Json(json!({ "error": format!("{e:#}") })),
         )
             .into_response(),
         Err(e) => (
@@ -198,4 +203,15 @@ async fn route_swaps_refund(
 ) -> Response {
     let b = parse_body(body);
     blocking(move || handlers::api_swap_refund(&id, &b, &state)).await
+}
+
+// ─── Maker-profile routes ────────────────────────────────────────────────────
+
+async fn route_maker_profile_list(State(state): State<SharedState>) -> Response {
+    blocking(move || handlers::api_maker_profile_list(&state)).await
+}
+
+async fn route_maker_profile_publish(State(state): State<SharedState>, body: Bytes) -> Response {
+    let b = parse_body(body);
+    blocking(move || handlers::api_maker_profile_publish(&b, &state)).await
 }
