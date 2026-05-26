@@ -5,6 +5,7 @@ import { Header } from './components/Header';
 import { OrderBook } from './components/OrderBook';
 import { MakeOfferForm } from './components/MakeOfferForm';
 import { TradeTape } from './components/TradeTape';
+import { SwapBoard } from './components/SwapBoard';
 
 export function App() {
   const [backend, setBackend] = useState<Backend>('liquid');
@@ -40,12 +41,13 @@ export function App() {
           />
           <TradeTape trades={state.data?.trades ?? []} />
         </div>
-        <div className="col-span-12 lg:col-span-4">
+        <div className="col-span-12 lg:col-span-4 flex flex-col gap-4 min-h-0">
           <MakeOfferForm
             backend={backend}
             assets={state.data?.assets ?? []}
             activeMaker={activeMaker}
           />
+          <SwapBoard />
         </div>
       </main>
 

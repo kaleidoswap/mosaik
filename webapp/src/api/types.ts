@@ -104,3 +104,62 @@ export type TakeOfferResponse =
 export interface ApiError {
   error: string;
 }
+
+// ─── Cross-chain swap (mosaik-bridge) ───────────────────────────────────────
+//
+// Mirrors the kind-30052 envelope shape — see docs/PROTOCOL.md and
+// crates/mosaik-bridge/src/envelope.rs. The preimage itself is intentionally
+// not on the wire; only its hash.
+
+export interface LegRef {
+  backend: 'liquid' | 'banco' | string;
+  outpoint: string;
+  event_id?: string;
+}
+
+export interface SwapTimelocks {
+  a_refund: number;
+  b_refund: number;
+  safety_margin: number;
+}
+
+export type SwapStateLabel =
+  | 'drafted'
+  | 'half_published'
+  | 'both_published'
+  | 'revealed'
+  | 'settled'
+  | 'refunded';
+
+export type RefundReason =
+  | 'never_published'
+  | 'partner_never_published'
+  | 'no_taker_arrived'
+  | 'maker_missed_claim_window';
+
+/** Serde-tagged on `state`; `refunded` carries an extra `reason`. */
+export type SwapState =
+  | { state: Exclude<SwapStateLabel, 'refunded'> }
+  | { state: 'refunded'; reason: RefundReason };
+
+export interface SwapEnvelope {
+  swap_id: string;
+  preimage_hash: string;
+  leg_a: LegRef;
+  leg_b: LegRef;
+  timelocks: SwapTimelocks;
+  state: SwapState;
+}
+
+export type SwapAdvanceAction =
+  | 'publish_leg_a'
+  | 'publish_leg_b'
+  | 'observe_preimage'
+  | 'complete';
+
+export interface DraftSwapRequest {
+  swap_id?: string;
+  a_refund?: number;
+  b_refund?: number;
+  safety_margin?: number;
+}

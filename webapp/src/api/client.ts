@@ -8,8 +8,12 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import type {
   ApiState,
   ApiError,
+  DraftSwapRequest,
   MakeOfferRequest,
   MakeOfferResponse,
+  RefundReason,
+  SwapAdvanceAction,
+  SwapEnvelope,
   TakeOfferRequest,
   TakeOfferResponse,
 } from './types';
@@ -91,5 +95,51 @@ export function useReclaim() {
         body: JSON.stringify({ index }),
       }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['state'] }),
+  });
+}
+
+// ─── Cross-chain swap hooks ─────────────────────────────────────────────────
+
+export function useSwaps() {
+  return useQuery<{ swaps: SwapEnvelope[] }>({
+    queryKey: ['swaps'],
+    queryFn: () => request<{ swaps: SwapEnvelope[] }>('/api/swaps'),
+    refetchInterval: 2_000,
+  });
+}
+
+export function useDraftSwap() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (req: DraftSwapRequest) =>
+      request<SwapEnvelope>('/api/swaps/draft', {
+        method: 'POST',
+        body: JSON.stringify(req),
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['swaps'] }),
+  });
+}
+
+export function useAdvanceSwap() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (vars: { id: string; action: SwapAdvanceAction }) =>
+      request<SwapEnvelope>(`/api/swaps/${encodeURIComponent(vars.id)}/advance`, {
+        method: 'POST',
+        body: JSON.stringify({ action: vars.action }),
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['swaps'] }),
+  });
+}
+
+export function useRefundSwap() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (vars: { id: string; reason: RefundReason }) =>
+      request<SwapEnvelope>(`/api/swaps/${encodeURIComponent(vars.id)}/refund`, {
+        method: 'POST',
+        body: JSON.stringify({ reason: vars.reason }),
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['swaps'] }),
   });
 }

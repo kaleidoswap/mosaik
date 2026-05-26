@@ -20,7 +20,7 @@ use std::sync::{Arc, Mutex};
 use anyhow::Result;
 use axum::{
     body::Bytes,
-    extract::State,
+    extract::{Path, State},
     http::{header, StatusCode},
     response::{IntoResponse, Response},
     routing::{get, post},
@@ -49,6 +49,11 @@ pub fn router(state: SharedState) -> Router {
         .route("/api/take-offer", post(route_take_offer))
         .route("/api/reclaim", post(route_reclaim))
         .route("/api/contract", post(route_contract))
+        .route("/api/swaps", get(route_swaps_list))
+        .route("/api/swaps/draft", post(route_swaps_draft))
+        .route("/api/swaps/:id", get(route_swaps_get))
+        .route("/api/swaps/:id/advance", post(route_swaps_advance))
+        .route("/api/swaps/:id/refund", post(route_swaps_refund))
         .layer(CorsLayer::permissive())
         .layer(TraceLayer::new_for_http())
         .with_state(state)
@@ -160,4 +165,37 @@ where
         )
             .into_response(),
     }
+}
+
+// ─── Swap routes ─────────────────────────────────────────────────────────────
+
+async fn route_swaps_list(State(state): State<SharedState>) -> Response {
+    blocking(move || handlers::api_swap_list(&state)).await
+}
+
+async fn route_swaps_draft(State(state): State<SharedState>, body: Bytes) -> Response {
+    let b = parse_body(body);
+    blocking(move || handlers::api_swap_draft(&b, &state)).await
+}
+
+async fn route_swaps_get(State(state): State<SharedState>, Path(id): Path<String>) -> Response {
+    blocking(move || handlers::api_swap_get(&id, &state)).await
+}
+
+async fn route_swaps_advance(
+    State(state): State<SharedState>,
+    Path(id): Path<String>,
+    body: Bytes,
+) -> Response {
+    let b = parse_body(body);
+    blocking(move || handlers::api_swap_advance(&id, &b, &state)).await
+}
+
+async fn route_swaps_refund(
+    State(state): State<SharedState>,
+    Path(id): Path<String>,
+    body: Bytes,
+) -> Response {
+    let b = parse_body(body);
+    blocking(move || handlers::api_swap_refund(&id, &b, &state)).await
 }

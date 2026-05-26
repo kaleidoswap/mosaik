@@ -16,6 +16,9 @@ use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::{anyhow, Result};
+use mosaik_bridge::{
+    LegRef, Preimage, RefundReason, SwapEnvelope, SwapStateMachine, SwapTimelocks,
+};
 use mosaik_core::rpc::ElementsRpc;
 use mosaik_core::{
     lbtc_tessera, tessera_for, Cheat, MakeOffer, MosaikMaker, MosaikTaker, Offer, ReclaimOffer,
@@ -53,11 +56,24 @@ pub struct ListedOffer {
     pub created_at: u64,
 }
 
+/// A cross-chain swap in flight. Lives in memory; the [`Preimage`] is
+/// never serialised out of the API — only its hash (already in the
+/// envelope) crosses the network.
+pub struct LocalSwap {
+    pub envelope: SwapEnvelope,
+    pub preimage: Preimage,
+}
+
 /// In-memory server state.
 pub struct AppState {
     pub offers: Vec<ListedOffer>,
     pub assets: BTreeMap<String, String>,
     pub trades: Vec<Value>,
+    /// Cross-chain swap envelopes the API has drafted, keyed by `swap_id`.
+    /// Drives `mosaik_bridge`'s state machine in mock mode — see
+    /// `docs/CROSS_CHAIN_SWAP.md` §"Primitive gaps" for the real-orchestrator
+    /// runway.
+    pub swaps: BTreeMap<String, LocalSwap>,
 }
 
 impl AppState {
@@ -66,6 +82,7 @@ impl AppState {
             offers: Vec::new(),
             assets: BTreeMap::new(),
             trades: Vec::new(),
+            swaps: BTreeMap::new(),
         }
     }
 }
@@ -475,4 +492,176 @@ pub fn api_contract(body: &Value, state: &Mutex<AppState>) -> Result<Value> {
             "relay": RELAY_URL,
         },
     }))
+}
+
+// ─── Cross-chain swap (mosaik-bridge) ────────────────────────────────────────
+//
+// These wrap `mosaik_bridge`'s typed state machine in the same in-memory
+// AppState pattern as offers. The real orchestrator (against live Liquid +
+// banco-proxy) lands when the two primitive gaps in
+// `docs/CROSS_CHAIN_SWAP.md` close; until then these endpoints walk the
+// MockOrchestrator's transitions deterministically, so the SPA can render
+// the full lifecycle today.
+
+/// Serialise one swap envelope as the API surface — never the preimage.
+fn envelope_json(env: &SwapEnvelope) -> Value {
+    serde_json::to_value(env).unwrap_or(Value::Null)
+}
+
+/// `GET /api/swaps` — list every in-flight swap.
+pub fn api_swap_list(state: &Mutex<AppState>) -> Result<Value> {
+    let st = state.lock().unwrap();
+    let envelopes: Vec<Value> = st
+        .swaps
+        .values()
+        .map(|s| envelope_json(&s.envelope))
+        .collect();
+    Ok(json!({ "swaps": envelopes }))
+}
+
+/// `GET /api/swaps/:id` — single envelope by id.
+pub fn api_swap_get(id: &str, state: &Mutex<AppState>) -> Result<Value> {
+    let st = state.lock().unwrap();
+    let swap = st
+        .swaps
+        .get(id)
+        .ok_or_else(|| anyhow!("no swap with id '{id}'"))?;
+    Ok(envelope_json(&swap.envelope))
+}
+
+/// `POST /api/swaps/draft` — generate a preimage, build a fresh envelope.
+///
+/// Body (all optional):
+/// `{ swap_id?, a_refund?, b_refund?, safety_margin? }`.
+/// `a_refund` / `b_refund` are unix seconds; defaults are now + 2h / +1h
+/// with a 30-min safety margin (the bridge's [`SwapTimelocks::default_from`]).
+pub fn api_swap_draft(body: &Value, state: &Mutex<AppState>) -> Result<Value> {
+    let swap_id = body
+        .get("swap_id")
+        .and_then(Value::as_str)
+        .map(str::to_string)
+        .unwrap_or_else(|| format!("mosaik-swap-{}", now_secs()));
+
+    let now = now_secs();
+    let defaults = SwapTimelocks::default_from(now);
+    let timelocks = SwapTimelocks {
+        a_refund: body
+            .get("a_refund")
+            .and_then(Value::as_u64)
+            .unwrap_or(defaults.a_refund),
+        b_refund: body
+            .get("b_refund")
+            .and_then(Value::as_u64)
+            .unwrap_or(defaults.b_refund),
+        safety_margin: body
+            .get("safety_margin")
+            .and_then(Value::as_u64)
+            .unwrap_or(defaults.safety_margin),
+    };
+    timelocks
+        .validate()
+        .map_err(|e| anyhow!("invalid timelocks: {e}"))?;
+
+    let preimage = Preimage::random();
+    let envelope = SwapEnvelope {
+        swap_id: swap_id.clone(),
+        preimage_hash: preimage.hash(),
+        leg_a: LegRef {
+            backend: "liquid".into(),
+            outpoint: String::new(),
+            event_id: None,
+        },
+        leg_b: LegRef {
+            backend: "banco".into(),
+            outpoint: String::new(),
+            event_id: None,
+        },
+        timelocks,
+        state: SwapStateMachine::Drafted,
+        leg_a_offer: None,
+        leg_b_offer: None,
+    };
+
+    {
+        let mut st = state.lock().unwrap();
+        if st.swaps.contains_key(&swap_id) {
+            anyhow::bail!("swap_id '{swap_id}' already exists");
+        }
+        st.swaps.insert(
+            swap_id.clone(),
+            LocalSwap {
+                envelope: envelope.clone(),
+                preimage,
+            },
+        );
+    }
+
+    Ok(envelope_json(&envelope))
+}
+
+/// `POST /api/swaps/:id/advance` — step the state machine forward.
+///
+/// Body: `{ action: "publish_leg_a" | "publish_leg_b" | "observe_preimage" | "complete" }`.
+/// Each action only fires from the expected state; otherwise returns 400.
+pub fn api_swap_advance(id: &str, body: &Value, state: &Mutex<AppState>) -> Result<Value> {
+    let action = body
+        .get("action")
+        .and_then(Value::as_str)
+        .ok_or_else(|| anyhow!("missing 'action'"))?;
+
+    let mut st = state.lock().unwrap();
+    let swap = st
+        .swaps
+        .get_mut(id)
+        .ok_or_else(|| anyhow!("no swap with id '{id}'"))?;
+
+    match (action, &swap.envelope.state) {
+        ("publish_leg_a", SwapStateMachine::Drafted) => {
+            swap.envelope.leg_a.outpoint = format!("mock-leg-a-{id}");
+            swap.envelope.state = SwapStateMachine::HalfPublished;
+        }
+        ("publish_leg_b", SwapStateMachine::HalfPublished) => {
+            swap.envelope.leg_b.outpoint = format!("mock-leg-b-{id}");
+            swap.envelope.state = SwapStateMachine::BothPublished;
+        }
+        ("observe_preimage", SwapStateMachine::BothPublished) => {
+            swap.envelope.state = SwapStateMachine::Revealed;
+        }
+        ("complete", SwapStateMachine::Revealed) => {
+            swap.envelope.state = SwapStateMachine::Settled;
+        }
+        (a, s) => {
+            anyhow::bail!(
+                "invalid action '{a}' for state '{}'; legal transitions are \
+                 drafted→publish_leg_a→half_published→publish_leg_b→both_published \
+                 →observe_preimage→revealed→complete→settled",
+                s.label()
+            )
+        }
+    }
+
+    Ok(envelope_json(&swap.envelope))
+}
+
+/// `POST /api/swaps/:id/refund` — terminate via the refund branch.
+///
+/// Body: `{ reason: "never_published" | "partner_never_published" | "no_taker_arrived" | "maker_missed_claim_window" }`.
+pub fn api_swap_refund(id: &str, body: &Value, state: &Mutex<AppState>) -> Result<Value> {
+    let reason_str = body
+        .get("reason")
+        .and_then(Value::as_str)
+        .ok_or_else(|| anyhow!("missing 'reason'"))?;
+    let reason: RefundReason = serde_json::from_value(Value::String(reason_str.to_string()))
+        .map_err(|_| anyhow!("unknown refund reason '{reason_str}'"))?;
+
+    let mut st = state.lock().unwrap();
+    let swap = st
+        .swaps
+        .get_mut(id)
+        .ok_or_else(|| anyhow!("no swap with id '{id}'"))?;
+    if matches!(swap.envelope.state, SwapStateMachine::Settled) {
+        anyhow::bail!("cannot refund a settled swap");
+    }
+    swap.envelope.state = SwapStateMachine::Refunded { reason };
+    Ok(envelope_json(&swap.envelope))
 }
