@@ -159,7 +159,8 @@ enum Command {
         #[arg(long, default_value_t = 7777)]
         port: u16,
     },
-    /// Serve the browser wallet UI for funding, making, and taking offers.
+    /// Run the mosaik-api HTTP daemon. (The browser UI is a separate
+    /// image — see `webapp/`. Same entry point as the `mosaik-api` binary.)
     ServeWallet {
         #[arg(long, default_value_t = 8080)]
         port: u16,

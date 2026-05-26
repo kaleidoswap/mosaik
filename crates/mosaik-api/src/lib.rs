@@ -22,7 +22,7 @@ use axum::{
     body::Bytes,
     extract::State,
     http::{header, StatusCode},
-    response::{Html, IntoResponse, Response},
+    response::{IntoResponse, Response},
     routing::{get, post},
     Json, Router,
 };
@@ -32,20 +32,16 @@ use tower_http::{cors::CorsLayer, trace::TraceLayer};
 pub mod handlers;
 pub use handlers::AppState;
 
-/// The hackathon-era vanilla-HTML wallet UI, baked into the binary. The
-/// new Vite SPA lives in `webapp/` and ships as its own `mosaik-webapp`
-/// service; this legacy build is kept embedded one release longer so a
-/// bare `mosaik-api` container still serves a usable demo with no extra
-/// services attached.
-const INDEX_HTML: &str = include_str!("../../../webapp-legacy/index.html");
-
 type SharedState = Arc<Mutex<AppState>>;
 
 /// Build the axum router. Exposed so tests can mount it without binding a port.
+///
+/// `/` returns a small JSON service descriptor — the SPA frontend lives in its
+/// own image (`mosaik-webapp`, served by nginx) and reverse-proxies `/api/*`
+/// back through to this daemon. There is no embedded webapp here any more.
 pub fn router(state: SharedState) -> Router {
     Router::new()
-        .route("/", get(serve_index))
-        .route("/index.html", get(serve_index))
+        .route("/", get(service_descriptor))
         .route("/healthz", get(healthz))
         .route("/api/state", get(route_state))
         .route("/api/fund", post(route_fund))
@@ -80,8 +76,19 @@ pub async fn run(port: u16) -> Result<()> {
 
 // ─── route adapters ──────────────────────────────────────────────────────────
 
-async fn serve_index() -> Html<&'static str> {
-    Html(INDEX_HTML)
+/// Tiny service descriptor at `/`. Useful for ops tools, container probes,
+/// and anyone curling the daemon to confirm what they're talking to.
+async fn service_descriptor() -> Json<Value> {
+    Json(json!({
+        "service": "mosaik-api",
+        "version": env!("CARGO_PKG_VERSION"),
+        "docs":    "https://github.com/kaleidoswap/mosaik",
+        "endpoints": {
+            "health":  "/healthz",
+            "api":     "/api/{state,fund,make-offer,take-offer,reclaim,contract}",
+            "webapp":  "served by the mosaik-webapp image (nginx on :5173)"
+        }
+    }))
 }
 
 async fn healthz() -> Response {
