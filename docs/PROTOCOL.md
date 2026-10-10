@@ -15,6 +15,8 @@ chain is always the source of truth.
 | 30050 | Offer (Tessera / banco) | ✓ | short (default 24h, capped by `expiry`) |
 | 30051 | Maker profile           | ✓ | long (default 7d) |
 | 30052 | Cross-chain swap envelope | ✓ | medium (mirrors `b_refund`) |
+| 30053 | P2P on-chain RGB↔BTC swap offer | ✓ | short (the offer's own expiry, max 1d) |
+| 1059  | NIP-59 gift wrap (private swap negotiation) | — | short |
 | 5     | Deletion (NIP-09)       | — | indefinite |
 
 All four are whitelisted in `services/mosaik-relay-server/config.toml`.
@@ -249,6 +251,26 @@ the `publish_leg_*` / `await_preimage` / `complete` methods return
 day either primitive lands, the corresponding `PrimitiveGap` site
 becomes a concrete call — the trait shape, the envelope, and the
 error vocabulary stay unchanged.
+
+## Kind 30053 — P2P on-chain RGB↔BTC swap offer
+
+Published by the `rgb-p2p-swaps` crate (`kaleidoswap/rgb-onchain-swaps`, `p2p/`). Unlike a
+Tessera offer this is an **intent, not a funded covenant**: the swap is one Bitcoin transaction
+built by rgb-lib's async on-chain swap (offer → request → proposal → completion), the maker signs
+last and is the only broadcaster, and the chain is the only source of truth.
+
+- `d` tag: the rgb-lib swap id (also `content.offer.swapId`; a mismatch is rejected).
+- Tags: `t=rgb-psbt-v1`, `status` (`active|taken|cancelled`), `network`, `side` (`sell`: the maker
+  sells the RGB asset), `asset`, `amount`, `price` (sats, whole BTC leg), `expiry`, NIP-40 `expiration`.
+- `content`: `{ "offer": <rgb-lib OnchainSwapOffer>, "status": …, "asset": { ticker, name, precision } | null }`.
+  `asset` is self-attested display data; the asset id is the only identity.
+- An expiry is required. Updates and status changes reuse the `d` tag; cancellation is a
+  `cancelled` replacement plus a NIP-09 deletion.
+- The platform fee is part of the rgb-lib offer (`platformFeeSat`, `feeRecipientScriptPubkeyHex`)
+  and is paid inside the swap transaction by the taker.
+
+The swap messages (`request`, `proposal`, `completion`, `broadcast`, `abort`) are JSON carried in
+NIP-17 private messages (kind 1059 gift wraps), so the relay never sees PSBTs.
 
 ## Kind 5 — deletion (NIP-09)
 
