@@ -8,10 +8,12 @@ import { MakeOfferForm } from './components/MakeOfferForm';
 import { TradeTape } from './components/TradeTape';
 import { SwapBoard } from './components/SwapBoard';
 import { RelayFeed } from './components/RelayFeed';
+import { RgbP2pBook } from './components/RgbP2pBook';
 
 export function App() {
   const [backend, setBackend] = useState<Backend>('liquid');
   const [activeMaker, setActiveMaker] = useState('user');
+  const [view, setView] = useState<'covenant' | 'rgb'>('covenant');
 
   const state = useApiState();
   const relay = useRelayFeed();
@@ -36,6 +38,24 @@ export function App() {
         </StatusBar>
       )}
 
+      <nav className="mx-auto flex w-full max-w-screen-2xl gap-2 px-4 pt-4">
+        {(['covenant', 'rgb'] as const).map((v) => (
+          <button
+            key={v}
+            className={`rounded px-3 py-1 text-xs font-mono ring-1 ${view === v ? 'bg-mosaic-cyan/15 text-mosaic-cyan ring-mosaic-cyan/30' : 'text-zinc-500 ring-ink-500/40'}`}
+            onClick={() => setView(v)}
+            type="button"
+          >
+            {v === 'covenant' ? 'Covenant DEX' : 'RGB peer-to-peer'}
+          </button>
+        ))}
+      </nav>
+
+      {view === 'rgb' ? (
+        <main className="mx-auto w-full max-w-screen-2xl flex-1 p-4">
+          <RgbP2pBook />
+        </main>
+      ) : (
       <main className="mx-auto grid w-full max-w-screen-2xl flex-1 grid-cols-12 gap-4 p-4">
         <div className="col-span-12 lg:col-span-8 flex flex-col gap-4 min-h-0">
           <OrderBook
@@ -55,6 +75,7 @@ export function App() {
           <RelayFeed events={relay.events} />
         </div>
       </main>
+      )}
 
       <Footer relay={state.data?.relay} />
     </div>
