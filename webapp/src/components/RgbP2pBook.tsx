@@ -1,6 +1,6 @@
 import clsx from 'clsx';
 import { useMemo, useState } from 'react';
-import { canTakeP2p } from '../api/rgbWallet';
+import { canTakeP2p, takeOrder, type SwapStatus } from '../api/rgbWallet';
 import { unitPriceSat, useRgbP2pBook, type RgbOffer } from '../api/rgbp2p';
 import { shortId } from '../lib/format';
 
@@ -23,6 +23,19 @@ export function RgbP2pBook() {
   const [network, setNetwork] = useState<string>();
   const now = Math.floor(Date.now() / 1000);
   const takeable = canTakeP2p();
+  const [swap, setSwap] = useState<{ order: string; text: string }>();
+
+  const take = async (o: RgbOffer) => {
+    setSwap({ order: o.key, text: 'Waiting for your approval in the extension…' });
+    try {
+      await takeOrder(
+        { orderId: o.orderId, maker: o.maker, assetId: o.assetId, side: o.side, amount: o.amount, priceSat: o.priceSat },
+        (s: SwapStatus) => setSwap({ order: o.key, text: describe(s) }),
+      );
+    } catch (e) {
+      setSwap({ order: o.key, text: e instanceof Error ? e.message : String(e) });
+    }
+  };
 
   const networks = useMemo(() => [...new Set(book.offers.map((o) => o.network))].sort(), [book.offers]);
   const shown = network ?? networks[0];
@@ -70,13 +83,20 @@ export function RgbP2pBook() {
         </div>
       ) : (
         <div className="grid grid-cols-1 divide-y divide-ink-500/40 overflow-auto md:grid-cols-2 md:divide-x md:divide-y-0">
-          <Side title="Sellers (you buy)" offers={sells} now={now} takeable={takeable} tone="text-mosaic-cyan" />
-          <Side title="Buyers (you sell)" offers={buys} now={now} takeable={takeable} tone="text-mosaic-amber" />
+          <Side title="Sellers (you buy)" offers={sells} now={now} takeable={takeable} tone="text-mosaic-cyan" onTake={take} swap={swap} />
+          <Side title="Buyers (you sell)" offers={buys} now={now} takeable={takeable} tone="text-mosaic-amber" onTake={take} swap={swap} />
         </div>
       )}
     </section>
   );
 }
+
+const describe = (s: SwapStatus): string =>
+  s.state === 'failed' || s.state === 'expired'
+    ? `${s.state}: ${s.error?.message ?? ''}`.trim()
+    : s.txid
+      ? `${s.state} · ${s.txid.slice(0, 12)}…`
+      : s.state.replace('_', ' ');
 
 const byUnit = (dir: 1 | -1) => (a: RgbOffer, b: RgbOffer) =>
   dir * ((unitPriceSat(a) ?? Infinity) - (unitPriceSat(b) ?? Infinity));
@@ -87,12 +107,16 @@ function Side({
   now,
   takeable,
   tone,
+  onTake,
+  swap,
 }: {
   title: string;
   offers: RgbOffer[];
   now: number;
   takeable: boolean;
   tone: string;
+  onTake: (o: RgbOffer) => void;
+  swap?: { order: string; text: string };
 }) {
   return (
     <div className="min-w-0">
@@ -119,11 +143,13 @@ function Side({
                     className="rounded px-2 py-0.5 ring-1 ring-ink-500/40 disabled:opacity-40"
                     disabled={!takeable}
                     title={takeable ? 'Review and take' : 'Needs the browser extension'}
+                    onClick={() => onTake(o)}
                     type="button"
                   >
                     Take
                   </button>
                 </div>
+                {swap?.order === o.key && <div className="mt-1 text-[10px] text-mosaic-cyan">{swap.text}</div>}
               </li>
             );
           })}

@@ -27,6 +27,7 @@ export interface SwapStatus {
 }
 
 export interface RgbTakerProvider {
+  enable?(): Promise<unknown>;
   /** The extension can take peer-to-peer RGB orders. */
   p2pSwap?: {
     /** The network the wallet is on, so the page can hide other books. */
@@ -34,7 +35,8 @@ export interface RgbTakerProvider {
     /** Ask the user to take an order. Resolves when the request is sent, not when the swap ends. */
     take(terms: TakeTerms): Promise<{ swapId: string }>;
     status(swapId: string): Promise<SwapStatus>;
-    onStatus(cb: (s: SwapStatus) => void): () => void;
+    /** Reports one swap's changes while this page is open; the wallet runs the swap either way. */
+    onStatus(swapId: string, cb: (s: SwapStatus) => void): () => void;
   };
 }
 
@@ -45,3 +47,15 @@ declare global {
 }
 
 export const canTakeP2p = (): boolean => typeof window !== 'undefined' && !!window.rgb?.p2pSwap;
+
+/**
+ * Take an order through the extension and follow the swap. Rejects when the user declines or the
+ * wallet refuses the order (the reason is first in the message: `fee_policy: …`).
+ */
+export async function takeOrder(terms: TakeTerms, onStatus: (s: SwapStatus) => void): Promise<() => void> {
+  const rgb = window.rgb;
+  if (!rgb?.p2pSwap) throw new Error('The KaleidoSwap extension is needed to take an order');
+  await rgb.enable?.();
+  const { swapId } = await rgb.p2pSwap.take(terms);
+  return rgb.p2pSwap.onStatus(swapId, onStatus);
+}
