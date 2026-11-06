@@ -16,11 +16,25 @@ export interface TakeTerms {
   priceSat: number;
 }
 
+export type SwapState = 'awaiting_maker' | 'signing' | 'broadcast' | 'settled' | 'failed' | 'expired';
+
+export interface SwapStatus {
+  swapId: string;
+  state: SwapState;
+  confirmations?: number;
+  txid?: string;
+  error?: { code: string; message: string };
+}
+
 export interface RgbTakerProvider {
   /** The extension can take peer-to-peer RGB orders. */
   p2pSwap?: {
+    /** The network the wallet is on, so the page can hide other books. */
+    network(): Promise<string>;
+    /** Ask the user to take an order. Resolves when the request is sent, not when the swap ends. */
     take(terms: TakeTerms): Promise<{ swapId: string }>;
-    status(swapId: string): Promise<{ state: string; txid?: string; error?: string }>;
+    status(swapId: string): Promise<SwapStatus>;
+    onStatus(cb: (s: SwapStatus) => void): () => void;
   };
 }
 
