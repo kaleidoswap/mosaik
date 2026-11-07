@@ -39,6 +39,11 @@ export interface RgbOffer {
   ticker?: string;
   name?: string;
   precision: number;
+  /** Fees the offer itself carries, in sats. The taker funds them; undefined when the offer does not say. */
+  platformFeeSat?: number;
+  networkFeeSat?: number;
+  /** Sats the RGB output carries. */
+  rgbOutputSat?: number;
 }
 
 const tag = (e: Event, name: string): string | undefined => e.tags.find((t) => t[0] === name)?.[1];
@@ -67,8 +72,20 @@ export function parseRgbOffer(e: Event, now = Math.floor(Date.now() / 1000)): Rg
   let ticker: string | undefined;
   let name: string | undefined;
   let precision = 0;
+  let platformFeeSat: number | undefined;
+  let networkFeeSat: number | undefined;
+  let rgbOutputSat: number | undefined;
   try {
-    const meta = (JSON.parse(e.content) as { asset?: { ticker?: unknown; name?: unknown; precision?: unknown } }).asset;
+    const content = JSON.parse(e.content) as {
+      asset?: { ticker?: unknown; name?: unknown; precision?: unknown };
+      offer?: { platformFeeSat?: unknown; networkFeeSat?: unknown; rgbOutputSat?: unknown };
+    };
+    const sat = (v: unknown): number | undefined =>
+      typeof v === 'number' && Number.isSafeInteger(v) && v >= 0 ? v : undefined;
+    platformFeeSat = sat(content.offer?.platformFeeSat);
+    networkFeeSat = sat(content.offer?.networkFeeSat);
+    rgbOutputSat = sat(content.offer?.rgbOutputSat);
+    const meta = content.asset;
     if (typeof meta?.ticker === 'string') ticker = meta.ticker.slice(0, 12);
     if (typeof meta?.name === 'string') name = meta.name.slice(0, 40);
     if (typeof meta?.precision === 'number' && meta.precision >= 0 && meta.precision <= 18) precision = meta.precision;
@@ -90,6 +107,9 @@ export function parseRgbOffer(e: Event, now = Math.floor(Date.now() / 1000)): Rg
     ticker,
     name,
     precision,
+    platformFeeSat,
+    networkFeeSat,
+    rgbOutputSat,
   };
 }
 
