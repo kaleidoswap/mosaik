@@ -2,10 +2,47 @@
 @tailwind components;
 @tailwind utilities;
 
+/* kaleido-ui design tokens, mirrored by hand: the package's CSS is Tailwind v4 (`@theme`) and this app
+   is on Tailwind 3. Names and values are the `--app-*` channels from kaleido-ui/css (dark, the default). */
+:root {
+  --app-surface-base: 18 19 28;
+  --app-surface-raised: 24 25 36;
+  --app-surface-overlay: 36 38 56;
+  --app-surface-elevated: 50 52 72;
+  --app-surface-high: 66 68 90;
+  --app-primary: 21 233 154;
+  --app-primary-emphasis: 18 201 126;
+  --app-primary-foreground: 18 19 28;
+  --app-secondary: 139 92 246;
+  --app-secondary-emphasis: 124 58 237;
+  --app-content-primary: 232 233 242;
+  --app-content-secondary: 142 146 172;
+  --app-content-tertiary: 88 92 116;
+  --app-content-inverse: 18 19 28;
+  --app-border-subtle: 40 42 60;
+  --app-border-default: 54 56 76;
+  --app-border-strong: 21 233 154;
+  --app-status-success: 34 197 94;
+  --app-status-danger: 248 113 113;
+  --app-status-warning: 245 158 11;
+  --app-status-info: 56 189 248;
+  --app-divider: 86 89 108;
+}
+
+@font-face { font-family: 'Satoshi'; src: url('/fonts/Satoshi-Regular.ttf') format('truetype'); font-weight: 400; font-display: swap; }
+@font-face { font-family: 'Satoshi'; src: url('/fonts/Satoshi-Medium.ttf') format('truetype'); font-weight: 500; font-display: swap; }
+@font-face { font-family: 'Satoshi'; src: url('/fonts/Satoshi-Bold.ttf') format('truetype'); font-weight: 600 800; font-display: swap; }
+@font-face { font-family: 'Geist Mono'; src: url('/fonts/GeistMono.ttf') format('truetype'); font-weight: 100 900; font-display: swap; }
+
 @layer base {
   body {
     @apply min-h-screen antialiased;
-    background: theme('colors.ink.800');
+    background: rgb(var(--app-surface-base));
+    color: rgb(var(--app-content-primary));
+  }
+  :focus-visible {
+    outline: 2px solid rgb(var(--app-primary));
+    outline-offset: 2px;
   }
   ::selection {
     background: rgba(143, 213, 234, 0.25);
@@ -14,10 +51,10 @@
 
 @layer components {
   .panel {
-    @apply rounded-2xl border border-ink-500/50 bg-ink-700;
+    @apply rounded-2xl border border-border-subtle bg-surface-raised;
   }
   .panel-header {
-    @apply flex items-center justify-between border-b border-ink-500/60 px-4 py-2.5;
+    @apply flex items-center justify-between border-b border-border-subtle px-4 py-2.5;
   }
   .panel-title {
     @apply text-xs font-mono uppercase tracking-widest text-zinc-400;
@@ -35,10 +72,10 @@
     @apply inline-flex items-center justify-center gap-2 rounded-md px-3 py-1.5 text-sm font-medium transition;
   }
   .btn-primary {
-    @apply btn bg-mosaic-cyan/90 text-ink-900 hover:bg-mosaic-cyan shadow-glow;
+    @apply btn bg-primary font-bold text-primary-foreground hover:bg-primary-emphasis disabled:cursor-not-allowed disabled:opacity-40;
   }
   .btn-secondary {
-    @apply btn bg-ink-500/60 text-zinc-100 hover:bg-ink-500 ring-1 ring-ink-400/40;
+    @apply btn bg-surface-elevated text-content-primary hover:bg-surface-high disabled:cursor-not-allowed disabled:opacity-40;
   }
   .input {
     @apply w-full rounded-md border border-ink-500/60 bg-ink-800/80 px-2.5 py-1.5 text-sm

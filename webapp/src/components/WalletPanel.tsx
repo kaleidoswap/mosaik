@@ -10,13 +10,13 @@ export function WalletPanel() {
     return (
       <section className="panel p-8 text-center">
         <h2 className="text-lg font-semibold">Sign in with your wallet</h2>
-        <p className="mx-auto mt-2 max-w-md text-sm text-zinc-400">
+        <p className="mx-auto mt-2 max-w-md text-sm text-content-secondary">
           Connect the KaleidoSwap extension to see your balances and take orders. The page only reads what you allow; the extension keeps your keys and asks you before every swap.
         </p>
         <button className="btn-primary mt-5" disabled={w.status === 'absent' || w.status === 'connecting'} onClick={() => void w.connect()} type="button">
           {w.status === 'absent' ? 'Extension not found' : w.status === 'connecting' ? 'Approve in the wallet…' : 'Connect wallet'}
         </button>
-        {w.error && <p className="mt-3 text-sm text-mosaic-rose">{w.error}</p>}
+        {w.error && <p className="mt-3 text-sm text-status-danger">{w.error}</p>}
       </section>
     );
   }
@@ -24,26 +24,26 @@ export function WalletPanel() {
     <div className="grid gap-4 md:grid-cols-3">
       <section className="panel p-4">
         <div className="panel-title">Bitcoin</div>
-        <div className="mt-2 text-2xl font-semibold">{fmtSats(w.balance?.spendable ?? 0)} <span className="text-sm text-zinc-400">sat</span></div>
-        <div className="mt-1 text-xs text-zinc-500">spendable · network {w.walletLabel ?? w.network ?? 'unknown'}</div>
+        <div className="mt-2 text-2xl font-semibold">{fmtSats(w.balance?.spendable ?? 0)} <span className="text-sm text-content-secondary">sat</span></div>
+        <div className="mt-1 text-xs text-content-tertiary">spendable · network {w.walletLabel ?? w.network ?? 'unknown'}</div>
         {w.balance?.freeColorableUtxos === 0 && (
-          <p className="mt-3 rounded-lg bg-mosaic-amber/10 p-2 text-xs text-mosaic-amber">
+          <p className="mt-3 rounded-lg bg-status-warning-subtle p-2 text-xs text-status-warning">
             No free coin for RGB. Create one in the extension before taking an order.
           </p>
         )}
       </section>
       <section className="panel md:col-span-2">
-        <header className="panel-header"><h2 className="panel-title">RGB assets</h2><span className="text-[10px] font-mono text-zinc-500">{w.assets.length}</span></header>
+        <header className="panel-header"><h2 className="panel-title">RGB assets</h2><span className="text-[10px] font-mono text-content-tertiary">{w.assets.length}</span></header>
         {w.assets.length === 0 ? (
-          <div className="p-6 text-center text-sm text-zinc-500">No RGB assets in this wallet yet.</div>
+          <div className="p-6 text-center text-sm text-content-tertiary">No RGB assets in this wallet yet.</div>
         ) : (
-          <ul className="divide-y divide-ink-500/40">
+          <ul className="divide-y divide-border-subtle">
             {w.assets.map((a) => (
               <li key={a.id} className="flex items-baseline gap-3 px-4 py-3">
                 <span className="font-medium">{a.ticker}</span>
-                <span className="text-sm text-zinc-400">{a.name}</span>
+                <span className="text-sm text-content-secondary">{a.name}</span>
                 <span className="ml-auto font-mono text-sm">{units(a.balance, a.precision)}</span>
-                <span className="font-mono text-[10px] text-zinc-500" title={a.id}>{shortId(a.id.replace('rgb:', ''), 6, 4)}</span>
+                <span className="font-mono text-[10px] text-content-tertiary" title={a.id}>{shortId(a.id.replace('rgb:', ''), 6, 4)}</span>
               </li>
             ))}
           </ul>

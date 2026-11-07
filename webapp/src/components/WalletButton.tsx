@@ -25,7 +25,7 @@ export function WalletButton() {
   if (w.status !== 'connected') {
     return (
       <div className="flex items-center gap-2">
-        {w.error && <span className="hidden text-xs text-mosaic-rose md:inline">{w.error}</span>}
+        {w.error && <span className="hidden text-xs text-status-danger md:inline">{w.error}</span>}
         <button className="btn-primary" disabled={w.status === 'connecting'} onClick={() => void w.connect()} type="button">
           {w.status === 'connecting' ? 'Approve in the wallet…' : `Connect ${w.walletName ?? 'wallet'}`}
         </button>
@@ -35,15 +35,15 @@ export function WalletButton() {
   return (
     <div className="relative" ref={box}>
       <button className="btn-secondary !gap-2" onClick={() => setOpen((v) => !v)} type="button" aria-expanded={open}>
-        <span className="h-2 w-2 rounded-full bg-mosaic-mint" />
+        <span className="h-2 w-2 rounded-full bg-status-success" />
         <span className="font-mono text-xs">{w.balance ? `${fmtSats(w.balance.spendable)} sat` : 'connected'}</span>
-        <span className="hidden text-xs text-zinc-400 sm:inline">{w.walletName ?? 'Wallet'}</span>
+        <span className="hidden text-xs text-content-secondary sm:inline">{w.walletName ?? 'Wallet'}</span>
       </button>
       {open && (
-        <div className="absolute right-0 z-20 mt-2 w-64 rounded-xl border border-ink-500/60 bg-ink-600 p-3 shadow-xl">
-          <div className="text-[11px] uppercase tracking-wider text-zinc-500">Connected wallet</div>
+        <div className="absolute right-0 z-20 mt-2 w-64 rounded-xl border border-border-default bg-surface-overlay p-3 shadow-xl">
+          <div className="text-[11px] uppercase tracking-wider text-content-tertiary">Connected wallet</div>
           <div className="mt-1 text-sm">{w.walletName ?? 'WebRGB wallet'}</div>
-          <div className={clsx('mt-0.5 text-xs', 'text-zinc-400')}>Network {w.walletLabel ?? w.network ?? 'unknown'}</div>
+          <div className={clsx('mt-0.5 text-xs', 'text-content-secondary')}>Network {w.walletLabel ?? w.network ?? 'unknown'}</div>
           <div className="mt-3 flex gap-2">
             <button className="btn-secondary !py-1 flex-1" onClick={() => void w.refresh()} type="button">Refresh</button>
             <button className="btn-secondary !py-1 flex-1" onClick={() => { w.disconnect(); setOpen(false); }} type="button">Disconnect</button>
