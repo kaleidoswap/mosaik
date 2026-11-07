@@ -11,7 +11,8 @@ import { MakeOfferForm } from './components/MakeOfferForm';
 import { TradeTape } from './components/TradeTape';
 import { SwapBoard } from './components/SwapBoard';
 import { RelayFeed } from './components/RelayFeed';
-import { RgbP2pBook } from './components/RgbP2pBook';
+import { Market } from './components/market/Market';
+import { SwapsProvider } from './api/swaps';
 import { WalletButton } from './components/WalletButton';
 import { WalletPanel } from './components/WalletPanel';
 
@@ -19,13 +20,17 @@ type View = 'market' | 'wallet' | 'covenant';
 const NAV: { id: View; label: string; icon: string }[] = [
   { id: 'market', label: 'Market', icon: 'M3 17l6-6 4 4 8-8M15 7h6v6' },
   { id: 'wallet', label: 'Wallet', icon: 'M3 7h18v12H3zM3 7l3-3h12l3 3M16 13h2' },
-  { id: 'covenant', label: 'Covenant DEX', icon: 'M12 3l9 5-9 5-9-5 9-5zM3 13l9 5 9-5' },
 ];
+/** The covenant (Liquid) DEX stays reachable, but it is not the main product of this page. */
+const MORE: (typeof NAV)[number] = { id: 'covenant', label: 'Covenant DEX', icon: 'M12 3l9 5-9 5-9-5 9-5zM3 13l9 5 9-5' };
+const TITLES: Record<View, string> = { market: 'Market', wallet: 'Wallet', covenant: 'Covenant DEX' };
 
 export function App() {
   return (
     <WebRgbProvider>
-      <Shell />
+      <SwapsProvider>
+        <Shell />
+      </SwapsProvider>
     </WebRgbProvider>
   );
 }
@@ -37,39 +42,45 @@ function Shell() {
 
   return (
     <div className="flex min-h-screen">
-      <aside className="sticky top-0 hidden h-screen w-56 shrink-0 flex-col border-r border-ink-500/40 bg-ink-900 p-4 md:flex">
+      <aside className="sticky top-0 hidden h-screen w-56 shrink-0 flex-col border-r border-border-subtle bg-surface-base p-4 md:flex">
         <Brand />
         <nav className="mt-8 flex flex-col gap-1" aria-label="Main">
           {NAV.map((n) => (
             <NavButton key={n.id} item={n} active={view === n.id} onClick={() => setView(n.id)} />
           ))}
         </nav>
-        <div className="mt-auto text-[11px] text-zinc-500">
-          <a className="hover:text-mosaic-cyan" href="https://github.com/kaleidoswap/mosaik" target="_blank" rel="noreferrer">Mosaik</a> · KaleidoSwap
+        <div className="mt-auto flex flex-col gap-3">
+          <div className="border-t border-border-subtle pt-3">
+            <div className="px-3 pb-1 text-xxs uppercase tracking-[0.18em] text-content-tertiary">Experimental</div>
+            <NavButton item={MORE} active={view === MORE.id} onClick={() => setView(MORE.id)} muted />
+          </div>
+        </div>
+        <div className="mt-3 text-[11px] text-content-tertiary">
+          <a className="hover:text-primary" href="https://github.com/kaleidoswap/mosaik" target="_blank" rel="noreferrer">Mosaik</a> · KaleidoSwap
         </div>
       </aside>
 
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="sticky top-0 z-10 flex items-center gap-3 border-b border-ink-500/40 bg-ink-800/90 px-4 py-3 backdrop-blur md:px-6">
+        <header className="sticky top-0 z-10 flex items-center gap-3 border-b border-border-subtle bg-surface-base/90 px-4 py-3 backdrop-blur md:px-6">
           <div className="md:hidden"><Brand compact /></div>
-          <h1 className="hidden text-base font-semibold md:block">{NAV.find((n) => n.id === view)?.label}</h1>
+          <h1 className="hidden text-base font-semibold md:block">{TITLES[view]}</h1>
           <div className="ml-auto flex items-center gap-3">
-            <span className="chip bg-ink-600 text-zinc-300 ring-1 ring-ink-500/60" title={book.error ?? 'Order book relay'}>
-              <span className={clsx('h-1.5 w-1.5 rounded-full', live ? 'bg-mosaic-mint' : book.status === 'connecting' ? 'animate-pulse bg-mosaic-amber' : 'bg-mosaic-rose')} />
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-surface-card/5 px-2.5 py-1 text-tiny text-content-secondary" title={book.error ?? 'Order book relay'}>
+              <span className={clsx('h-1.5 w-1.5 rounded-full', live ? 'bg-status-success' : book.status === 'connecting' ? 'animate-pulse bg-status-warning' : 'bg-status-danger')} />
               {live ? 'relay live' : book.status}
             </span>
             <WalletButton />
           </div>
         </header>
 
-        <nav className="flex gap-1 overflow-x-auto border-b border-ink-500/40 px-4 py-2 md:hidden" aria-label="Main">
-          {NAV.map((n) => (
+        <nav className="flex gap-1 overflow-x-auto border-b border-border-subtle px-4 py-2 md:hidden" aria-label="Main">
+          {[...NAV, MORE].map((n) => (
             <NavButton key={n.id} item={n} active={view === n.id} onClick={() => setView(n.id)} compact />
           ))}
         </nav>
 
         <main className="flex-1 p-4 md:p-6">
-          {view === 'market' && <RgbP2pBook book={book} />}
+          {view === 'market' && <Market book={book} />}
           {view === 'wallet' && <WalletPanel />}
           {view === 'covenant' && <CovenantView />}
         </main>
@@ -92,13 +103,13 @@ function Brand({ compact }: { compact?: boolean }) {
   );
 }
 
-function NavButton({ item, active, onClick, compact }: { item: (typeof NAV)[number]; active: boolean; onClick: () => void; compact?: boolean }) {
+function NavButton({ item, active, onClick, compact, muted }: { item: (typeof NAV)[number]; active: boolean; onClick: () => void; compact?: boolean; muted?: boolean }) {
   return (
     <button
       className={clsx(
         'flex items-center gap-3 rounded-xl px-3 py-2 text-sm transition',
         compact && 'shrink-0',
-        active ? 'bg-ink-600 text-white' : 'text-zinc-400 hover:bg-ink-700 hover:text-zinc-200',
+        active ? 'bg-surface-elevated text-content-primary' : clsx('hover:bg-surface-raised hover:text-content-primary', muted ? 'text-content-tertiary' : 'text-content-secondary'),
       )}
       aria-current={active ? 'page' : undefined}
       onClick={onClick}
