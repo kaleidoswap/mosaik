@@ -31,8 +31,8 @@ export function App() {
         relay={{ status: relay.status, url: relay.url, count: relay.events.length }}
       />
 
-      {state.isLoading && <StatusBar>Loading mosaik-api…</StatusBar>}
-      {state.error && (
+      {view !== 'rgb' && state.isLoading && <StatusBar>Loading mosaik-api…</StatusBar>}
+      {view !== 'rgb' && state.error && (
         <StatusBar variant="error">
           mosaik-api unreachable: {(state.error as Error).message}
         </StatusBar>
