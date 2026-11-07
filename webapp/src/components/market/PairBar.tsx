@@ -61,7 +61,7 @@ function PairSelect({ markets, selected, onSelect }: { markets: Market[]; select
                   <span className="block text-caption font-medium">{m.ticker ?? 'asset'} / BTC</span>
                   <span className="block truncate font-mono text-tiny text-content-tertiary" title={m.assetId}>{short(m.assetId)}{m.name ? ` · ${m.name}` : ''}</span>
                 </span>
-                <span className="text-tiny text-content-tertiary tabular-nums">{m.asks + m.bids} orders</span>
+                <span className="text-tiny text-content-tertiary tabular-nums">{m.asks + m.bids} {m.asks + m.bids === 1 ? 'order' : 'orders'}</span>
               </button>
             </li>
           ))}
