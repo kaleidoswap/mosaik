@@ -79,9 +79,14 @@ export function RgbP2pBook({ book }: { book: ReturnType<typeof useRgbP2pBook> })
 
       {book.error && <div className="px-3 py-2 text-xs text-red-400">Relay: {book.error}</div>}
 
+      {connected && wallet.p2pProblem && (
+        <div className="border-b border-ink-500/40 px-4 py-3 text-sm text-mosaic-amber">
+          Your wallet cannot take these orders: {wallet.p2pProblem}. Use an RGB wallet on Mutinynet in the extension.
+        </div>
+      )}
       {takeable && walletNetwork && shown && walletNetwork !== shown && (
-        <div className="border-b border-ink-500/40 px-3 py-2 text-xs text-mosaic-amber">
-          Your wallet is on {walletNetwork}; these orders are on {shown}. Switch network in the extension to take them.
+        <div className="border-b border-ink-500/40 px-4 py-3 text-sm text-mosaic-amber">
+          Your wallet swaps on {walletNetwork}; these orders are on {shown}. Switch network in the extension to take them.
         </div>
       )}
 
@@ -105,8 +110,8 @@ export function RgbP2pBook({ book }: { book: ReturnType<typeof useRgbP2pBook> })
         </div>
       ) : (
         <div className="grid grid-cols-1 divide-y divide-ink-500/40 overflow-auto xl:grid-cols-2 xl:divide-x xl:divide-y-0">
-          <Side title="Sellers (you buy)" offers={sells} now={now} takeable={takeable && !busy && (!walletNetwork || walletNetwork === shown)} tone="text-mosaic-cyan" onTake={take} swap={swap} />
-          <Side title="Buyers (you sell)" offers={buys} now={now} takeable={takeable && !busy && (!walletNetwork || walletNetwork === shown)} tone="text-mosaic-amber" onTake={take} swap={swap} />
+          <Side title="Sellers (you buy)" offers={sells} now={now} takeable={takeable && !busy && !wallet.p2pProblem && (!walletNetwork || walletNetwork === shown)} tone="text-mosaic-cyan" onTake={take} swap={swap} />
+          <Side title="Buyers (you sell)" offers={buys} now={now} takeable={takeable && !busy && !wallet.p2pProblem && (!walletNetwork || walletNetwork === shown)} tone="text-mosaic-amber" onTake={take} swap={swap} />
         </div>
       )}
     </section>

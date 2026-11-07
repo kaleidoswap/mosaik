@@ -26,9 +26,12 @@ interface WalletApi {
   provider?: RgbTakerProvider;
   walletName?: string;
   network?: string;
+  walletLabel?: string;
   balance?: WalletBalance;
   assets: WalletAsset[];
   error?: string;
+  /** Why the wallet cannot take peer-to-peer orders right now, when it connected but cannot. */
+  p2pProblem?: string;
   canTake: boolean;
   connect: () => Promise<boolean>;
   disconnect: () => void;
@@ -66,9 +69,11 @@ export function WebRgbProvider({ children }: { children: ReactNode }) {
   const [walletName, setWalletName] = useState<string>();
   const [status, setStatus] = useState<WalletStatus>('absent');
   const [network, setNetwork] = useState<string>();
+  const [walletLabel, setWalletLabel] = useState<string>();
   const [balance, setBalance] = useState<WalletBalance>();
   const [assets, setAssets] = useState<WalletAsset[]>([]);
   const [error, setError] = useState<string>();
+  const [p2pProblem, setP2pProblem] = useState<string>();
   const found = useRef(false);
 
   useEffect(() => {
@@ -100,13 +105,22 @@ export function WebRgbProvider({ children }: { children: ReactNode }) {
   const refresh = useCallback(async () => {
     if (!provider) return;
     try {
-      const [info, bal, list, p2pNet] = await Promise.all([
+      let p2pNet: string | undefined;
+      setP2pProblem(undefined);
+      try {
+        p2pNet = await provider.p2pSwap?.network();
+      } catch (e) {
+        setP2pProblem(e instanceof Error ? e.message : String(e));
+      }
+      const [info, bal, list] = await Promise.all([
         provider.getInfo?.(),
         provider.getBtcBalance?.(),
         provider.listAssets?.(),
-        provider.p2pSwap?.network().catch(() => undefined),
       ]);
-      setNetwork(p2pNet ?? info?.network);
+      // Only the swap network is comparable with the orders' (rgb-lib names such as `signetcustom`);
+      // the wallet's own label (`mutinynet`) is not, so it is shown but never compared.
+      setNetwork(p2pNet);
+      setWalletLabel(info?.network);
       if (bal) {
         setBalance({
           spendable: bal.vanilla.spendable,
@@ -158,8 +172,8 @@ export function WebRgbProvider({ children }: { children: ReactNode }) {
   }, [status, refresh]);
 
   const value = useMemo<WalletApi>(
-    () => ({ status, provider, walletName, network, balance, assets, error, canTake: !!provider?.p2pSwap, connect, disconnect, refresh }),
-    [status, provider, walletName, network, balance, assets, error, connect, disconnect, refresh],
+    () => ({ status, provider, walletName, network, walletLabel, balance, assets, error, p2pProblem, canTake: !!provider?.p2pSwap, connect, disconnect, refresh }),
+    [status, provider, walletName, network, walletLabel, balance, assets, error, p2pProblem, connect, disconnect, refresh],
   );
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }

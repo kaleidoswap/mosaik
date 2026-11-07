@@ -25,7 +25,7 @@ export function WalletPanel() {
       <section className="panel p-4">
         <div className="panel-title">Bitcoin</div>
         <div className="mt-2 text-2xl font-semibold">{fmtSats(w.balance?.spendable ?? 0)} <span className="text-sm text-zinc-400">sat</span></div>
-        <div className="mt-1 text-xs text-zinc-500">spendable · network {w.network ?? 'unknown'}</div>
+        <div className="mt-1 text-xs text-zinc-500">spendable · network {w.walletLabel ?? w.network ?? 'unknown'}</div>
         {w.balance?.freeColorableUtxos === 0 && (
           <p className="mt-3 rounded-lg bg-mosaic-amber/10 p-2 text-xs text-mosaic-amber">
             No free coin for RGB. Create one in the extension before taking an order.

@@ -43,7 +43,7 @@ export function WalletButton() {
         <div className="absolute right-0 z-20 mt-2 w-64 rounded-xl border border-ink-500/60 bg-ink-600 p-3 shadow-xl">
           <div className="text-[11px] uppercase tracking-wider text-zinc-500">Connected wallet</div>
           <div className="mt-1 text-sm">{w.walletName ?? 'WebRGB wallet'}</div>
-          <div className={clsx('mt-0.5 text-xs', 'text-zinc-400')}>Network {w.network ?? 'unknown'}</div>
+          <div className={clsx('mt-0.5 text-xs', 'text-zinc-400')}>Network {w.walletLabel ?? w.network ?? 'unknown'}</div>
           <div className="mt-3 flex gap-2">
             <button className="btn-secondary !py-1 flex-1" onClick={() => void w.refresh()} type="button">Refresh</button>
             <button className="btn-secondary !py-1 flex-1" onClick={() => { w.disconnect(); setOpen(false); }} type="button">Disconnect</button>
