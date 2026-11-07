@@ -5,19 +5,16 @@
 @layer base {
   body {
     @apply min-h-screen antialiased;
-    background:
-      radial-gradient(1200px 600px at 80% -20%, rgba(94, 231, 223, 0.08), transparent),
-      radial-gradient(900px 500px at 0% 110%, rgba(167, 139, 250, 0.08), transparent),
-      theme('colors.ink.900');
+    background: theme('colors.ink.800');
   }
   ::selection {
-    background: rgba(94, 231, 223, 0.25);
+    background: rgba(143, 213, 234, 0.25);
   }
 }
 
 @layer components {
   .panel {
-    @apply rounded-xl border border-ink-500/60 bg-ink-700/40 backdrop-blur-sm;
+    @apply rounded-2xl border border-ink-500/50 bg-ink-700;
   }
   .panel-header {
     @apply flex items-center justify-between border-b border-ink-500/60 px-4 py-2.5;

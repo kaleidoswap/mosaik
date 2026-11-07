@@ -6,28 +6,27 @@ export default {
       colors: {
         // KaleidoSwap dark palette — same vocabulary the legacy webapp used.
         ink: {
-          900: '#0a0a0f',
-          800: '#101018',
-          700: '#161624',
-          600: '#1e1e2e',
-          500: '#2a2a3d',
-          400: '#3a3a52',
+          900: '#1E1F28',
+          800: '#202027',
+          700: '#252632',
+          600: '#2E303C',
+          500: '#3A3C4C',
+          400: '#4A4C5E',
         },
         mosaic: {
-          // Cyan-violet covenant accents.
-          cyan: '#5ee7df',
-          violet: '#a78bfa',
+          cyan: '#8FD5EA',
+          violet: '#9365FF',
           rose: '#ff5d8f',
           amber: '#ffb44a',
-          mint: '#7af0a2',
+          mint: '#15E99A',
         },
       },
       fontFamily: {
         mono: ['"JetBrains Mono"', 'ui-monospace', 'monospace'],
-        sans: ['Inter', 'ui-sans-serif', 'system-ui', 'sans-serif'],
+        sans: ['Satoshi', 'Inter', 'ui-sans-serif', 'system-ui', 'sans-serif'],
       },
       boxShadow: {
-        glow: '0 0 32px -8px rgba(94, 231, 223, 0.35)',
+        glow: '0 0 32px -8px rgba(143, 213, 234, 0.3)',
       },
     },
   },

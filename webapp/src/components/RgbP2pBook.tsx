@@ -1,6 +1,7 @@
 import clsx from 'clsx';
-import { useEffect, useMemo, useState } from 'react';
-import { canTakeP2p, takeOrder, type SwapStatus } from '../api/rgbWallet';
+import { useMemo, useState } from 'react';
+import { takeOrder, type SwapStatus } from '../api/rgbWallet';
+import { useWebRgb } from '../api/webrgb';
 import { unitPriceSat, useRgbP2pBook, type RgbOffer } from '../api/rgbp2p';
 import { shortId } from '../lib/format';
 
@@ -18,24 +19,27 @@ const fmtLeft = (expiry: number, now: number) => {
  * The RGB peer-to-peer order book: what makers are offering right now, read from the relay. The
  * asset's name is the maker's own claim; the asset id under it is what identifies it.
  */
-export function RgbP2pBook() {
-  const book = useRgbP2pBook();
+export function RgbP2pBook({ book }: { book: ReturnType<typeof useRgbP2pBook> }) {
+  const wallet = useWebRgb();
   const [network, setNetwork] = useState<string>();
   const now = Math.floor(Date.now() / 1000);
-  const takeable = canTakeP2p();
+  const takeable = wallet.canTake;
+  const connected = wallet.status === 'connected';
   const [swap, setSwap] = useState<{ order: string; text: string; state?: SwapStatus['state'] }>();
-  const [walletNetwork, setWalletNetwork] = useState<string>();
-  useEffect(() => {
-    if (takeable) window.rgb?.p2pSwap?.network().then(setWalletNetwork, () => undefined);
-  }, [takeable]);
+  const walletNetwork = wallet.network;
   const busy = !!swap && swap.state !== 'failed' && swap.state !== 'expired' && swap.state !== 'settled';
 
   const take = async (o: RgbOffer) => {
     setSwap({ order: o.key, text: 'Waiting for your approval in the extension…' });
     try {
+      if (wallet.status !== 'connected' && !(await wallet.connect())) {
+        setSwap({ order: o.key, state: 'failed', text: 'Connect your wallet to take an order.' });
+        return;
+      }
       await takeOrder(
         { orderId: o.orderId, maker: o.maker, assetId: o.assetId, side: o.side, amount: o.amount, priceSat: o.priceSat },
-        (s: SwapStatus) => setSwap({ order: o.key, state: s.state, text: describe(s) }),
+        (s: SwapStatus) => { setSwap({ order: o.key, state: s.state, text: describe(s) }); if (s.state === 'settled') void wallet.refresh(); },
+        wallet.provider,
       );
     } catch (e) {
       setSwap({ order: o.key, state: 'failed', text: friendly(e) });
@@ -51,7 +55,7 @@ export function RgbP2pBook() {
   return (
     <section className="panel flex flex-col min-h-0">
       <header className="panel-header">
-        <h2 className="panel-title">RGB peer-to-peer</h2>
+        <h2 className="panel-title">RGB peer-to-peer orders</h2>
         <div className="flex items-center gap-2">
           {networks.length > 1 &&
             networks.map((n) => (
@@ -82,9 +86,16 @@ export function RgbP2pBook() {
       )}
 
       {!takeable && (
-        <div className="border-b border-ink-500/40 px-3 py-2 text-xs text-zinc-400">
-          Read only. Taking an order needs the KaleidoSwap browser extension, which signs the swap with
-          your wallet. The maker must be online to complete it.
+        <div className="border-b border-ink-500/40 px-4 py-3 text-sm text-zinc-400">
+          {wallet.status === 'absent'
+            ? 'Install the KaleidoSwap browser extension to take orders. It holds your keys and signs the swap; this page never sees them.'
+            : 'Your wallet does not support peer-to-peer swaps yet. Update the extension.'}
+        </div>
+      )}
+      {takeable && !connected && (
+        <div className="flex items-center justify-between gap-3 border-b border-ink-500/40 px-4 py-3 text-sm text-zinc-400">
+          <span>Connect your wallet to take an order. The maker must be online to complete the swap.</span>
+          <button className="btn-primary !py-1" onClick={() => void wallet.connect()} type="button">Connect wallet</button>
         </div>
       )}
 
@@ -93,7 +104,7 @@ export function RgbP2pBook() {
           {book.status === 'connecting' ? 'Connecting to the relay…' : 'No open orders on this network.'}
         </div>
       ) : (
-        <div className="grid grid-cols-1 divide-y divide-ink-500/40 overflow-auto md:grid-cols-2 md:divide-x md:divide-y-0">
+        <div className="grid grid-cols-1 divide-y divide-ink-500/40 overflow-auto xl:grid-cols-2 xl:divide-x xl:divide-y-0">
           <Side title="Sellers (you buy)" offers={sells} now={now} takeable={takeable && !busy && (!walletNetwork || walletNetwork === shown)} tone="text-mosaic-cyan" onTake={take} swap={swap} />
           <Side title="Buyers (you sell)" offers={buys} now={now} takeable={takeable && !busy && (!walletNetwork || walletNetwork === shown)} tone="text-mosaic-amber" onTake={take} swap={swap} />
         </div>
@@ -148,7 +159,7 @@ function Side({
 }) {
   return (
     <div className="min-w-0">
-      <div className={clsx('px-3 py-1.5 text-[10px] uppercase tracking-wider', tone)}>{title}</div>
+      <div className={clsx('px-4 py-2 text-[11px] uppercase tracking-wider', tone)}>{title}</div>
       {offers.length === 0 ? (
         <div className="px-3 py-3 text-xs text-zinc-600">none</div>
       ) : (
@@ -156,19 +167,25 @@ function Side({
           {offers.map((o) => {
             const unit = unitPriceSat(o);
             return (
-              <li key={o.key} className="px-3 py-2 font-mono text-xs">
-                <div className="flex items-baseline gap-2">
-                  <span className="text-zinc-200">{o.ticker ?? 'asset'}</span>
-                  <span className="text-zinc-400">{fmtUnits(o.amount, o.precision)}</span>
-                  <span className="ml-auto text-zinc-200">{o.priceSat.toLocaleString()} sat</span>
-                </div>
-                <div className="mt-0.5 flex items-center gap-2 text-[10px] text-zinc-500">
-                  <span title={o.assetId}>{shortId(o.assetId.replace('rgb:', ''), 6, 4)}</span>
-                  <span>{unit ? `${unit.toLocaleString(undefined, { maximumFractionDigits: 2 })} sat/unit` : ''}</span>
-                  <span title={o.maker}>maker {shortId(o.maker, 5, 3)}</span>
-                  <span className="ml-auto">{fmtLeft(o.expiry, now)} left</span>
+              <li key={o.key} className="px-4 py-3">
+                <div className="flex items-center gap-4">
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-baseline gap-2">
+                      <span className="font-semibold text-zinc-100">{o.ticker ?? 'asset'}</span>
+                      <span className="font-mono text-sm text-zinc-300">{fmtUnits(o.amount, o.precision)}</span>
+                    </div>
+                    <div className="mt-0.5 flex flex-wrap gap-x-3 text-[11px] text-zinc-500">
+                      <span className="font-mono" title={o.assetId}>{shortId(o.assetId.replace('rgb:', ''), 6, 4)}</span>
+                      <span title={o.maker}>maker {shortId(o.maker, 5, 3)}</span>
+                      <span>{fmtLeft(o.expiry, now)} left</span>
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <div className="font-mono text-sm text-zinc-100">{o.priceSat.toLocaleString()} sat</div>
+                    <div className="text-[11px] text-zinc-500">{unit ? `${unit.toLocaleString(undefined, { maximumFractionDigits: 2 })} sat/unit` : ''}</div>
+                  </div>
                   <button
-                    className="rounded px-2 py-0.5 ring-1 ring-ink-500/40 disabled:opacity-40"
+                    className="rounded-lg bg-mosaic-cyan/15 px-4 py-1.5 text-sm text-mosaic-cyan ring-1 ring-mosaic-cyan/30 transition hover:bg-mosaic-cyan/25 disabled:opacity-40 disabled:hover:bg-mosaic-cyan/15"
                     disabled={!takeable}
                     title={takeable ? 'Review and take' : 'Needs the browser extension'}
                     onClick={() => onTake(o)}
@@ -178,7 +195,7 @@ function Side({
                   </button>
                 </div>
                 {swap?.order === o.key && (
-                  <div className="mt-1.5">
+                  <div className="mt-2">
                     <div className="flex gap-1" aria-hidden>
                       {STEPS.map((st, i) => (
                         <span
@@ -192,7 +209,7 @@ function Side({
                         />
                       ))}
                     </div>
-                    <div className={clsx('mt-1 text-[10px]', swap.state === 'failed' || swap.state === 'expired' ? 'text-red-400' : 'text-mosaic-cyan')} role="status">
+                    <div className={clsx('mt-1 text-xs', swap.state === 'failed' || swap.state === 'expired' ? 'text-red-400' : 'text-mosaic-cyan')} role="status">
                       {swap.text}
                     </div>
                   </div>

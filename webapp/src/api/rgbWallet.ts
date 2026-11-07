@@ -52,8 +52,12 @@ export const canTakeP2p = (): boolean => typeof window !== 'undefined' && !!wind
  * Take an order through the extension and follow the swap. Rejects when the user declines or the
  * wallet refuses the order (the reason is first in the message: `fee_policy: …`).
  */
-export async function takeOrder(terms: TakeTerms, onStatus: (s: SwapStatus) => void): Promise<() => void> {
-  const rgb = window.rgb;
+export async function takeOrder(
+  terms: TakeTerms,
+  onStatus: (s: SwapStatus) => void,
+  provider: RgbTakerProvider | undefined = window.rgb,
+): Promise<() => void> {
+  const rgb = provider;
   if (!rgb?.p2pSwap) throw new Error('The KaleidoSwap extension is needed to take an order');
   await rgb.enable?.();
   const { swapId } = await rgb.p2pSwap.take(terms);
