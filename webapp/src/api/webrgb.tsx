@@ -110,7 +110,12 @@ export function WebRgbProvider({ children }: { children: ReactNode }) {
       try {
         p2pNet = await provider.p2pSwap?.network();
       } catch (e) {
-        setP2pProblem(e instanceof Error ? e.message : String(e));
+        const m = e instanceof Error ? e.message : String(e);
+        setP2pProblem(
+          /no rgb wallet is connected|no active protocol|locked/i.test(m)
+            ? 'locked'
+            : m,
+        );
       }
       const [info, bal, list] = await Promise.all([
         provider.getInfo?.(),
@@ -163,6 +168,13 @@ export function WebRgbProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (provider && status === 'ready' && store.get()) void connect();
   }, [provider, status, connect]);
+
+  // A locked wallet is not an error: look again until the user unlocks it in the extension.
+  useEffect(() => {
+    if (status !== 'connected' || p2pProblem !== 'locked') return;
+    const t = window.setInterval(() => void refresh(), 3_000);
+    return () => window.clearInterval(t);
+  }, [status, p2pProblem, refresh]);
 
   // Keep balances fresh while connected.
   useEffect(() => {

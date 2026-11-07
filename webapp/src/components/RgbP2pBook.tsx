@@ -79,7 +79,13 @@ export function RgbP2pBook({ book }: { book: ReturnType<typeof useRgbP2pBook> })
 
       {book.error && <div className="px-3 py-2 text-xs text-red-400">Relay: {book.error}</div>}
 
-      {connected && wallet.p2pProblem && (
+      {connected && wallet.p2pProblem === 'locked' && (
+        <div className="flex items-center justify-between gap-3 border-b border-ink-500/40 px-4 py-3 text-sm text-mosaic-amber">
+          <span>Your wallet is locked. Click the KaleidoSwap icon in the browser toolbar and unlock it. This page will notice.</span>
+          <button className="btn-secondary !py-1" onClick={() => void wallet.refresh()} type="button">Check again</button>
+        </div>
+      )}
+      {connected && wallet.p2pProblem && wallet.p2pProblem !== 'locked' && (
         <div className="border-b border-ink-500/40 px-4 py-3 text-sm text-mosaic-amber">
           Your wallet cannot take these orders: {wallet.p2pProblem}. Use an RGB wallet on Mutinynet in the extension.
         </div>
