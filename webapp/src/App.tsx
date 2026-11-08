@@ -42,6 +42,7 @@ function Shell() {
 
   return (
     <div className="flex min-h-screen">
+      <a href="#main" className="sr-only z-[60] rounded-lg bg-surface-overlay px-3 py-2 text-caption font-semibold focus:not-sr-only focus:fixed focus:left-3 focus:top-3">Skip to content</a>
       <aside className="sticky top-0 hidden h-screen w-56 shrink-0 flex-col border-r border-border-subtle bg-surface-base p-4 md:flex">
         <Brand />
         <nav className="mt-8 flex flex-col gap-1" aria-label="Main">
@@ -79,7 +80,7 @@ function Shell() {
           ))}
         </nav>
 
-        <main className="flex-1 p-4 md:p-6">
+        <main id="main" tabIndex={-1} className="flex-1 p-4 outline-none md:p-6">
           {view === 'market' && <Market book={book} />}
           {view === 'wallet' && <WalletPanel />}
           {view === 'covenant' && <CovenantView />}
