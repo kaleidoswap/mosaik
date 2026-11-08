@@ -35,9 +35,10 @@ export function tickerSkeleton(t: string): string {
     .join('');
 }
 
-/** A string that mixes scripts inside one word (latin with cyrillic or greek), a sign of a copy. */
+/**
+ * A ticker with any letter outside ASCII. The hand-made look-alike table above cannot cover every
+ * confusable (UTS #39 lists thousands), so a non-ASCII ticker is treated as suspect outright.
+ */
 export function mixesScripts(t: string): boolean {
-  const has = (re: RegExp) => re.test(t);
-  const latin = has(/[A-Za-z]/);
-  return latin && (has(/[Ͱ-Ͽ]/) || has(/[Ѐ-ӿ]/));
+  return /[^\x00-\x7f]/.test(t);
 }

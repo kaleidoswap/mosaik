@@ -26,7 +26,28 @@ export function marketFills(fills: RgbFill[], assetId: string | undefined, netwo
   return fills.filter((f) => f.assetId === assetId && f.network === network);
 }
 
-export function marketStats(fills: RgbFill[], now: number): MarketStats {
+/** Fills one maker can put on a market's price line, and how far ahead of us a timestamp may be. */
+export const MAX_FILLS_PER_MAKER = 10;
+export const CLOCK_SLACK = 300;
+
+/**
+ * Makers publish these themselves, so they are cut down before they move a price: nothing dated in the
+ * future, and only a maker's newest few. They remain unverified; the page says so wherever they show.
+ */
+export function plausibleFills(fills: RgbFill[], now: number): RgbFill[] {
+  const seen = new Map<string, number>();
+  return [...fills]
+    .filter((f) => f.at <= now + CLOCK_SLACK)
+    .sort((a, b) => b.at - a.at)
+    .filter((f) => {
+      const n = (seen.get(f.maker) ?? 0) + 1;
+      seen.set(f.maker, n);
+      return n <= MAX_FILLS_PER_MAKER;
+    });
+}
+
+export function marketStats(raw: RgbFill[], now: number): MarketStats {
+  const fills = plausibleFills(raw, now);
   const points: Point[] = [];
   for (const f of fills) {
     const price = fillUnitPrice(f);

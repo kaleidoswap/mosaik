@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { RgbFill } from '../../api/rgbp2p';
-import { marketFills, marketStats } from './stats';
+import { marketFills, marketStats, MAX_FILLS_PER_MAKER, plausibleFills } from './stats';
 
 const fill = (at: number, priceSat: number, amount = 100, over: Partial<RgbFill> = {}): RgbFill => ({
   key: `m:${at}`, maker: 'm', side: 'sell', assetId: 'rgb:AAAAAAAA-1', amount, priceSat, network: 'signet', precision: 2, at, ...over,
@@ -25,5 +25,19 @@ describe('marketStats', () => {
   it('keeps to one asset on one network', () => {
     const f = [fill(1, 1), fill(2, 1, 100, { assetId: 'rgb:BBBBBBBB-2' }), fill(3, 1, 100, { network: 'testnet' })];
     expect(marketFills(f, 'rgb:AAAAAAAA-1', 'signet')).toHaveLength(1);
+  });
+});
+
+describe('plausibleFills', () => {
+  const now = 1_000_000;
+  it('drops fills dated in the future', () => {
+    expect(plausibleFills([fill(now + 10_000, 9)], now)).toEqual([]);
+    expect(plausibleFills([fill(now + 60, 9)], now)).toHaveLength(1);
+  });
+  it('keeps only a maker\'s newest few', () => {
+    const many = Array.from({ length: 30 }, (_, i) => fill(now - i, 100 + i));
+    const kept = plausibleFills(many, now);
+    expect(kept).toHaveLength(MAX_FILLS_PER_MAKER);
+    expect(kept[0]!.at).toBe(now);
   });
 });

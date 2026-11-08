@@ -27,9 +27,9 @@ describe('tickerSkeleton', () => {
 });
 
 describe('mixesScripts', () => {
-  it('flags latin mixed with cyrillic or greek', () => {
+  it('flags any non-ASCII ticker', () => {
     expect(mixesScripts('USDТ')).toBe(true);
     expect(mixesScripts('USDT')).toBe(false);
-    expect(mixesScripts('ТЕСТ')).toBe(false);
+    expect(mixesScripts('ТЕСТ')).toBe(true); // any non-ASCII letter is suspect
   });
 });

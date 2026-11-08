@@ -112,7 +112,7 @@ export function PairBar({ markets, selected, onSelect, networks, network, onNetw
     <header className="flex flex-wrap items-center gap-x-6 gap-y-3 rounded-2xl bg-surface-card/[0.04] px-4 py-3">
       <PairSelect markets={markets} selected={selected} onSelect={onSelect} />
       <dl className="grid w-full min-w-0 grid-cols-3 gap-x-4 gap-y-2 sm:grid-cols-5 lg:flex lg:w-auto lg:flex-1 lg:flex-wrap lg:gap-x-8">
-        <Stat label="Last trade" value={lastFill !== undefined ? fmtPrice(lastFill) : '—'} hint="The latest trade a maker reported in this market, or your own latest completed swap" />
+        <Stat label="Last trade" value={lastFill !== undefined ? fmtPrice(lastFill) : '—'} hint="Your own latest completed swap here; if you have none, the latest trade a maker reported (unverified)" />
         <Stat
           label="24h"
           value={stats?.change24h !== undefined ? `${stats.change24h >= 0 ? '+' : ''}${stats.change24h.toFixed(2)}%` : '—'}

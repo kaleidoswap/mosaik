@@ -71,7 +71,7 @@ export function Market({ book }: { book: RgbBookState }) {
             onNetwork={(n) => { setNetwork(n); setAssetId(undefined); }}
             bestBid={bids[0]?.price}
             bestAsk={asks[0]?.price}
-            lastFill={stats.last ?? lastFill}
+            lastFill={lastFill ?? stats.last}
             stats={stats}
             orders={offers.length}
           />
