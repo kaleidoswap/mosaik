@@ -12,6 +12,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { SimplePool, type Event } from 'nostr-tools';
+import { safeLabel } from '../lib/text';
 
 export const RGB_OFFER_KIND = 30053;
 export const RGB_PROTOCOL_TAG = 'rgb-psbt-v1';
@@ -53,6 +54,49 @@ const whole = (s: string | undefined): number | undefined => {
   return Number(s);
 };
 
+/** An order a maker reports as taken. Makers say so themselves: nothing here proves it settled. */
+export interface RgbFill {
+  key: string;
+  maker: string;
+  side: RgbSide;
+  assetId: string;
+  amount: number;
+  priceSat: number;
+  network: string;
+  precision: number;
+  ticker?: string;
+  /** Seconds, when the maker published the status. */
+  at: number;
+}
+
+export function parseRgbFill(e: Event): RgbFill | null {
+  if (e.kind !== RGB_OFFER_KIND || tag(e, 't') !== RGB_PROTOCOL_TAG || tag(e, 'status') !== 'taken') return null;
+  const side = tag(e, 'side');
+  const orderId = tag(e, 'd');
+  const assetId = tag(e, 'asset');
+  const amount = whole(tag(e, 'amount'));
+  const priceSat = whole(tag(e, 'price'));
+  const network = tag(e, 'network');
+  if ((side !== 'sell' && side !== 'buy') || !orderId || !assetId || !amount || !priceSat || !network) return null;
+  if (!/^rgb:[A-Za-z0-9~_:-]{8,120}$/.test(assetId)) return null;
+  let precision = 0;
+  let ticker: string | undefined;
+  try {
+    const meta = (JSON.parse(e.content) as { asset?: { ticker?: unknown; precision?: unknown } }).asset;
+    ticker = safeLabel(meta?.ticker, 12);
+    if (typeof meta?.precision === 'number' && meta.precision >= 0 && meta.precision <= 18) precision = meta.precision;
+  } catch {
+    /* the tags are enough */
+  }
+  return { key: `${e.pubkey}:${orderId}`, maker: e.pubkey, side, assetId, amount, priceSat, network, precision, ticker, at: e.created_at };
+}
+
+/** Sats per whole asset unit of a fill. */
+export function fillUnitPrice(f: Pick<RgbFill, 'amount' | 'precision' | 'priceSat'>): number | null {
+  const units = f.amount / 10 ** f.precision;
+  return units > 0 ? f.priceSat / units : null;
+}
+
 /** An event as an order, or null when it is not a live, well-formed one. */
 export function parseRgbOffer(e: Event, now = Math.floor(Date.now() / 1000)): RgbOffer | null {
   if (e.kind !== RGB_OFFER_KIND || tag(e, 't') !== RGB_PROTOCOL_TAG) return null;
@@ -86,8 +130,8 @@ export function parseRgbOffer(e: Event, now = Math.floor(Date.now() / 1000)): Rg
     networkFeeSat = sat(content.offer?.networkFeeSat);
     rgbOutputSat = sat(content.offer?.rgbOutputSat);
     const meta = content.asset;
-    if (typeof meta?.ticker === 'string') ticker = meta.ticker.slice(0, 12);
-    if (typeof meta?.name === 'string') name = meta.name.slice(0, 40);
+    ticker = safeLabel(meta?.ticker, 12);
+    name = safeLabel(meta?.name, 40);
     if (typeof meta?.precision === 'number' && meta.precision >= 0 && meta.precision <= 18) precision = meta.precision;
   } catch {
     /* the tags are enough */
@@ -123,12 +167,14 @@ export interface RgbBookState {
   url: string;
   status: 'connecting' | 'open' | 'closed' | 'error';
   offers: RgbOffer[];
+  /** Orders makers report as taken, newest first. Self-reported. */
+  fills: RgbFill[];
   error?: string;
 }
 
 /** The live book: newest event per order, expired and non-active ones dropped. */
 export function useRgbP2pBook(relayUrl: string = DEFAULT_RELAY): RgbBookState {
-  const [byKey, setByKey] = useState<Map<string, { offer: RgbOffer | null; at: number }>>(new Map());
+  const [byKey, setByKey] = useState<Map<string, { offer: RgbOffer | null; fill: RgbFill | null; at: number }>>(new Map());
   const [status, setStatus] = useState<RgbBookState['status']>('connecting');
   const [error, setError] = useState<string>();
   const [now, setNow] = useState(() => Math.floor(Date.now() / 1000));
@@ -143,7 +189,7 @@ export function useRgbP2pBook(relayUrl: string = DEFAULT_RELAY): RgbBookState {
     setStatus('connecting');
     setError(undefined);
     let stopped = false;
-    const pool = new SimplePool();
+    const pool = new SimplePool({ enablePing: true, enableReconnect: true });
     const sub = pool.subscribeMany(
       [relayUrl],
       { kinds: [RGB_OFFER_KIND], '#t': [RGB_PROTOCOL_TAG], limit: MAX_EVENTS },
@@ -154,12 +200,13 @@ export function useRgbP2pBook(relayUrl: string = DEFAULT_RELAY): RgbBookState {
           if (!d) return;
           const key = `${e.pubkey}:${d}`;
           const offer = parseRgbOffer(e, 0);
+          const fill = offer ? null : parseRgbFill(e);
           setStatus('open');
           setByKey((prev) => {
             const old = prev.get(key);
             if (old && old.at >= e.created_at) return prev;
             const next = new Map(prev);
-            next.set(key, { offer, at: e.created_at });
+            next.set(key, { offer, fill, at: e.created_at });
             return next;
           });
         },
@@ -198,5 +245,10 @@ export function useRgbP2pBook(relayUrl: string = DEFAULT_RELAY): RgbBookState {
     [byKey, now],
   );
 
-  return { url: relayUrl, status, offers, error };
+  const fills = useMemo(
+    () => [...byKey.values()].map((v) => v.fill).filter((f): f is RgbFill => f !== null).sort((a, b) => b.at - a.at),
+    [byKey],
+  );
+
+  return { url: relayUrl, status, offers, fills, error };
 }

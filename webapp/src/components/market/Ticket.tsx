@@ -6,6 +6,7 @@ import { shortId } from '../../lib/format';
 import { fmtLeft, fmtPrice, fmtUnits } from '../../lib/units';
 import { btnPrimary, Icon, Pill } from '../ui';
 import type { Level } from './book';
+import { shortfalls } from './affordability';
 
 interface Props {
   ticker: string;
@@ -27,6 +28,7 @@ export function Ticket({ ticker, precision, asks, bids, nowSec, onTake }: Props)
   const o = best?.offer;
   const held = w.assets.find((a) => a.id === o?.assetId)?.balance;
   const connected = w.status === 'connected';
+  const short = o && connected ? shortfalls(o, { sat: w.balance?.spendable, asset: held ?? 0, freeColorableUtxos: w.balance?.freeColorableUtxos ?? undefined }) : [];
 
   return (
     <section aria-label="Trade ticket" className="flex flex-col gap-3 rounded-2xl bg-surface-card/[0.04] p-4">
@@ -59,6 +61,17 @@ export function Ticket({ ticker, precision, asks, bids, nowSec, onTake }: Props)
             <dd className="text-right tabular-nums">{o.platformFeeSat !== undefined && o.networkFeeSat !== undefined ? `${(o.platformFeeSat + o.networkFeeSat).toLocaleString()} sat` : 'in review'}</dd>
             <dt className="text-content-secondary">Expires</dt><dd className="text-right tabular-nums">{fmtLeft(o.expiry, nowSec)}</dd>
           </dl>
+          {short.length > 0 && (
+            <ul role="alert" className="mt-3 list-disc rounded-lg bg-status-warning-subtle py-2 pl-6 pr-3 text-tiny text-status-warning">
+              {short.map((x) => (
+                <li key={x.kind}>
+                  {x.kind === 'sat' ? `You have ${x.have.toLocaleString()} sat; this needs ${x.need.toLocaleString()} with fees.`
+                    : x.kind === 'asset' ? `You have ${fmtUnits(x.have, precision)} ${ticker}; this needs ${fmtUnits(x.need, precision)}.`
+                    : 'Your wallet has no free coin for RGB. Create one in the extension first.'}
+                </li>
+              ))}
+            </ul>
+          )}
           <button type="button" className={clsx(btnPrimary, 'mt-3 w-full')} onClick={() => onTake(o)}>
             Review and {side === 'buy' ? 'buy' : 'sell'}
           </button>

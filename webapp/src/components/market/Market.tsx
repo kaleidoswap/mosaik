@@ -4,6 +4,7 @@ import type { RgbBookState, RgbOffer } from '../../api/rgbp2p';
 import { snapshotOf, type OrderSnapshot, type SwapRecord } from '../../api/swaps';
 import { useSwaps } from '../../api/swaps';
 import { useWebRgb } from '../../api/webrgb';
+import { useRegistry } from '../../api/registry';
 import { TakeModal } from '../TakeModal';
 import { btnPrimary, btnSecondary, Notice } from '../ui';
 import { ladder, marketsOf } from './book';
@@ -11,6 +12,11 @@ import { Ladder } from './Ladder';
 import { MySwaps } from './MySwaps';
 import { PairBar } from './PairBar';
 import { Ticket } from './Ticket';
+import { assetTrust } from './assetTrust';
+import { marketFills, marketStats } from './stats';
+import { PriceChart } from './PriceChart';
+import { TradeFeed } from './TradeFeed';
+import { TrustNotice } from './TrustNotice';
 
 /** The peer-to-peer market: an order book read from the relay, and a take flow that runs through the wallet. */
 export function Market({ book }: { book: RgbBookState }) {
@@ -29,6 +35,13 @@ export function Market({ book }: { book: RgbBookState }) {
   const offers = useMemo(() => onNetwork.filter((o) => o.assetId === market?.assetId), [onNetwork, market?.assetId]);
   const { asks, bids } = useMemo(() => ladder(offers), [offers]);
   const ticker = market?.ticker ?? 'asset';
+  const registry = useRegistry(shown);
+  const trust = useMemo(
+    () => (market ? assetTrust({ assetId: market.assetId, ticker: market.ticker }, onNetwork, registry.data) : undefined),
+    [market, onNetwork, registry.data],
+  );
+  const fills = useMemo(() => marketFills(book.fills, market?.assetId, shown), [book.fills, market?.assetId, shown]);
+  const stats = useMemo(() => marketStats(fills, nowSec), [fills, nowSec]);
   const lastFill = useMemo(() => {
     const r = swaps.swaps.filter((s) => s.state === 'settled' && s.order.assetId === market?.assetId).sort((a, b) => b.updatedAt - a.updatedAt)[0];
     return r ? r.order.priceSat / (r.order.amount / 10 ** r.order.precision) : undefined;
@@ -58,14 +71,24 @@ export function Market({ book }: { book: RgbBookState }) {
             onNetwork={(n) => { setNetwork(n); setAssetId(undefined); }}
             bestBid={bids[0]?.price}
             bestAsk={asks[0]?.price}
-            lastFill={lastFill}
+            lastFill={stats.last ?? lastFill}
+            stats={stats}
             orders={offers.length}
           />
+          {trust && market && <TrustNotice trust={trust} assetId={market.assetId} />}
           <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_21rem]">
-            <Ladder asks={asks} bids={bids} ticker={ticker} nowSec={nowSec} onPick={take} />
-            <div className="flex flex-col gap-4">
+            <div className="min-w-0 lg:col-start-1">
+              <Ladder asks={asks} bids={bids} ticker={ticker} nowSec={nowSec} onPick={take} />
+            </div>
+            <div className="flex flex-col gap-4 lg:col-start-2 lg:row-span-3 lg:row-start-1">
               <Ticket ticker={ticker} precision={market?.precision ?? 0} asks={asks} bids={bids} nowSec={nowSec} onTake={take} />
               <MySwaps onOpen={open} />
+            </div>
+            <div className="min-w-0 lg:col-start-1">
+              <PriceChart points={stats.points} ticker={ticker} />
+            </div>
+            <div className="min-w-0 lg:col-start-1">
+              <TradeFeed fills={fills} ticker={ticker} nowSec={nowSec} />
             </div>
           </div>
         </>

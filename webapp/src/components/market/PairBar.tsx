@@ -4,6 +4,7 @@ import { shortId } from '../../lib/format';
 import { fmtPrice } from '../../lib/units';
 import { Icon } from '../ui';
 import type { Market } from './book';
+import type { MarketStats } from './stats';
 
 const short = (id: string) => shortId(id.replace('rgb:', ''), 6, 4);
 
@@ -18,16 +19,19 @@ function Stat({ label, value, tone, hint }: { label: string; value: string; tone
 
 function PairSelect({ markets, selected, onSelect }: { markets: Market[]; selected?: Market; onSelect: (id: string) => void }) {
   const [open, setOpen] = useState(false);
+  const [q, setQ] = useState('');
   const box = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (!open) return;
     const down = (e: MouseEvent) => { if (!box.current?.contains(e.target as Node)) setOpen(false); };
-    const key = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false); };
+    const key = (e: KeyboardEvent) => { if (e.key === 'Escape') { setOpen(false); setQ(''); } };
     document.addEventListener('mousedown', down);
     document.addEventListener('keydown', key);
     return () => { document.removeEventListener('mousedown', down); document.removeEventListener('keydown', key); };
   }, [open]);
 
+  const needle = q.trim().toLowerCase();
+  const visible = needle ? markets.filter((m) => `${m.ticker ?? ''} ${m.name ?? ''} ${m.assetId}`.toLowerCase().includes(needle)) : markets;
   return (
     <div className="relative" ref={box}>
       <button
@@ -49,12 +53,24 @@ function PairSelect({ markets, selected, onSelect }: { markets: Market[]; select
       </button>
       {open && (
         <ul role="listbox" aria-label="Markets" className="absolute left-0 top-full z-30 mt-2 max-h-72 w-72 max-w-[85vw] overflow-auto rounded-2xl border border-border-subtle bg-surface-overlay p-1.5 shadow-popover">
-          {markets.map((m) => (
+          <li role="presentation" className="px-1.5 pb-1.5">
+            <input
+              type="search"
+              autoFocus
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              placeholder="Search ticker, name or id"
+              aria-label="Search markets"
+              className="w-full rounded-lg border border-border-subtle bg-surface-inset/25 px-3 py-1.5 text-caption outline-none focus:border-primary"
+            />
+          </li>
+          {visible.length === 0 && <li role="presentation" className="px-3 py-2 text-caption text-content-tertiary">No market matches “{q}”.</li>}
+          {visible.map((m) => (
             <li key={m.assetId} role="option" aria-selected={m.assetId === selected?.assetId}>
               <button
                 type="button"
                 className={clsx('flex w-full items-center gap-3 rounded-xl px-3 py-2 text-left hover:bg-surface-elevated', m.assetId === selected?.assetId && 'bg-surface-elevated')}
-                onClick={() => { onSelect(m.assetId); setOpen(false); }}
+                onClick={() => { onSelect(m.assetId); setOpen(false); setQ(''); }}
               >
                 <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary/15 text-tiny font-bold text-primary">{(m.ticker ?? '?').slice(0, 2).toUpperCase()}</span>
                 <span className="min-w-0 flex-1">
@@ -81,11 +97,12 @@ interface Props {
   bestBid?: number;
   bestAsk?: number;
   lastFill?: number;
+  stats?: MarketStats;
   orders: number;
 }
 
 /** Pair selector and the numbers a trader looks at first. */
-export function PairBar({ markets, selected, onSelect, networks, network, onNetwork, bestBid, bestAsk, lastFill, orders }: Props) {
+export function PairBar({ markets, selected, onSelect, networks, network, onNetwork, bestBid, bestAsk, lastFill, stats, orders }: Props) {
   const both = bestBid !== undefined && bestAsk !== undefined;
   const mid = both ? (bestBid + bestAsk) / 2 : undefined;
   const spread = both ? bestAsk - bestBid : undefined;
@@ -95,7 +112,14 @@ export function PairBar({ markets, selected, onSelect, networks, network, onNetw
     <header className="flex flex-wrap items-center gap-x-6 gap-y-3 rounded-2xl bg-surface-card/[0.04] px-4 py-3">
       <PairSelect markets={markets} selected={selected} onSelect={onSelect} />
       <dl className="grid w-full min-w-0 grid-cols-3 gap-x-4 gap-y-2 sm:grid-cols-5 lg:flex lg:w-auto lg:flex-1 lg:flex-wrap lg:gap-x-8">
-        <Stat label="Last fill" value={lastFill !== undefined ? fmtPrice(lastFill) : '—'} hint="Your latest completed swap in this market from this browser. There is no public trade feed yet." />
+        <Stat label="Last trade" value={lastFill !== undefined ? fmtPrice(lastFill) : '—'} hint="The latest trade a maker reported in this market, or your own latest completed swap" />
+        <Stat
+          label="24h"
+          value={stats?.change24h !== undefined ? `${stats.change24h >= 0 ? '+' : ''}${stats.change24h.toFixed(2)}%` : '—'}
+          tone={stats?.change24h === undefined ? undefined : stats.change24h >= 0 ? 'text-status-success' : 'text-status-danger'}
+          hint="Price change since the first trade of the last 24 hours"
+        />
+        <Stat label="24h volume" value={stats && stats.trades24h > 0 ? `${stats.volume24hSat.toLocaleString()} sat` : '—'} hint="Reported by makers, not verified on chain" />
         <Stat label="Best bid" value={bestBid !== undefined ? fmtPrice(bestBid) : '—'} tone="text-status-success" hint={`Highest price a maker pays per ${t} (sat)`} />
         <Stat label="Best ask" value={bestAsk !== undefined ? fmtPrice(bestAsk) : '—'} tone="text-status-danger" hint={`Lowest price a maker sells at per ${t} (sat)`} />
         <Stat
