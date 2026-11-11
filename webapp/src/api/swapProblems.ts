@@ -52,7 +52,7 @@ const CATALOGUE: Record<string, Omit<Failure, 'code' | 'detail'>> = {
   insufficient_funds: {
     title: 'Not enough funds',
     reason: 'Your wallet cannot cover this order and its fees.',
-    todo: 'Add funds in the extension, or take a smaller order, then try again.',
+    todo: 'Wait for recent deposits or change to confirm. If funds are still insufficient, add funds in the extension or take a smaller order.',
     retry: true,
   },
   no_colored_coin: {
@@ -160,11 +160,11 @@ export function preflight(o: OrderSnapshot, w: WalletView, nowSec: number): Pref
   const fees = (o.platformFeeSat ?? 0) + (o.networkFeeSat ?? 0);
   const spendable = w.balance?.spendable;
   if (spendable !== undefined) {
-    const needSat = o.side === 'sell' ? o.priceSat + fees : fees;
+    const needSat = o.side === 'sell' ? o.priceSat + fees + (o.rgbOutputSat ?? 0) : fees;
     if (spendable < needSat) {
       out.push({
         level: 'block',
-        text: `You need about ${needSat.toLocaleString()} sat and the wallet reports ${spendable.toLocaleString()} sat spendable.`,
+        text: `You need about ${needSat.toLocaleString()} sat and the wallet reports ${spendable.toLocaleString()} sat confirmed and spendable. Wait for recent deposits or change to confirm.`,
       });
     }
   }

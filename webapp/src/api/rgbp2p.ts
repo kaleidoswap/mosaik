@@ -177,6 +177,7 @@ export function useRgbP2pBook(relayUrl: string = DEFAULT_RELAY): RgbBookState {
   const [byKey, setByKey] = useState<Map<string, { offer: RgbOffer | null; fill: RgbFill | null; at: number }>>(new Map());
   const [status, setStatus] = useState<RgbBookState['status']>('connecting');
   const [error, setError] = useState<string>();
+  const [retry, setRetry] = useState(0);
   const [now, setNow] = useState(() => Math.floor(Date.now() / 1000));
 
   useEffect(() => {
@@ -189,12 +190,14 @@ export function useRgbP2pBook(relayUrl: string = DEFAULT_RELAY): RgbBookState {
     setStatus('connecting');
     setError(undefined);
     let stopped = false;
+    let reconnect: ReturnType<typeof setTimeout> | undefined;
     const pool = new SimplePool({ enablePing: true, enableReconnect: true });
     const sub = pool.subscribeMany(
       [relayUrl],
       { kinds: [RGB_OFFER_KIND], '#t': [RGB_PROTOCOL_TAG], limit: MAX_EVENTS },
       {
         onevent(e: Event) {
+          if (stopped) return;
           // a cancelled or taken order replaces the active one, so keep the newest event either way
           const d = tag(e, 'd');
           if (!d) return;
@@ -202,6 +205,7 @@ export function useRgbP2pBook(relayUrl: string = DEFAULT_RELAY): RgbBookState {
           const offer = parseRgbOffer(e, 0);
           const fill = offer ? null : parseRgbFill(e);
           setStatus('open');
+          setError(undefined);
           setByKey((prev) => {
             const old = prev.get(key);
             if (old && old.at >= e.created_at) return prev;
@@ -211,7 +215,9 @@ export function useRgbP2pBook(relayUrl: string = DEFAULT_RELAY): RgbBookState {
           });
         },
         oneose() {
+          if (stopped) return;
           setStatus('open');
+          setError(undefined);
         },
         onclose(reasons: string[]) {
           // closing it ourselves (a new effect run, or leaving the page) is not a relay failure
@@ -219,11 +225,17 @@ export function useRgbP2pBook(relayUrl: string = DEFAULT_RELAY): RgbBookState {
           const reason = reasons.filter(Boolean).join('; ');
           setStatus(reason ? 'error' : 'closed');
           setError(reason || undefined);
+          // Pool reconnect covers established sockets, but not a failed initial
+          // connection/subscription. Recreate the subscription in that case too.
+          if (!reconnect) reconnect = setTimeout(() => {
+            if (!stopped) setRetry((n) => n + 1);
+          }, Math.min(30_000, 1000 * 2 ** Math.min(retry, 5)));
         },
       },
     );
     return () => {
       stopped = true;
+      if (reconnect) clearTimeout(reconnect);
       try {
         sub.close();
       } catch {
@@ -235,7 +247,7 @@ export function useRgbP2pBook(relayUrl: string = DEFAULT_RELAY): RgbBookState {
         /* already closed */
       }
     };
-  }, [relayUrl]);
+  }, [relayUrl, retry]);
 
   const offers = useMemo(
     () =>

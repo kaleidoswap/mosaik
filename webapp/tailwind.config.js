@@ -1,6 +1,8 @@
+import kaleidoPreset from 'kaleido-ui/tailwind';
 /** @type {import('tailwindcss').Config} */
 export default {
-  content: ['./index.html', './src/**/*.{ts,tsx}'],
+  presets: [kaleidoPreset],
+  content: ['./index.html', './src/**/*.{ts,tsx}', './node_modules/kaleido-ui/dist/web/**/*.js', './node_modules/kaleido-ui/dist/*.js'],
   theme: {
     extend: {
       colors: {

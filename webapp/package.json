@@ -1,7 +1,7 @@
 {
   "name": "@kaleidoswap/mosaik-webapp",
   "version": "0.1.0",
-  "description": "Mosaik covenant-DEX webapp \u2014 Vite + React + TypeScript SPA driving mosaik-api",
+  "description": "Mosaik \u2014 peer-to-peer RGB market on Signet, with separate research Labs",
   "private": true,
   "type": "module",
   "scripts": {
@@ -18,23 +18,35 @@
   "dependencies": {
     "@tanstack/react-query": "^5.62.0",
     "clsx": "^2.1.1",
+    "kaleido-ui": "0.2.6",
     "nostr-tools": "^2.23.5",
-    "react": "^18.3.1",
-    "react-dom": "^18.3.1"
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "class-variance-authority": "^0.7.1",
+    "tailwind-merge": "^2.6.0",
+    "@radix-ui/react-collapsible": "^1.1.0",
+    "@radix-ui/react-dialog": "^1.1.0",
+    "@radix-ui/react-dropdown-menu": "^2.1.0",
+    "@radix-ui/react-label": "^2.1.0",
+    "@radix-ui/react-popover": "^1.1.0",
+    "@radix-ui/react-select": "^2.1.0",
+    "@radix-ui/react-slot": "^1.2.0",
+    "@radix-ui/react-tabs": "^1.1.0",
+    "@radix-ui/react-toast": "^1.2.0"
   },
   "devDependencies": {
     "@testing-library/jest-dom": "^7.0.1",
     "@testing-library/react": "^16.3.3",
     "@types/node": "^22.10.1",
-    "@types/react": "^18.3.12",
-    "@types/react-dom": "^18.3.1",
+    "@types/react": "^19.1.1",
+    "@types/react-dom": "^19.1.0",
     "@vitejs/plugin-react": "^4.3.4",
     "autoprefixer": "^10.4.20",
     "jsdom": "^29.1.1",
     "postcss": "^8.4.49",
     "tailwindcss": "^3.4.16",
     "typescript": "^5.7.2",
-    "vite": "^6.0.3",
-    "vitest": "^3.2.7"
+    "vite": "^6.4.0",
+    "vitest": "5.1.0"
   }
 }

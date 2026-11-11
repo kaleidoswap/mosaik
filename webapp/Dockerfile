@@ -19,10 +19,11 @@ WORKDIR /app
 
 # Manifests first so npm install caches across source-only edits.
 COPY package.json package-lock.json* ./
-RUN npm install --no-audit --no-fund
+RUN npm ci --no-audit --no-fund
 
 COPY tsconfig.json vite.config.ts tailwind.config.js postcss.config.js index.html ./
 COPY src ./src
+COPY public ./public
 
 RUN npm run build
 

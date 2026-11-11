@@ -306,11 +306,11 @@ function ReviewView({ order: o, checks, nowSec }: { order: OrderSnapshot; checks
         <Row label="Platform fee" hint="Paid to KaleidoSwap; the wallet only accepts the fee its policy sets">{platform !== undefined ? sat(platform) : 'shown in your wallet'}</Row>
         <Row label="Network fee" hint="Bitcoin miner fee for the swap transaction">{network !== undefined ? sat(network) : 'shown in your wallet'}</Row>
         {o.rgbOutputSat !== undefined && (
-          <Row label="RGB output" hint="Sats carried by the coin that holds the asset. Not a fee; it is not in the total.">{sat(o.rgbOutputSat)}</Row>
+          <Row label="RGB output" hint="Sats carried by the coin that holds the asset. Not a fee; when buying, these sats are included in the required funding.">{sat(o.rgbOutputSat)}</Row>
         )}
         {feesKnown && (
-          <Row strong label={youBuy ? 'Total BTC you send' : 'BTC you receive after fees'} hint={youBuy ? 'BTC leg + platform fee + network fee' : 'BTC leg minus platform fee and network fee'}>
-            {youBuy ? sat(o.priceSat + fees) : sat(Math.max(0, o.priceSat - fees))}
+          <Row strong label={youBuy ? 'BTC needed for this swap' : 'BTC you receive after fees'} hint={youBuy ? 'BTC leg + platform fee + network fee + RGB output' : 'BTC leg minus platform fee and network fee'}>
+            {youBuy ? sat(o.priceSat + fees + (o.rgbOutputSat ?? 0)) : sat(Math.max(0, o.priceSat - fees))}
           </Row>
         )}
       </dl>

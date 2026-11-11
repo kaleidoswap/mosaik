@@ -1,10 +1,11 @@
 import clsx from 'clsx';
+import { Button } from 'kaleido-ui';
 import { useState } from 'react';
 import type { RgbOffer } from '../../api/rgbp2p';
 import { useWebRgb } from '../../api/webrgb';
 import { shortId } from '../../lib/format';
 import { fmtLeft, fmtPrice, fmtUnits } from '../../lib/units';
-import { btnPrimary, Icon, Pill } from '../ui';
+import { Icon, Pill } from '../ui';
 import type { Level } from './book';
 import { shortfalls } from './affordability';
 
@@ -72,9 +73,10 @@ export function Ticket({ ticker, precision, asks, bids, nowSec, onTake }: Props)
               ))}
             </ul>
           )}
-          <button type="button" className={clsx(btnPrimary, 'mt-3 w-full')} onClick={() => onTake(o)}>
+          <Button type="button" variant="cta" className="mt-3 w-full" onClick={() => onTake(o)}>
             Review and {side === 'buy' ? 'buy' : 'sell'}
-          </button>
+          </Button>
+          <p className="mt-2 text-center text-tiny text-content-secondary">Whole offer · Approval in your wallet</p>
         </div>
       ) : (
         <div className="rounded-xl border border-dashed border-border-default p-4 text-center text-caption text-content-tertiary">

@@ -4,6 +4,9 @@ import { shortfalls } from './affordability';
 const sell = { side: 'sell' as const, amount: 100, priceSat: 3000, platformFeeSat: 1000, networkFeeSat: 2000 };
 
 describe('shortfalls', () => {
+  it('also funds the RGB receive output when buying', () => {
+    expect(shortfalls({ ...sell, rgbOutputSat: 1000 }, { sat: 6000 })).toEqual([{ kind: 'sat', need: 7000, have: 6000 }]);
+  });
   it('needs the price and the fees to buy from a maker', () => {
     expect(shortfalls(sell, { sat: 6000 })).toEqual([]);
     expect(shortfalls(sell, { sat: 5000 })).toEqual([{ kind: 'sat', need: 6000, have: 5000 }]);

@@ -1,177 +1,101 @@
-import clsx from 'clsx';
-import { useState } from 'react';
-import { useApiState } from './api/client';
-import { useRelayFeed } from './api/relay';
+import { lazy, Suspense, useEffect, useState } from 'react';
+import { Button, Card, CardContent } from 'kaleido-ui';
+import kaleidoMark from 'kaleido-ui/brand/kaleidoswap-pictogram.svg?url';
 import { useRgbP2pBook } from './api/rgbp2p';
 import { WebRgbProvider } from './api/webrgb';
-import type { Backend } from './api/types';
-import { Header } from './components/Header';
-import { OrderBook } from './components/OrderBook';
-import { MakeOfferForm } from './components/MakeOfferForm';
-import { TradeTape } from './components/TradeTape';
-import { SwapBoard } from './components/SwapBoard';
-import { RelayFeed } from './components/RelayFeed';
+import { SwapsProvider, type SwapRecord } from './api/swaps';
 import { Market } from './components/market/Market';
-import { SwapsProvider } from './api/swaps';
+import { MySwaps } from './components/market/MySwaps';
+import { TakeModal } from './components/TakeModal';
 import { WalletButton } from './components/WalletButton';
 import { WalletPanel } from './components/WalletPanel';
 
-type View = 'market' | 'wallet' | 'covenant';
-const NAV: { id: View; label: string; icon: string }[] = [
-  { id: 'market', label: 'Market', icon: 'M3 17l6-6 4 4 8-8M15 7h6v6' },
-  { id: 'wallet', label: 'Wallet', icon: 'M3 7h18v12H3zM3 7l3-3h12l3 3M16 13h2' },
-];
-/** The covenant (Liquid) DEX stays reachable, but it is not the main product of this page. */
-const MORE: (typeof NAV)[number] = { id: 'covenant', label: 'Covenant DEX', icon: 'M12 3l9 5-9 5-9-5 9-5zM3 13l9 5 9-5' };
-const TITLES: Record<View, string> = { market: 'Market', wallet: 'Wallet', covenant: 'Covenant DEX' };
-
-export function App() {
-  return (
-    <WebRgbProvider>
-      <SwapsProvider>
-        <Shell />
-      </SwapsProvider>
-    </WebRgbProvider>
-  );
+const CovenantWorkspace = lazy(() => import('./components/CovenantWorkspace'));
+const LAB_ENABLED = import.meta.env.VITE_ENABLE_COVENANT_LAB === 'true';
+const NAV = [
+  { id: 'trade', label: 'Trade', glyph: '↗' },
+  { id: 'activity', label: 'Activity', glyph: '≋' },
+  { id: 'wallet', label: 'Wallet', glyph: '◫' },
+  { id: 'learn', label: 'How it works', glyph: '?' },
+  { id: 'labs', label: 'Labs', glyph: '◇' },
+] as const;
+type View = typeof NAV[number]['id'];
+function readView(): View {
+  const hash = window.location.hash.slice(1);
+  return NAV.some(n => n.id === hash) ? hash as View : 'trade';
 }
-
+export function App() {
+  return <WebRgbProvider><SwapsProvider><Shell /></SwapsProvider></WebRgbProvider>;
+}
 function Shell() {
-  const [view, setView] = useState<View>('market');
+  const [view, setView] = useState<View>(readView);
   const book = useRgbP2pBook();
+  useEffect(() => {
+    const update = () => setView(readView());
+    window.addEventListener('hashchange', update);
+    return () => window.removeEventListener('hashchange', update);
+  }, []);
   const live = book.status === 'open';
-
   return (
-    <div className="flex min-h-screen">
-      <a href="#main" className="sr-only z-[60] rounded-lg bg-surface-overlay px-3 py-2 text-caption font-semibold focus:not-sr-only focus:fixed focus:left-3 focus:top-3">Skip to content</a>
-      <aside className="sticky top-0 hidden h-screen w-56 shrink-0 flex-col border-r border-border-subtle bg-surface-base p-4 md:flex">
+    <div className="mosaik-shell">
+      <a href="#main" className="skip-link" onClick={event => { event.preventDefault(); document.getElementById("main")?.focus(); }}>Skip to content</a>
+      <aside className="mosaik-sidebar">
         <Brand />
-        <nav className="mt-8 flex flex-col gap-1" aria-label="Main">
-          {NAV.map((n) => (
-            <NavButton key={n.id} item={n} active={view === n.id} onClick={() => setView(n.id)} />
-          ))}
+        <div className="sidebar-caption">YOUR MARKETPLACE</div>
+        <nav aria-label="Main navigation" className="mosaik-nav">
+          {NAV.map(n => <a key={n.id} href={`#${n.id}`} aria-current={view === n.id ? 'page' : undefined} className={view === n.id ? 'nav-item is-active' : 'nav-item'}><span aria-hidden="true">{n.glyph}</span>{n.label}{n.id === 'labs' && <small>R&D</small>}</a>)}
         </nav>
-        <div className="mt-auto flex flex-col gap-3">
-          <div className="border-t border-border-subtle pt-3">
-            <div className="px-3 pb-1 text-xxs uppercase tracking-[0.18em] text-content-tertiary">Experimental</div>
-            <NavButton item={MORE} active={view === MORE.id} onClick={() => setView(MORE.id)} muted />
-          </div>
-        </div>
-        <div className="mt-3 text-[11px] text-content-tertiary">
-          <a className="hover:text-primary" href="https://github.com/kaleidoswap/mosaik" target="_blank" rel="noreferrer">Mosaik</a> · KaleidoSwap
+        <div className="sidebar-bottom">
+          <div className="maker-note"><span className="eyebrow">MAKE THE MARKET</span><h3>Have an offer?</h3><p>Publish it from the KaleidoSwap desktop app. Keep your maker online to complete trades.</p><a href="#learn">Explore maker & taker roles <span aria-hidden="true">↗</span></a></div>
+          <div className="family-signature"><img src={kaleidoMark} alt="" />Part of KaleidoSwap</div>
         </div>
       </aside>
-
-      <div className="flex min-w-0 flex-1 flex-col">
-        <header className="sticky top-0 z-10 flex items-center gap-3 border-b border-border-subtle bg-surface-base/90 px-4 py-3 backdrop-blur md:px-6">
-          <div className="md:hidden"><Brand compact /></div>
-          <h1 className="hidden text-base font-semibold md:block">{TITLES[view]}</h1>
-          <div className="ml-auto flex items-center gap-3">
-            <span className="inline-flex items-center gap-1.5 rounded-full bg-surface-card/5 px-2.5 py-1 text-tiny text-content-secondary" title={book.error ?? 'Order book relay'}>
-              <span className={clsx('h-1.5 w-1.5 rounded-full', live ? 'bg-status-success' : book.status === 'connecting' ? 'animate-pulse bg-status-warning' : 'bg-status-danger')} />
-              {live ? 'relay live' : book.status}
-            </span>
-            <WalletButton />
-          </div>
+      <div className="mosaik-main">
+        <header className="mosaik-topbar">
+          <div className="mobile-brand"><Brand /></div>
+          <div className="network-label"><span className="network-dot" />Signet <span className="preview-label">PRIVATE PREVIEW</span></div>
+          <div className="topbar-actions"><span className={`connection-label ${live ? 'is-live' : ''}`} title={book.error ?? 'Connection to the order discovery relay'}><span />{live ? 'Market connected' : book.status === 'connecting' ? 'Connecting…' : 'Reconnecting…'}</span><WalletButton /></div>
         </header>
-
-        <nav className="flex gap-1 overflow-x-auto border-b border-border-subtle px-4 py-2 md:hidden" aria-label="Main">
-          {[...NAV, MORE].map((n) => (
-            <NavButton key={n.id} item={n} active={view === n.id} onClick={() => setView(n.id)} compact />
-          ))}
-        </nav>
-
-        <main id="main" tabIndex={-1} className="flex-1 p-4 outline-none md:p-6">
-          {view === 'market' && <Market book={book} />}
-          {view === 'wallet' && <WalletPanel />}
-          {view === 'covenant' && <CovenantView />}
+        <nav className="mobile-nav" aria-label="Mobile navigation">{NAV.map(n => <a key={n.id} href={`#${n.id}`} aria-current={view === n.id ? 'page' : undefined}>{n.label}</a>)}</nav>
+        <main id="main" tabIndex={-1} className="mosaik-content">
+          {view === 'trade' && <><div className="page-heading"><div><span className="eyebrow">RGB × BITCOIN</span><h1>Your keys. Your market.</h1><p>Buy and sell RGB assets directly with other traders. Your wallet approves every trade.</p></div><a className="text-link" href="#learn">New to Mosaik? Start here ↗</a></div><div className="preview-notice"><span aria-hidden="true">◈</span><p><strong>A place to try, with test coins.</strong> This preview runs on Signet (Mutinynet). Assets and BTC here are for testing.</p></div><Market book={book} /></>}
+          {view === 'activity' && <><PageHeading eyebrow="YOUR TRADING HISTORY" title="Follow every trade." text="See what is waiting for approval, in progress or completed. Your wallet continues the swap if you close this page." /><Activity /></>}
+          {view === 'wallet' && <><PageHeading eyebrow="SELF-CUSTODY" title="Your wallet, connected." text="Mosaik reads the balances you share. Keys, approvals and signing stay in your browser extension." /><WalletPanel /></>}
+          {view === 'learn' && <Learn />}
+          {view === 'labs' && <Labs />}
+          <footer className="mosaik-footer"><span>Mosaik · Peer-to-peer RGB trading</span><div><a href="#learn">How it works</a><a href="#labs">Research & Labs</a><span>Signet only</span></div></footer>
         </main>
       </div>
     </div>
   );
 }
-
-function Brand({ compact }: { compact?: boolean }) {
-  return (
-    <div className="flex items-center gap-2.5">
-      <svg width="28" height="28" viewBox="0 0 28 28" aria-hidden>
-        <rect x="2" y="2" width="11" height="11" rx="3" fill="#8FD5EA" />
-        <rect x="15" y="2" width="11" height="11" rx="3" fill="#9365FF" />
-        <rect x="2" y="15" width="11" height="11" rx="3" fill="#9365FF" />
-        <rect x="15" y="15" width="11" height="11" rx="3" fill="#15E99A" />
-      </svg>
-      {!compact && <span className="text-lg font-semibold tracking-tight">Mosaik</span>}
-    </div>
-  );
+function Brand() {
+  return <a href="#trade" className="mosaik-brand" aria-label="Mosaik home"><span className="mosaik-symbol" aria-hidden="true"><i /><i /><i /><i /></span><span>Mosaik<small>BY KALEIDOSWAP</small></span></a>;
 }
-
-function NavButton({ item, active, onClick, compact, muted }: { item: (typeof NAV)[number]; active: boolean; onClick: () => void; compact?: boolean; muted?: boolean }) {
-  return (
-    <button
-      className={clsx(
-        'flex items-center gap-3 rounded-xl px-3 py-2 text-sm transition',
-        compact && 'shrink-0',
-        active ? 'bg-surface-elevated text-content-primary' : clsx('hover:bg-surface-raised hover:text-content-primary', muted ? 'text-content-tertiary' : 'text-content-secondary'),
-      )}
-      aria-current={active ? 'page' : undefined}
-      onClick={onClick}
-      type="button"
-    >
-      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-        <path d={item.icon} />
-      </svg>
-      {item.label}
-    </button>
-  );
+function PageHeading({ eyebrow, title, text }: { eyebrow: string; title: string; text: string }) {
+  return <div className="page-heading"><div><span className="eyebrow">{eyebrow}</span><h1>{title}</h1><p>{text}</p></div></div>;
 }
-
-function CovenantView() {
-  const [backend, setBackend] = useState<Backend>('liquid');
-  const [activeMaker, setActiveMaker] = useState('user');
-  const state = useApiState();
-  const relay = useRelayFeed();
-  return (
-    <div className="-mx-4 -my-4 flex flex-col md:-mx-6 md:-my-6">
-      <Header
-        blockCount={state.data?.block_count}
-        backend={backend}
-        onBackendChange={setBackend}
-        makers={state.data?.makers ?? []}
-        activeMaker={activeMaker}
-        onMakerChange={setActiveMaker}
-        wallet={state.data?.wallets?.[activeMaker]}
-        relay={{ status: relay.status, url: relay.url, count: relay.events.length }}
-      />
-      {state.isLoading && <StatusBar>Loading mosaik-api…</StatusBar>}
-      {state.error && (
-        <StatusBar variant="error">mosaik-api unreachable: {(state.error as Error).message}</StatusBar>
-      )}
-      <div className="grid grid-cols-12 gap-4 p-4 md:p-6">
-        <div className="col-span-12 flex min-h-0 flex-col gap-4 lg:col-span-8">
-          <OrderBook offers={state.data?.offers ?? []} backend={backend} activeTaker={activeMaker} />
-          <TradeTape trades={state.data?.trades ?? []} />
-        </div>
-        <div className="col-span-12 flex min-h-0 flex-col gap-4 lg:col-span-4">
-          <MakeOfferForm backend={backend} assets={state.data?.assets ?? []} activeMaker={activeMaker} />
-          <SwapBoard />
-          <RelayFeed events={relay.events} />
-        </div>
-      </div>
-    </div>
-  );
+function Activity() {
+  const [record, setRecord] = useState<SwapRecord>();
+  return <><MySwaps onOpen={setRecord} />{record && <TakeModal order={record.order} swapId={record.swapId} onClose={() => setRecord(undefined)} />}<p className="helper-copy">This browser remembers the trades started here. Reconnect the same wallet to refresh their status.</p></>;
 }
-
-function StatusBar({
-  variant = 'info',
-  children,
-}: {
-  variant?: 'info' | 'error';
-  children: React.ReactNode;
-}) {
-  const cls =
-    variant === 'error'
-      ? 'border-mosaic-rose/30 bg-mosaic-rose/10 text-mosaic-rose'
-      : 'border-mosaic-cyan/30 bg-mosaic-cyan/10 text-mosaic-cyan';
-  return (
-    <div className={`border-b px-6 py-2 text-xs font-mono ${cls}`}>{children}</div>
-  );
+function Learn() {
+  return <>
+    <PageHeading eyebrow="A CLEAR PATH FROM OFFER TO OWNERSHIP" title="Trade directly. Stay in control." text="Mosaik brings offers together. The KaleidoSwap extension handles your wallet and the trade, while the maker runs the other side." />
+    <div className="learn-grid">{[
+      ['01', 'Connect your wallet', 'Install the KaleidoSwap extension, unlock it and select the RGB wallet on Mutinynet. Only approve connections to sites you recognise.'],
+      ['02', 'Choose an offer', 'Compare the available buyers and sellers. Each offer has a fixed quantity and an expiry. You take the whole offer, not part of it.'],
+      ['03', 'Review, then approve', 'Check the asset ID, quantity, fees and final total. Approval happens in your extension; connecting a wallet does not approve a trade.'],
+      ['04', 'Follow the result', 'Watch the trade in Activity. The maker must stay online. If something interrupts the flow, reopen the trade and follow the recovery instructions.'],
+    ].map(([step,title,text]) => <Card key={step} className="guide-card"><CardContent><span className="step-number">{step}</span><h2>{title}</h2><p>{text}</p></CardContent></Card>)}</div>
+    <div className="learn-details"><Card><CardContent><span className="eyebrow">TWO SIDES, ONE TRADE</span><h2>Take an offer here. Make one on desktop.</h2><p>The browser market lets you accept an existing offer. To create an offer, use the desktop app or p2pd, fund your Signet wallet and keep the maker running until your trade finishes.</p><Button variant="cta" onClick={() => { window.location.hash = 'trade'; }}>Explore the market</Button></CardContent></Card><Card><CardContent><span className="eyebrow">BEFORE YOUR FIRST TRADE</span><h2>Know what you are trading.</h2><ul className="explain-list"><li>Tickers are names, not identities. Check the asset ID and verification label.</li><li>Keep enough test BTC for fees and the RGB output. The review shows the full cost.</li><li>Prices and activity reported by makers are not independently verified market statistics.</li><li>Need a free RGB coin? Prepare one in the extension before taking an offer.</li></ul></CardContent></Card></div>
+    <Card className="product-note"><CardContent><span className="eyebrow">ONE FAMILY, DIFFERENT JOBS</span><h2>Mosaik trades. KaleidoSwap routes.</h2><p>Mosaik is an order-book market where you choose another trader’s offer. The KaleidoSwap web app guides you through quoted swap routes. Covenant research lives separately in Labs, with different networks and settlement rules.</p></CardContent></Card>
+  </>;
+}
+function Labs() {
+  const [open, setOpen] = useState(false);
+  return <><PageHeading eyebrow="KALEIDOSWAP LABS" title="Ideas for the next market." text="Research belongs in its own space. These experiments are separate from the Signet RGB market and are not part of this trading beta." />
+    <Card className="lab-card"><CardContent><div className="lab-symbol" aria-hidden="true">◇</div><span className="eyebrow">RESEARCH · LIQUID / SIMPLICITY</span><h2>Covenant DEX / Tessera</h2><p>An offer whose settlement rules are enforced by a covenant. This explores a different model from the interactive maker-and-wallet flow used by Mosaik’s RGB market.</p><div className="lab-state">Roadmap to be defined</div><p className="helper-copy">Separate wallet requirements, backend and network. No Covenant trading is enabled in this preview.</p>{LAB_ENABLED && <Button variant="secondary" onClick={() => setOpen(!open)}>{open ? 'Close research workspace' : 'Open research workspace'}</Button>}</CardContent></Card>
+    {LAB_ENABLED && open && <Suspense fallback={<p>Loading research workspace…</p>}><CovenantWorkspace /></Suspense>}
+  </>;
 }

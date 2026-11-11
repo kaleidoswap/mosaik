@@ -1,5 +1,25 @@
 # Mosaik
 
+**A peer-to-peer RGB market, with Covenant research in Labs.**
+
+The Signet preview lets takers discover offers and approve trades with the
+KaleidoSwap browser extension. Makers publish offers from the desktop app or
+p2pd and must remain online. The preview uses Mutinynet test coins only.
+
+The web app includes Trade, Activity, Wallet, a first-trade guide and Labs,
+using Kaleido UI components and design tokens. Covenant trading is disabled
+by default and does not require a backend for the RGB market.
+
+See [the private preview runbook](webapp/deploy/SIGNET-PREVIEW.md) for checks,
+Cloudflare Access requirements and deployment. This branch does not open a
+public beta or distribute desktop installers.
+
+## Covenant / Tessera research (Labs)
+
+The following describes the separate Liquid / Simplicity experiment, **not**
+the Signet RGB settlement protocol. Its product roadmap is to be defined.
+
+
 **A DEX on Liquid where every order is a Tessera — a self-enforcing covenant.**
 
 Mosaik is a trustless, permissionless asset exchange on the

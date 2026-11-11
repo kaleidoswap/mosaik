@@ -1,0 +1,24 @@
+name: Signet preview checks
+on:
+  push:
+    branches: [codex/mosaik-signet-preview]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  webapp:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: webapp
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: webapp/package-lock.json
+      - run: npm ci
+      - run: npm audit --audit-level=moderate
+      - run: npm test
+      - run: npm run build -- --mode signet

@@ -19,6 +19,16 @@ export interface WalletBalance {
   total: number;
   freeColorableUtxos: number | null;
 }
+
+export function toBalance(bal: { vanilla: { spendable: number; settled: number; future: number }; freeColorableUtxos: number | null }): WalletBalance {
+  return {
+    // P2P inputs require a confirmation; pending change cannot fund a swap yet.
+    spendable: Math.min(bal.vanilla.spendable, bal.vanilla.settled),
+    // rgb-lib's future balance already includes settled coins.
+    total: bal.vanilla.future,
+    freeColorableUtxos: bal.freeColorableUtxos,
+  };
+}
 export type WalletStatus = 'absent' | 'ready' | 'connecting' | 'connected';
 
 interface WalletApi {
@@ -127,11 +137,7 @@ export function WebRgbProvider({ children }: { children: ReactNode }) {
       setNetwork(p2pNet);
       setWalletLabel(info?.network);
       if (bal) {
-        setBalance({
-          spendable: bal.vanilla.spendable,
-          total: bal.vanilla.settled + bal.vanilla.future,
-          freeColorableUtxos: bal.freeColorableUtxos,
-        });
+        setBalance(toBalance(bal));
       }
       setAssets((list ?? []).map(toAsset).filter((a): a is WalletAsset => !!a));
     } catch (e) {

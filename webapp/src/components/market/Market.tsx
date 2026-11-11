@@ -27,7 +27,8 @@ export function Market({ book }: { book: RgbBookState }) {
   const [target, setTarget] = useState<{ order: OrderSnapshot; swapId?: string }>();
   const nowSec = Math.floor(Date.now() / 1000);
 
-  const networks = useMemo(() => [...new Set(book.offers.map((o) => o.network))].sort(), [book.offers]);
+  const betaNetwork = import.meta.env.VITE_MARKET_NETWORK ?? 'signetcustom';
+  const networks = useMemo(() => [betaNetwork], [betaNetwork]);
   const shown = network && networks.includes(network) ? network : wallet.network && networks.includes(wallet.network) ? wallet.network : networks[0];
   const onNetwork = useMemo(() => book.offers.filter((o) => o.network === shown), [book.offers, shown]);
   const markets = useMemo(() => marketsOf(onNetwork), [onNetwork]);
@@ -57,8 +58,11 @@ export function Market({ book }: { book: RgbBookState }) {
       <WalletNotices shown={shown} />
 
       {markets.length === 0 ? (
-        <section className="rounded-2xl bg-surface-card/[0.04] p-10 text-center text-caption text-content-tertiary">
-          {book.status === 'connecting' ? 'Connecting to the relay…' : 'No open orders on this network right now.'}
+        <section className="empty-market" aria-live="polite">
+          <span className="eyebrow">SIGNET ORDER BOOK</span>
+          <h2>{book.status === 'connecting' ? 'Finding the market…' : 'The next trade starts with an offer.'}</h2>
+          <p>{book.status === 'connecting' ? 'Connecting to the relay to discover available orders.' : 'There are no active offers on this network right now. New offers appear here automatically. Makers can publish an offer from the desktop app.'}</p>
+          <a href="#learn">Learn how to make or take an offer ↗</a>
         </section>
       ) : (
         <>
