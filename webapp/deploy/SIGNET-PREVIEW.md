@@ -53,9 +53,20 @@ separate from deploying this restricted preview. Before launch: fresh hosted
 E2E, wallet permission/recovery checks, maker availability, error telemetry
 without wallet secrets, support documentation and an explicit tester rollout.
 
-## Current provisioning blocker
+## Deployed private preview (11 November 2026)
 
-Existing Wrangler OAuth can manage Pages but Access application creation returns
-HTTP 403. A Cloudflare account token needs Access Apps and Policies Edit and
-Access Organizations, Identity Providers and Groups Edit. Store credentials
-outside this repository; do not put them in Vite environment variables.
+- Stable preview: https://private.mosaik-signet-preview.pages.dev
+- Deployment: https://f66c2b2d.mosaik-signet-preview.pages.dev
+- Access application: `1fabf069-c5e7-494b-be5b-724a078fd430`.
+- Email OTP only, allow `waltermaffy@gmail.com`, 12-hour sessions.
+- Root, wildcard aliases and direct deployment URL are covered. Anonymous
+  requests to both the document and JavaScript assets redirect to Access.
+- Production branch `main` is undeployed. Only the `private` branch has Mosaik.
+- Account ID is supplied through `CLOUDFLARE_ACCOUNT_ID`, not the Pages config.
+
+Create the empty Pages project before the Access application: Cloudflare must
+recognise ownership of its pages.dev hostname. Verify protection with a blank
+placeholder deployment before uploading the app. Tokens stay outside the repo.
+
+Owner login and hosted wallet integration are separate verification gates;
+local wallet E2E results do not substitute for a hosted-origin test.
