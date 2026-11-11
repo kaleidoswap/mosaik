@@ -44,9 +44,9 @@ export function Market({ book }: { book: RgbBookState }) {
   const fills = useMemo(() => marketFills(book.fills, market?.assetId, shown), [book.fills, market?.assetId, shown]);
   const stats = useMemo(() => marketStats(fills, nowSec), [fills, nowSec]);
   const lastFill = useMemo(() => {
-    const r = swaps.swaps.filter((s) => s.state === 'settled' && s.order.assetId === market?.assetId).sort((a, b) => b.updatedAt - a.updatedAt)[0];
+    const r = swaps.swaps.filter((s) => s.state === 'settled' && s.order.network === shown && s.order.assetId === market?.assetId).sort((a, b) => b.updatedAt - a.updatedAt)[0];
     return r ? r.order.priceSat / (r.order.amount / 10 ** r.order.precision) : undefined;
-  }, [swaps.swaps, market?.assetId]);
+  }, [swaps.swaps, market?.assetId, shown]);
 
   const connected = wallet.status === 'connected';
   const take = (o: RgbOffer) => setTarget({ order: snapshotOf(o) });
@@ -54,7 +54,7 @@ export function Market({ book }: { book: RgbBookState }) {
 
   return (
     <div className="flex flex-col gap-4">
-      {book.error && <Notice tone="danger">Relay: {book.error}</Notice>}
+      {book.error && <Notice tone="warning">We cannot refresh offers right now. Mosaik will reconnect automatically. Check your connection if this continues.</Notice>}
       <WalletNotices shown={shown} />
 
       {markets.length === 0 ? (

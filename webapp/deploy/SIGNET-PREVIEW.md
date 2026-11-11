@@ -56,7 +56,7 @@ without wallet secrets, support documentation and an explicit tester rollout.
 ## Deployed private preview (11 November 2026)
 
 - Stable preview: https://private.mosaik-signet-preview.pages.dev
-- Deployment: https://f66c2b2d.mosaik-signet-preview.pages.dev
+- Initial deployment: https://f66c2b2d.mosaik-signet-preview.pages.dev
 - Access application: `1fabf069-c5e7-494b-be5b-724a078fd430`.
 - Email OTP only, allow `waltermaffy@gmail.com`, 12-hour sessions.
 - Root, wildcard aliases and direct deployment URL are covered. Anonymous
