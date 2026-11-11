@@ -478,15 +478,15 @@ function DoneView({ record }: { record: SwapRecord }) {
       </div>
       {record.txid && <TxLink txid={record.txid} />}
       <dl className="rounded-2xl border border-border-subtle px-4 py-2 divide-y divide-border-subtle">
-        <Row label="BTC available for swaps" hint="Confirmed normal BTC outputs; excludes BTC held in RGB outputs">
+        <Row label="BTC available for swaps" hint="Confirmed BTC eligible for swaps, including reusable empty RGB outputs when supported by your wallet">
           {satNow !== undefined ? sat(satNow) : '—'}
         </Row>
-        {wallet.balance?.rgbReserved !== undefined && <Row label="BTC in RGB outputs">{sat(wallet.balance.rgbReserved)}</Row>}
+        {wallet.balance?.rgbReserved !== undefined && <Row label="BTC held in RGB outputs (overlaps)">{sat(wallet.balance.rgbReserved)}</Row>}
         <Row label={`${ticker} balance`}>
           {assetNow !== undefined ? <>{fmtUnits(assetNow, o.precision)}{delta(assetNow, record.before?.asset, (n) => fmtUnits(n, o.precision))}</> : '—'}
         </Row>
       </dl>
-      <p className="text-tiny text-content-tertiary">BTC can move between normal and RGB outputs during a swap. A lower available balance is not the trade cost or a loss: BTC in RGB outputs remains in your wallet. Balances may take a moment to update.</p>
+      <p className="text-tiny text-content-tertiary">Available BTC may include empty RGB outputs. Do not add these two figures: RGB-held BTC can overlap available funding. Outputs with assets or pending receives stay protected; two empty outputs are kept for RGB. Balances may take a moment to update.</p>
     </div>
   );
 }

@@ -106,6 +106,9 @@ const CATALOGUE: Record<string, Omit<Failure, 'code' | 'detail'>> = {
 };
 
 export function failure(code: string, message?: string): Failure {
+  if (code === 'order_gone' && /already (has a swap|being taken)/i.test(message ?? '')) {
+    return { code, title: 'This order is already in progress', reason: 'Your wallet already has this swap, possibly from another tab.', todo: 'Follow the existing operation in My swaps or Activity. Do not start a replacement while its outcome is pending.', retry: false, detail: message };
+  }
   const base = CATALOGUE[code] ?? CATALOGUE.internal!;
   return { code, ...base, detail: message?.trim() || undefined };
 }
