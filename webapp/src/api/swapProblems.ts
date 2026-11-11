@@ -81,9 +81,9 @@ const CATALOGUE: Record<string, Omit<Failure, 'code' | 'detail'>> = {
   },
   expired: {
     title: 'The maker did not answer in time',
-    reason: 'The wallet waited for two minutes and withdrew the request.',
-    todo: 'Nothing was spent. The maker is probably offline: try again later or take another order.',
-    retry: true,
+    reason: 'The response deadline or order expiry was reached before your wallet signed.',
+    todo: 'Nothing was spent. Choose another order, or wait for the maker to post a fresh one.',
+    retry: false,
   },
   locked: {
     title: 'Your wallet is locked',
@@ -108,6 +108,9 @@ const CATALOGUE: Record<string, Omit<Failure, 'code' | 'detail'>> = {
 export function failure(code: string, message?: string): Failure {
   if (code === 'order_gone' && /already (has a swap|being taken)/i.test(message ?? '')) {
     return { code, title: 'This order is already in progress', reason: 'Your wallet already has this swap, possibly from another tab.', todo: 'Follow the existing operation in My swaps or Activity. Do not start a replacement while its outcome is pending.', retry: false, detail: message };
+  }
+  if (code === 'order_gone' && /already tried this order/i.test(message ?? '')) {
+    return { code, title: 'Choose a fresh order', reason: 'Your wallet already closed an unsuccessful attempt on this order.', todo: 'Pick another order or wait for the maker to post a new one.', retry: false, detail: message };
   }
   const base = CATALOGUE[code] ?? CATALOGUE.internal!;
   return { code, ...base, detail: message?.trim() || undefined };
