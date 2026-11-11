@@ -17,15 +17,17 @@ export interface WalletAsset {
 export interface WalletBalance {
   spendable: number;
   total: number;
+  rgbReserved?: number;
   freeColorableUtxos: number | null;
 }
 
-export function toBalance(bal: { vanilla: { spendable: number; settled: number; future: number }; freeColorableUtxos: number | null }): WalletBalance {
+export function toBalance(bal: { vanilla: { spendable: number; settled: number; future: number }; colored?: { settled: number }; freeColorableUtxos: number | null }): WalletBalance {
   return {
     // P2P inputs require a confirmation; pending change cannot fund a swap yet.
     spendable: Math.min(bal.vanilla.spendable, bal.vanilla.settled),
     // rgb-lib's future balance already includes settled coins.
     total: bal.vanilla.future,
+    ...(bal.colored ? { rgbReserved: bal.colored.settled } : {}),
     freeColorableUtxos: bal.freeColorableUtxos,
   };
 }
@@ -50,7 +52,7 @@ interface WalletApi {
 
 type Provider = RgbTakerProvider & {
   getInfo?: () => Promise<{ network?: string }>;
-  getBtcBalance?: () => Promise<{ vanilla: { spendable: number; future: number; settled: number }; freeColorableUtxos: number | null }>;
+  getBtcBalance?: () => Promise<{ colored?: { settled: number }; vanilla: { spendable: number; future: number; settled: number }; freeColorableUtxos: number | null }>;
   listAssets?: () => Promise<unknown[]>;
 };
 

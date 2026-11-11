@@ -96,7 +96,7 @@ export function Ticket({ ticker, precision, asks, bids, nowSec, onTake }: Props)
         </div>
         {connected ? (
           <dl className="grid grid-cols-2 gap-y-1 text-caption">
-            <dt className="text-content-secondary">BTC</dt><dd className="text-right tabular-nums">{w.balance ? `${w.balance.spendable.toLocaleString()} sat` : '—'}</dd>
+            <dt className="text-content-secondary">BTC for swaps</dt><dd className="text-right tabular-nums">{w.balance ? `${w.balance.spendable.toLocaleString()} sat` : '—'}</dd>
             <dt className="text-content-secondary">{ticker}</dt><dd className="text-right tabular-nums">{held !== undefined ? fmtUnits(held, precision) : '0'}</dd>
             <dt className="text-content-secondary">Free RGB coins</dt><dd className={clsx('text-right tabular-nums', w.balance?.freeColorableUtxos === 0 && 'text-status-warning')}>{w.balance?.freeColorableUtxos ?? '—'}</dd>
           </dl>
