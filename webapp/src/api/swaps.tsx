@@ -120,6 +120,9 @@ export function SwapsProvider({ children }: { children: ReactNode }) {
   const wallet = useWebRgb();
   const [swaps, setSwaps] = useState<SwapRecord[]>(load);
   const subs = useRef(new Map<string, () => void>());
+  const starting = useRef(new Map<string, Promise<SwapRecord>>());
+  const currentSwaps = useRef(swaps);
+  currentSwaps.current = swaps;
   const provider = wallet.provider;
   const refresh = wallet.refresh;
   const connected = wallet.status === 'connected';
@@ -203,6 +206,13 @@ export function SwapsProvider({ children }: { children: ReactNode }) {
 
   const start = useCallback(
     async (order: OrderSnapshot): Promise<SwapRecord> => {
+      const key = `${order.maker}:${order.orderId}`;
+      const pending = starting.current.get(key);
+      if (pending) return pending;
+      const existing = currentSwaps.current.find((r) => r.order.maker === order.maker && r.order.orderId === order.orderId && (!isTerminal(r.state) || r.state === 'settled'));
+      if (existing) return existing;
+      if (order.expiry <= Date.now() / 1000) throw new Error('expired: This offer has expired. Choose a current offer.');
+      const work = (async () => {
       const p2p = provider?.p2pSwap;
       if (!provider || !p2p) throw new Error('The KaleidoSwap extension is needed to take an order');
       await provider.enable?.();
@@ -216,6 +226,10 @@ export function SwapsProvider({ children }: { children: ReactNode }) {
       const rec: SwapRecord = { swapId, order, startedAt: now, updatedAt: now, state: 'awaiting_maker', before };
       setSwaps((prev) => [rec, ...prev.filter((r) => r.swapId !== swapId)].slice(0, MAX));
       return rec;
+      })();
+      starting.current.set(key, work);
+      try { return await work; }
+      finally { starting.current.delete(key); }
     },
     [provider],
   );

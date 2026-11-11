@@ -191,7 +191,7 @@ export function TakeModal({ order, swapId: existing, onClose }: { order: OrderSn
             </div>
             <h2 id={titleId} data-autofocus tabIndex={-1} className="mt-0.5 text-title font-bold outline-none">{title}</h2>
           </div>
-          <button type="button" onClick={requestClose} className="rounded-lg p-1.5 text-content-secondary hover:bg-surface-elevated hover:text-content-primary" aria-label={running ? 'Close window (the swap keeps running)' : view === 'approve' ? 'Cancel and go back' : 'Close'}>
+          <button type="button" onClick={requestClose} className="rounded-lg p-1.5 text-content-secondary hover:bg-surface-elevated hover:text-content-primary" aria-label={running ? 'Close window (the swap keeps running)' : view === 'approve' ? 'Back to review' : 'Close'}>
             <Icon name="x" size={18} />
           </button>
         </header>
@@ -229,7 +229,7 @@ export function TakeModal({ order, swapId: existing, onClose }: { order: OrderSn
               </>
             )}
             {view === 'approve' && (
-              <button type="button" className={btnSecondary} onClick={cancelApproval}>Cancel and go back</button>
+              <button type="button" className={btnSecondary} onClick={cancelApproval}>Back to review</button>
             )}
             {running && <button type="button" className={btnSecondary} onClick={onClose}>Close window</button>}
             {state === 'settled' && <button type="button" className={btnPrimary} onClick={onClose}>Done</button>}
@@ -398,7 +398,7 @@ function ProgressView({ record, order, now }: { record?: SwapRecord; order: Orde
             <div className="mt-4 flex items-baseline justify-between text-caption tabular-nums">
               <span className="text-content-secondary">Waiting <strong className="font-mono text-content-primary">{fmtClock(elapsed)}</strong></span>
               <span className={clsx(left > 20 ? 'text-content-secondary' : 'text-status-warning')}>
-                {left > 0 ? `gives up in ${fmtClock(left)}` : 'limit reached, the wallet is withdrawing the request'}
+                {left > 0 ? `gives up in ${fmtClock(left)}` : 'limit reached; waiting for the wallet to confirm the outcome'}
               </span>
             </div>
             <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-surface-high" role="progressbar" aria-valuemin={0} aria-valuemax={MAKER_WAIT_SECONDS} aria-valuenow={Math.min(MAKER_WAIT_SECONDS, Math.floor(elapsed))} aria-label="Time waiting for the maker">
@@ -414,8 +414,8 @@ function ProgressView({ record, order, now }: { record?: SwapRecord; order: Orde
         <div className="flex items-center gap-3 rounded-2xl border border-border-subtle bg-surface-card/5 p-4">
           <Spinner size={22} className="text-primary" />
           <div>
-            <p className="text-body font-medium">The maker answered. Your wallet is checking and signing.</p>
-            <p className="text-caption text-content-secondary">It compares the maker’s proposal with the terms you approved, and refuses anything different.</p>
+            <p className="text-body font-medium">The maker answered. Your wallet is signing or waiting for the broadcast.</p>
+            <p className="text-caption text-content-secondary">If the connection drops after signing, the swap may still complete. Reconnect and reopen this swap; do not start another one to replace it.</p>
           </div>
         </div>
       )}
