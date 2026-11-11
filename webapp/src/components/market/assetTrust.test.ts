@@ -28,3 +28,9 @@ describe('assetTrust', () => {
     expect(t.level).toBe('unlisted');
   });
 });
+
+it('does not report an unavailable registry as unlisted', () => {
+  const t = assetTrust({assetId: A, ticker: 'TUSD'}, [], undefined);
+  expect(t.level).toBe('unknown');
+  expect(t.notes.join(' ')).toContain('unavailable');
+});

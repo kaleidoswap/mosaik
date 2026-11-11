@@ -1,4 +1,5 @@
 /** The order book as a DEX shows it: one market per asset, asks and bids sorted, depth running outward. */
+import type { CatalogAsset } from '../../api/catalog';
 import { unitPriceSat, type RgbOffer } from '../../api/rgbp2p';
 
 export interface Market {
@@ -23,8 +24,9 @@ export interface Level {
 const unitsOf = (o: RgbOffer) => o.amount / 10 ** o.precision;
 
 /** The assets with orders on a network, busiest first. */
-export function marketsOf(offers: RgbOffer[]): Market[] {
+export function marketsOf(offers: RgbOffer[], catalog: CatalogAsset[] = []): Market[] {
   const m = new Map<string, Market>();
+  for (const a of catalog) m.set(a.contractId, { assetId: a.contractId, ticker: a.ticker, name: a.name, precision: a.precision, asks: 0, bids: 0 });
   for (const o of offers) {
     const cur = m.get(o.assetId) ?? { assetId: o.assetId, ticker: o.ticker, name: o.name, precision: o.precision, asks: 0, bids: 0 };
     cur.ticker ??= o.ticker;

@@ -7,7 +7,7 @@ import type { RgbOffer } from '../../api/rgbp2p';
 import type { Listed } from '../../api/registry';
 import { mixesScripts, tickerSkeleton } from '../../lib/text';
 
-export type TrustLevel = 'listed' | 'unlisted' | 'caution' | 'warning';
+export type TrustLevel = 'unknown' | 'listed' | 'unlisted' | 'caution' | 'warning';
 
 export interface AssetTrust {
   level: TrustLevel;
@@ -23,7 +23,7 @@ export function assetTrust(offer: Pick<RgbOffer, 'assetId' | 'ticker'>, offers: 
   const notes: string[] = [];
   const listed = list?.find((l) => l.contractId === offer.assetId);
   const claimed = offer.ticker;
-  let level: TrustLevel = listed ? 'listed' : 'unlisted';
+  let level: TrustLevel = listed ? 'listed' : list === undefined ? 'unknown' : 'unlisted';
   let indexTicker: string | undefined;
 
   if (listed && claimed && listed.ticker && tickerSkeleton(listed.ticker) !== tickerSkeleton(claimed)) {
@@ -46,6 +46,7 @@ export function assetTrust(offer: Pick<RgbOffer, 'assetId' | 'ticker'>, offers: 
       level = 'warning';
     }
   }
+  if (level === 'unknown') notes.push('Registry status unavailable. This does not mean the asset is unlisted.');
   if (!listed && level === 'unlisted') notes.push('Not listed in the RGBMap index.');
   return { level, notes, indexTicker, lookalikes: [...lookalikes] };
 }

@@ -46,7 +46,7 @@ function Shell() {
           {NAV.map(n => <a key={n.id} href={`#${n.id}`} aria-current={view === n.id ? 'page' : undefined} className={view === n.id ? 'nav-item is-active' : 'nav-item'}><span aria-hidden="true">{n.glyph}</span>{n.label}{n.id === 'labs' && <small>R&D</small>}</a>)}
         </nav>
         <div className="sidebar-bottom">
-          <div className="maker-note"><span className="eyebrow">MAKE THE MARKET</span><h3>Have an offer?</h3><p>Publish it from the KaleidoSwap desktop app. Keep your maker online to complete trades.</p><a href="#learn">Explore maker & taker roles <span aria-hidden="true">↗</span></a></div>
+          <div className="maker-note"><span className="eyebrow">MAKE THE MARKET</span><h3>Have an offer?</h3><p>Our Signet demo maker supplies TESTUSD and TESTXAU offers. You can also publish from desktop or p2pd.</p><a href="#learn">Explore maker & taker roles <span aria-hidden="true">↗</span></a></div>
           <div className="family-signature"><img src={kaleidoMark} alt="" />Part of KaleidoSwap</div>
         </div>
       </aside>
@@ -54,7 +54,7 @@ function Shell() {
         <header className="mosaik-topbar">
           <div className="mobile-brand"><Brand /></div>
           <div className="network-label"><span className="network-dot" />Signet <span className="preview-label">PRIVATE PREVIEW</span></div>
-          <div className="topbar-actions"><span className={`connection-label ${live ? 'is-live' : ''}`} title={book.error ?? 'Connection to the order discovery relay'}><span />{live ? 'Market connected' : book.status === 'connecting' ? 'Connecting…' : 'Reconnecting…'}</span><WalletButton /></div>
+          <div className="topbar-actions"><span className={`connection-label ${live ? 'is-live' : ''}`} title={book.error ?? 'Connection to the order discovery relay'}><span />{live ? 'Relay connected' : book.status === 'connecting' ? 'Connecting…' : 'Reconnecting…'}</span><WalletButton /></div>
         </header>
         <nav className="mobile-nav" aria-label="Mobile navigation">{NAV.map(n => <a key={n.id} href={`#${n.id}`} aria-current={view === n.id ? 'page' : undefined}>{n.label}</a>)}</nav>
         <main id="main" tabIndex={-1} className="mosaik-content">

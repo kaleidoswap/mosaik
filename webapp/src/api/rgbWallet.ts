@@ -27,6 +27,7 @@ export interface SwapStatus {
 }
 
 export interface RgbTakerProvider {
+  createUtxos?(args: { num?: number; size?: number; feeRate?: number }): Promise<{ created: number }>;
   enable?(): Promise<unknown>;
   /** The extension can take peer-to-peer RGB orders. */
   p2pSwap?: {

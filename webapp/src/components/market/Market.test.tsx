@@ -4,6 +4,8 @@ import type { RgbBookState, RgbOffer } from '../../api/rgbp2p';
 const state = vi.hoisted(() => ({ swaps: [] as any[] }));
 vi.mock('../../api/webrgb', () => ({ useWebRgb: () => ({ status: 'absent', canTake: false, network: 'bitcoin' }) }));
 vi.mock('../../api/swaps', () => ({ useSwaps: () => state, snapshotOf: (o: unknown) => o }));
+vi.mock('../../api/catalog', () => ({ useCatalog: () => ({ data: undefined }) }));
+vi.mock('./Onboarding', () => ({ Onboarding: () => null }));
 vi.mock('../../api/registry', () => ({ useRegistry: () => ({ data: undefined }) }));
 vi.mock('../TakeModal', () => ({ TakeModal: () => null }));
 vi.mock('./Ladder', () => ({ Ladder: () => null }));

@@ -4,6 +4,9 @@ import type { RgbBookState, RgbOffer } from '../../api/rgbp2p';
 import { snapshotOf, type OrderSnapshot, type SwapRecord } from '../../api/swaps';
 import { useSwaps } from '../../api/swaps';
 import { useWebRgb } from '../../api/webrgb';
+import { useCatalog } from '../../api/catalog';
+import { Onboarding } from './Onboarding';
+import { Catalog, AssetDetails } from './Catalog';
 import { useRegistry } from '../../api/registry';
 import { TakeModal } from '../TakeModal';
 import { btnPrimary, btnSecondary, Notice } from '../ui';
@@ -30,10 +33,15 @@ export function Market({ book }: { book: RgbBookState }) {
   const betaNetwork = import.meta.env.VITE_MARKET_NETWORK ?? 'signetcustom';
   const networks = useMemo(() => [betaNetwork], [betaNetwork]);
   const shown = network && networks.includes(network) ? network : wallet.network && networks.includes(wallet.network) ? wallet.network : networks[0];
-  const onNetwork = useMemo(() => book.offers.filter((o) => o.network === shown), [book.offers, shown]);
-  const markets = useMemo(() => marketsOf(onNetwork), [onNetwork]);
+  const catalog = useCatalog(shown);
+  const onNetwork = useMemo(() => book.offers.filter((o) => o.network === shown && o.expiry > nowSec), [book.offers, shown, nowSec]);
+  const eligible = useMemo(() => onNetwork.filter(o => {
+    const known = catalog.data?.assets.find(a => a.contractId === o.assetId);
+    return !known || (known.precision === o.precision && (!o.ticker || known.ticker === o.ticker));
+  }), [onNetwork, catalog.data]);
+  const markets = useMemo(() => marketsOf(eligible, catalog.data?.assets), [eligible, catalog.data]);
   const market = markets.find((m) => m.assetId === assetId) ?? markets[0];
-  const offers = useMemo(() => onNetwork.filter((o) => o.assetId === market?.assetId), [onNetwork, market?.assetId]);
+  const offers = useMemo(() => eligible.filter((o) => o.assetId === market?.assetId), [eligible, market?.assetId]);
   const { asks, bids } = useMemo(() => ladder(offers), [offers]);
   const ticker = market?.ticker ?? 'asset';
   const registry = useRegistry(shown);
@@ -48,6 +56,7 @@ export function Market({ book }: { book: RgbBookState }) {
     return r ? r.order.priceSat / (r.order.amount / 10 ** r.order.precision) : undefined;
   }, [swaps.swaps, market?.assetId, shown]);
 
+  const selectedAsset = catalog.data?.assets.find(a => a.contractId === market?.assetId);
   const connected = wallet.status === 'connected';
   const take = (o: RgbOffer) => setTarget({ order: snapshotOf(o) });
   const open = (r: SwapRecord) => setTarget({ order: r.order, swapId: r.swapId });
@@ -55,7 +64,13 @@ export function Market({ book }: { book: RgbBookState }) {
   return (
     <div className="flex flex-col gap-4">
       {book.error && <Notice tone="warning">We cannot refresh offers right now. Mosaik will reconnect automatically. Check your connection if this continues.</Notice>}
+      <Onboarding />
       <WalletNotices shown={shown} />
+      {catalog.isError && <Notice tone="warning">The curated catalog could not be refreshed. {catalog.data ? 'Showing the last loaded list.' : 'Offers can still be discovered; curated assets will return when the catalog is available.'}</Notice>}
+      {catalog.data && <Catalog assets={catalog.data.assets} markets={markets} selected={market?.assetId} onSelect={setAssetId} />}
+      {eligible.length !== onNetwork.length && <Notice tone="warning">Some offers were hidden because their metadata conflicts with the curated asset identity.</Notice>}
+      {registry.isError && <Notice tone="warning">RGBMap is unavailable. {registry.data ? 'Showing cached registry information; it may be out of date.' : 'Listing status is unknown, not unlisted.'}</Notice>}
+      {selectedAsset && <AssetDetails asset={selectedAsset} />}
 
       {markets.length === 0 ? (
         <section className="empty-market" aria-live="polite">
