@@ -6,8 +6,8 @@ import { Onboarding } from './Onboarding';
 afterEach(()=>{cleanup();state.network='signetcustom';vi.clearAllMocks();});
 it('never prepares outputs on another network',()=>{
  state.network='bitcoin';render(<Onboarding />);
- const button=screen.getByRole('button',{name:'Prepare wallet'}) as HTMLButtonElement;
- expect(button.disabled).toBe(true);fireEvent.click(button);expect(state.create).not.toHaveBeenCalled();
+ expect(screen.queryByRole('button',{name:'Prepare wallet'})).toBeNull();
+ expect(screen.getByText('Select RGB · Mutinynet in the extension')).toBeTruthy();expect(state.create).not.toHaveBeenCalled();
 });
 it('only requests preparation after an explicit click and explains pending confirmation',async()=>{
  render(<Onboarding />);expect(state.create).not.toHaveBeenCalled();

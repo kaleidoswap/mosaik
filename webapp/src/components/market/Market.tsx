@@ -65,7 +65,7 @@ export function Market({ book }: { book: RgbBookState }) {
     <div className="flex flex-col gap-4">
       {book.error && <Notice tone="warning">We cannot refresh offers right now. Mosaik will reconnect automatically. Check your connection if this continues.</Notice>}
       <Onboarding />
-      <WalletNotices shown={shown} />
+      {connected && <WalletNotices shown={shown} />}
       {catalog.isError && <Notice tone="warning">The curated catalog could not be refreshed. {catalog.data ? 'Showing the last loaded list.' : 'Offers can still be discovered; curated assets will return when the catalog is available.'}</Notice>}
       {catalog.data && <Catalog assets={catalog.data.assets} markets={markets} selected={market?.assetId} onSelect={setAssetId} />}
       {eligible.length !== onNetwork.length && <Notice tone="warning">Some offers were hidden because their metadata conflicts with the curated asset identity.</Notice>}
@@ -81,7 +81,7 @@ export function Market({ book }: { book: RgbBookState }) {
         </section>
       ) : (
         <>
-          <PairBar
+          <div id="market-offers" tabIndex={-1}><PairBar
             markets={markets}
             selected={market}
             onSelect={setAssetId}
@@ -93,7 +93,7 @@ export function Market({ book }: { book: RgbBookState }) {
             lastFill={lastFill ?? stats.last}
             stats={stats}
             orders={offers.length}
-          />
+          /></div>
           {trust && market && <TrustNotice trust={trust} assetId={market.assetId} />}
           <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_21rem]">
             <div className="min-w-0 lg:col-start-1">

@@ -31,14 +31,27 @@ export function Onboarding() {
     } catch (e) { setMessage(e instanceof Error ? e.message : 'Wallet preparation failed. Try again in your extension.'); }
     finally { setBusy(false); }
   }
-  return <Card className="onboarding-card"><CardContent>
-    <div className="onboarding-heading"><div><span className="eyebrow">YOUR FIRST SIGNET TRADE</span><h2>{prepared ? 'Your wallet is ready to trade.' : 'Get ready in three steps.'}</h2></div><Button variant="secondary" onClick={() => void syncWallet()} disabled={!connected || busy}>{busy ? 'Syncing…' : 'Refresh wallet'}</Button></div>
-    {prepared && <button type="button" className="text-link" aria-expanded={expanded} onClick={() => setExpanded(!expanded)}>{expanded ? 'Hide setup steps' : 'Show setup steps'}</button>}
-    {(!prepared || expanded) && <div className="onboarding-steps">
-      <div className={networkReady ? 'setup-step is-done' : 'setup-step'}><span className="setup-number">{networkReady ? '✓' : '01'}</span><h3>Connect on Mutinynet</h3><p>Unlock the KaleidoSwap extension and select your RGB wallet on Mutinynet.</p>{connected ? <span className="setup-status">{networkReady ? 'Connected on the right network' : wallet.p2pProblem === 'locked' ? 'Unlock your extension' : 'Switch to Mutinynet in the extension'}</span> : <Button variant="cta" disabled={wallet.status === 'absent' || wallet.status === 'connecting'} onClick={() => void wallet.connect()}>{wallet.status === 'absent' ? 'Extension required' : 'Connect wallet'}</Button>}</div>
-      <div className={funded ? 'setup-step is-done' : 'setup-step'}><span className="setup-number">{funded ? '✓' : '02'}</span><h3>Add test BTC</h3><p>Copy your RGB wallet’s BTC receive address in the extension. Fund it using the Mutinynet faucet, then wait for confirmation.</p><a href="https://faucet.mutinynet.com" target="_blank" rel="noopener noreferrer">Open test BTC faucet ↗</a>{funded && <span className="setup-status">{wallet.balance?.spendable.toLocaleString()} confirmed sat available</span>}</div>
-      <div className={prepared ? 'setup-step is-done' : 'setup-step'}><span className="setup-number">{prepared ? '✓' : '03'}</span><h3>Prepare for RGB</h3><p>Reserve two 10,000-sat outputs in your own wallet, plus network fees. Your extension asks for approval. Each offer shows its full trading cost.</p>{prepared ? <span className="setup-status">RGB outputs available · choose an offer below</span> : wallet.provider?.createUtxos ? <Button variant="secondary" disabled={!funded || busy || (wallet.balance?.spendable ?? 0) < 22000} onClick={() => void prepare()}>{busy ? 'Waiting for wallet…' : 'Prepare wallet'}</Button> : <a href="#wallet">Prepare outputs in your extension ↗</a>}</div>
-    </div>}
+  const step = !networkReady ? 0 : !funded ? 1 : !prepared ? 2 : 3;
+  const titles = ['Connect your wallet', 'Add test BTC', 'Prepare your wallet', 'Choose your first offer'];
+  const descriptions = [
+    'Use the KaleidoSwap browser extension. Your keys and approvals stay there.',
+    'Copy your RGB receive address from the extension, then request coins from the Mutinynet faucet.',
+    'Set aside two 10,000-sat outputs for RGB assets, plus network fees. Review the transaction in your extension.',
+    'Select an asset below, choose Buy or Sell, and review the full cost before approving.',
+  ];
+  return <Card className="onboarding-card journey-card"><CardContent>
+    <div className="journey-heading"><span className="eyebrow">{step === 3 ? 'READY TO EXPLORE' : 'YOUR FIRST TRADE'}</span><button className="text-link" disabled={!connected || busy} onClick={() => void syncWallet()}>{busy ? 'Syncing…' : 'Refresh wallet'}</button></div>
+    <ol className="journey-track" aria-label="Wallet setup progress">{['Connect', 'Fund', 'Prepare', 'Trade'].map((label, i) => <li key={label} aria-current={step === i ? 'step' : undefined} className={i < step ? 'is-done' : i === step ? 'is-current' : ''}><span>{i < step ? '✓' : i + 1}</span>{label}</li>)}</ol>
+    <div className="journey-action"><div><h2>{titles[step]}</h2><p>{descriptions[step]}</p></div><div className="journey-cta">
+      {step === 0 && (connected ? <><span className="setup-status">{wallet.p2pProblem === 'locked' ? 'Unlock the extension to continue' : 'Select RGB · Mutinynet in the extension'}</span><Button variant="secondary" disabled={busy} onClick={() => void syncWallet()}>Check connection</Button></> : wallet.status === 'absent' ? <a className="btn-primary" href="#learn">Set up the extension ↗</a> : <Button variant="cta" disabled={wallet.status === 'connecting'} onClick={() => void wallet.connect()}>Connect wallet</Button>)}
+      {step === 1 && <a className="btn-primary" href="https://faucet.mutinynet.com" target="_blank" rel="noopener noreferrer">Get test BTC ↗</a>}
+      {step === 2 && (wallet.provider?.createUtxos ? <Button variant="cta" disabled={busy || (wallet.balance?.spendable ?? 0) < 22000} onClick={() => void prepare()}>{busy ? 'Waiting for wallet…' : 'Prepare wallet'}</Button> : <a className="btn-primary" href="#wallet">Open wallet instructions ↗</a>)}
+      {step === 3 && <a className="btn-primary" href="#market-offers" onClick={e => { e.preventDefault(); document.getElementById('market-offers')?.scrollIntoView({ behavior: 'smooth' }); document.getElementById('market-offers')?.focus(); }}>Explore offers ↓</a>}
+    </div></div>
+    {step === 1 && <p className="helper-copy">After confirmation, select Refresh wallet. Use test coins only.</p>}
+    {step === 2 && (wallet.balance?.spendable ?? 0) < 22000 && <p className="helper-copy">You need at least 22,000 spendable sat for this preparation. <a href="https://faucet.mutinynet.com" target="_blank" rel="noopener noreferrer">Get more test BTC ↗</a></p>}
+    <button className="text-link journey-help" aria-expanded={expanded} onClick={() => setExpanded(!expanded)}>{expanded ? 'Hide details −' : 'How do the apps work together? +'}</button>
+    {expanded && <div className="journey-explainer"><p><strong>Mosaik</strong> finds offers. <strong>The extension</strong> holds your trading wallet and approves swaps. <strong>Desktop</strong> lets you publish your own offers and must stay online to complete them.</p><a href="#learn">See the complete guide ↗</a></div>}
     {message && <p role="status" className="helper-copy">{message}</p>}
   </CardContent></Card>;
 }
