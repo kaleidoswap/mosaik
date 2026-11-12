@@ -1,0 +1,24 @@
+{
+  "name": "@kaleidoswap/mosaik-indexer",
+  "version": "0.1.0",
+  "description": "Mosaik indexer: measured maker reputation from the Nostr book and the chain, and the signed curated asset list. Mutinynet only.",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node --disable-warning=ExperimentalWarning src/main.ts run",
+    "keygen": "node --disable-warning=ExperimentalWarning src/main.ts keygen",
+    "once": "node --disable-warning=ExperimentalWarning src/main.ts once",
+    "test": "node --disable-warning=ExperimentalWarning --test \"test/*.test.ts\"",
+    "typecheck": "tsc --noEmit"
+  },
+  "engines": {
+    "node": ">=22.18.0"
+  },
+  "dependencies": {
+    "nostr-tools": "2.23.5"
+  },
+  "devDependencies": {
+    "@types/node": "24.10.1",
+    "typescript": "5.9.3"
+  }
+}

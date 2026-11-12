@@ -5,6 +5,8 @@
 #   30051  Maker profile (addressable)
 #   30052  Cross-chain swap envelope (addressable; Phase 8)
 #   30053  P2P on-chain RGB<->BTC swap offer (addressable; rgb-p2p-swaps)
+#   30054  Maker reputation, signed by the Mosaik indexer (NIP-40 expiration)
+#   30055  Curated asset list, signed by the list key
 #   1059   NIP-59 gift wrap — the private negotiation channel of those swaps
 #   5      Deletion event (NIP-09) — lets makers cancel a published offer
 #
@@ -38,7 +40,7 @@ remote_ip_header  = "x-forwarded-for"
 # ─── Event filtering ────────────────────────────────────────────────────────
 [limits]
 # Whitelist mode: only the kinds we care about are accepted.
-event_kind_allowlist = [5, 1059, 30050, 30051, 30052, 30053]
+event_kind_allowlist = [5, 1059, 30050, 30051, 30052, 30053, 30054, 30055]
 
 # Backstops. Tune up for production.
 messages_per_sec        = 10

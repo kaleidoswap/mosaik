@@ -16,10 +16,12 @@ chain is always the source of truth.
 | 30051 | Maker profile           | ✓ | long (default 7d) |
 | 30052 | Cross-chain swap envelope | ✓ | medium (mirrors `b_refund`) |
 | 30053 | P2P on-chain RGB↔BTC swap offer | ✓ | short (the offer's own expiry, max 1d) |
+| 30054 | Maker reputation (signed by the Mosaik indexer) | ✓ | NIP-40 `expiration`, 2d after signing |
+| 30055 | Curated asset list (signed by the list key) | ✓ | long (until replaced) |
 | 1059  | NIP-59 gift wrap (private swap negotiation) | — | short |
 | 5     | Deletion (NIP-09)       | — | indefinite |
 
-All four are whitelisted in `services/mosaik-relay-server/config.toml`.
+All of them are whitelisted in `services/mosaik-relay-server/config.toml`.
 Anything else is rejected at admission.
 
 ### Who publishes what
@@ -271,6 +273,137 @@ last and is the only broadcaster, and the chain is the only source of truth.
 
 The swap messages (`request`, `proposal`, `completion`, `broadcast`, `abort`) are JSON carried in
 NIP-17 private messages (kind 1059 gift wraps), so the relay never sees PSBTs.
+
+### What is public about a trade
+
+The order's `status` goes `active` → `taken` when the maker accepts a request and builds the PSBT
+(p2pd `on_request`), *before* anything is signed. After that:
+
+- the negotiation finishes: the maker broadcasts, and the order stays `taken` (nothing more is
+  published; the event lapses at its NIP-40 expiration);
+- it does not (taker abort, proposal timeout, rejected completion, maker restart): the maker
+  publishes `cancelled` for that `d`, deletes it (NIP-09) and lists the same terms under a new `d`.
+
+**The swap txid is not in any public event.** It travels only in the private `broadcast` message.
+It can still be found from public data: the offer content carries a fresh per-order receive script
+(`makerBtcAddress` for `side=sell`, `makerRgbScriptPubkeyHex` for `side=buy`) and the fee terms,
+and rgb-lib builds every swap transaction with the same layout (see
+`services/mosaik-indexer/src/settlement.ts`). A confirmed transaction that pays that script with
+that layout, and whose fee is exactly `networkFeeSat`, is the order's settlement. The Mosaik indexer
+verifies fills this way.
+
+**Proposed p2pd change (not implemented):** after `broadcast_swap_completion` succeeds in
+`Maker::drive_completion`, republish the order (status still `taken`, so existing clients are
+unaffected) with one extra tag `["txid", "<64 hex>"]`. One `republish` call plus the tag in
+`P2pOffer::to_event_builder`. The indexer already reads the tag; it fetches that transaction and
+checks it against the same layout, so a wrong txid never counts.
+
+## Kind 30054 — maker reputation
+
+Published by the Mosaik indexer (`services/mosaik-indexer/`), one event per maker pubkey, replaced
+on every scoring run (default every 10 minutes). The numbers are measured from public data only:
+kind-30053 events on the relay and transactions on Esplora. The maker's own profile (kind 30051) is
+never an input.
+
+Only events signed by the published indexer key count. Clients pin that key (see the indexer README
+for the dev key and the open decision on the production key).
+
+### Tags
+
+| Tag | Value | Notes |
+|---|---|---|
+| `d` | maker pubkey (64 hex) | One score per maker. |
+| `p` | maker pubkey (64 hex) | Indexed: `{"kinds":[30054],"authors":[<indexer>],"#p":[<maker>]}` fetches one maker. |
+| `t` | `mosaik-reputation-v1` | Schema version. |
+| `network` | `signetcustom` | Mutinynet only for now. |
+| `window` | `2592000` | Seconds the numbers cover (30 days, ending at `created_at`). |
+| `settled` | integer | Settled trades with a distinct counterparty (self-trades and unattributed trades excluded). |
+| `volume_sat` | integer | Sum of the BTC leg (`price`) of those trades. |
+| `counterparties` | integer | Distinct counterparties among them. |
+| `self_trades` | integer | Settled trades whose taker the chain links to the maker. |
+| `negotiations` | integer | Orders seen `taken`, or found settled, in the window. |
+| `aborted` | integer | Negotiations that did not finish: `taken` then `cancelled`, or `taken` with no settlement within 48 h. |
+| `abort_rate` | `0.0000`–`1.0000` | `aborted / (aborted + every confirmed settlement)`, i.e. over resolved negotiations. Absent when there are none. |
+| `presence` | `0.0000`–`1.0000` | Share of 5-minute slots, while the indexer was watching, in which the maker published a 30053 event. Absent when the indexer watched no slot. |
+| `verified` | `1` \| `0` | All badge thresholds met (thresholds are in the content; provisional). |
+| `expiration` | unix seconds | NIP-40, `created_at + 172800`: a score the indexer stops refreshing disappears. |
+
+`settled` in the tags counts only trades with a distinct counterparty; the content's
+`negotiations.settled` counts every confirmed settlement.
+
+### `content` (JSON)
+
+```jsonc
+{
+  "v": 1,
+  "network": "signetcustom",
+  "computedAt": 1794520000,
+  "maker": "<64 hex>",
+  "window": { "from": 1791928000, "to": 1794520000 },
+  "firstSeen": 1794400000,                   // first kind-30053 event of this maker the indexer saw
+  "presence": { "ratio": 0.9731, "presentBuckets": 1401, "observedBuckets": 1440, "bucketSecs": 300 },
+  "negotiations": { "taken": 6, "settled": 4, "aborted": 1, "unsettled": 0, "pending": 1, "abortRate": 0.2 },
+  "volume": {
+    "sat": 120000, "trades": 3, "counterparties": 2, "selfTrades": 1, "unattributedTrades": 0,
+    "byAsset": { "rgb:…": { "trades": 3, "amount": 300, "sat": 120000 } }   // amount in base units
+  },
+  "verified": true,
+  "thresholds": { "minSettled": 3, "minCounterparties": 2, "minPresence": 0.9, "maxAbortRate": 0.2 },
+  "settlements": [                           // newest first, at most 50
+    { "orderId": "…", "txid": "<64 hex>", "height": 3584542, "at": 1794510000, "side": "sell",
+      "assetId": "rgb:…", "amount": 50, "priceSat": 27148, "self": false, "unattributed": false }
+  ]
+}
+```
+
+`aborted` in the tags is `negotiations.aborted + negotiations.unsettled`. Every `txid` in
+`settlements` can be checked against Esplora by anyone.
+
+### Verifying (clients)
+
+1. `kind == 30054`, `pubkey ==` the pinned indexer key, valid id and signature.
+2. `t == mosaik-reputation-v1`, `d == p ==` the maker, `expiration` in the future.
+3. Tag numbers equal the content (`settled == volume.trades`, `volume_sat == volume.sat`,
+   `verified == content.verified`).
+
+`verifyReputationEvent` in `services/mosaik-indexer/src/events.ts` is the reference and depends
+only on nostr-tools.
+
+## Kind 30055 — curated asset list
+
+The Kaleido curated tier, as a signed list. The content is the curated catalog, format
+`mosaik-catalog/v1` (today `webapp/public/.well-known/rgb/tokens.json`), so a client verifies the
+signature and then reads the same JSON it reads from the well-known file. Re-signed only when the
+catalog changes, so `created_at` is when the list last changed.
+
+### Tags
+
+| Tag | Value | Notes |
+|---|---|---|
+| `d` | `mosaik-catalog:<network>` | One list per network: `mosaik-catalog:signetcustom`. |
+| `t` | `mosaik-catalog-v1` | |
+| `network` | `signetcustom` | Must equal `content.network`. |
+| `version` | catalog `version` | Must equal `content.version`. |
+| `asset` | `<contract_id>`, `<ticker>` | One per listed token, same set as `content.tokens`. |
+| `issuer_maker` | `<contract_id>`, `<maker pubkey>` | Optional, one per pair: a maker key run by (or for) the asset's issuer, for the issuer-is-maker label. |
+
+### `content`
+
+The catalog JSON (`mosaik-catalog/v1`): `format`, `version`, `network`, `network_id`, `provider`,
+and `tokens[]` with `contract_id`, `ticker`, `name`, `precision`, plus optional fields
+(`description`, `issued_supply`, `demo`, …). One optional field is added by this list:
+
+- `tokens[].issuer_makers`: array of maker pubkeys (64 hex) known to be the issuer or acting for it.
+
+Rules the signer enforces before signing (`parseCatalog`): contract ids unique, tickers unique
+(case-insensitive, so the list never merges two assets under one name), precision 0–18.
+
+### Verifying (clients)
+
+`kind == 30055`, `pubkey ==` the pinned list key, valid signature, `d`/`t`/`network`/`version` as
+above, and the `asset` tags equal the content's tokens. Reference: `verifyCatalogEvent` in
+`services/mosaik-indexer/src/events.ts`. Today the indexer key also signs the list; which key
+signs it in production is an open decision.
 
 ## Kind 5 — deletion (NIP-09)
 
