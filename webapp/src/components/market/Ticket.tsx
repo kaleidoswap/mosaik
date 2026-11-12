@@ -5,7 +5,7 @@ import type { RgbOffer } from '../../api/rgbp2p';
 import { useWebRgb } from '../../api/webrgb';
 import { shortId } from '../../lib/format';
 import { fmtLeft, fmtPrice, fmtUnits } from '../../lib/units';
-import { Icon, Pill } from '../ui';
+import { Pill } from '../ui';
 import type { Level } from './book';
 import { shortfalls } from './affordability';
 
@@ -84,10 +84,6 @@ export function Ticket({ ticker, precision, asks, bids, nowSec, onTake }: Props)
         </div>
       )}
 
-      <div className="flex items-start gap-2 rounded-xl bg-surface-card/5 px-3 py-2 text-tiny text-content-secondary">
-        <Icon name="info" size={14} className="mt-0.5" />
-        <p>Mosaik takes orders that makers have already posted. To post your own order, use the KaleidoSwap desktop app.</p>
-      </div>
 
       <div className="border-t border-border-subtle pt-3">
         <div className="mb-1.5 flex items-center justify-between text-tiny text-content-tertiary">

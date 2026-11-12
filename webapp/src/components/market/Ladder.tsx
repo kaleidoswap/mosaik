@@ -5,7 +5,7 @@ import { shortId } from '../../lib/format';
 import { fmtLeft, fmtPrice, fmtUnits } from '../../lib/units';
 import type { Level } from './book';
 
-const ROWS = 8;
+const ROWS = 4;
 const COLS = 'grid-cols-[1.1fr_1fr_1fr] md:grid-cols-[1.1fr_1fr_1fr_1fr_0.6fr]';
 
 function Row({ l, kind, max, ticker, nowSec, onPick }: { l: Level; kind: 'ask' | 'bid'; max: number; ticker: string; nowSec: number; onPick: (o: RgbOffer) => void }) {

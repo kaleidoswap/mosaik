@@ -1,51 +1,27 @@
+import { useState } from 'react';
 import { fmtPrice } from '../../lib/units';
-import type { Point } from './stats';
+import { candlesOf, type Point } from './stats';
 
-const W = 640;
-const H = 160;
-const PAD = { l: 8, r: 56, t: 10, b: 18 };
-
-/** Fills as a price line over time. Few fills are normal here, so each one is also a dot. */
+const W = 720, H = 300, LEFT = 12, RIGHT = 90, TOP = 22, BOTTOM = 34;
 export function PriceChart({ points, ticker }: { points: Point[]; ticker: string }) {
-  if (points.length === 0) {
-    return (
-      <section aria-label="Price chart" className="rounded-2xl bg-surface-card/[0.04] p-4">
-        <h2 className="text-subhead font-medium">Price</h2>
-        <p className="mt-6 pb-6 text-center text-caption text-content-tertiary">No trades reported for {ticker} yet. The line appears with the first one.</p>
-      </section>
-    );
-  }
-  const first = points[0]!;
-  const last = points[points.length - 1]!;
-  const t0 = first.at;
-  const t1 = Math.max(last.at, t0 + 1);
-  const lo = Math.min(...points.map((p) => p.price));
-  const hi = Math.max(...points.map((p) => p.price));
-  const span = hi - lo || Math.max(hi * 0.1, 1);
-  const x = (t: number) => PAD.l + ((t - t0) / (t1 - t0 || 1)) * (W - PAD.l - PAD.r);
-  const y = (p: number) => PAD.t + (1 - (p - (lo - span * 0.1)) / (span * 1.2)) * (H - PAD.t - PAD.b);
-  const path = points.map((p, i) => `${i ? 'L' : 'M'}${x(p.at).toFixed(1)},${y(p.price).toFixed(1)}`).join(' ');
-  const up = points.length < 2 || last.price >= first.price;
-  const tone = up ? 'var(--chart-up, #2fbf71)' : 'var(--chart-down, #e5534b)';
-  const day = (t: number) => new Date(t * 1000).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
-  return (
-    <section aria-label="Price chart" className="rounded-2xl bg-surface-card/[0.04] p-4">
-      <header className="mb-1 flex items-baseline justify-between">
-        <h2 className="text-subhead font-medium">Price</h2>
-        <span className="text-tiny text-content-tertiary">sat per {ticker} · {points.length} {points.length === 1 ? 'trade' : 'trades'}</span>
-      </header>
-      <svg viewBox={`0 0 ${W} ${H}`} className="h-40 w-full" role="img" aria-label={`Price of ${ticker}, from ${fmtPrice(first.price)} to ${fmtPrice(last.price)} sat`}>
-        {[hi, (hi + lo) / 2, lo].map((v, i) => (
-          <g key={i}>
-            <line x1={PAD.l} x2={W - PAD.r} y1={y(v)} y2={y(v)} stroke="currentColor" strokeOpacity="0.1" strokeDasharray="3 4" />
-            <text x={W - PAD.r + 6} y={y(v) + 4} fontSize="11" fill="currentColor" fillOpacity="0.55">{fmtPrice(v)}</text>
-          </g>
-        ))}
-        <path d={path} fill="none" stroke={tone} strokeWidth="2" strokeLinejoin="round" />
-        {points.map((p, i) => <circle key={i} cx={x(p.at)} cy={y(p.price)} r="3" fill={tone}><title>{`${fmtPrice(p.price)} sat · ${new Date(p.at * 1000).toLocaleString()}`}</title></circle>)}
-        <text x={PAD.l} y={H - 2} fontSize="11" fill="currentColor" fillOpacity="0.55">{day(t0)}</text>
-        <text x={W - PAD.r} y={H - 2} fontSize="11" textAnchor="end" fill="currentColor" fillOpacity="0.55">{day(t1)}</text>
-      </svg>
-    </section>
-  );
+  const [mode, setMode] = useState<'candles' | 'line'>('candles');
+  const [interval, setInterval] = useState(3600);
+  const candles = candlesOf(points, interval);
+  const values = candles.flatMap(c => [c.high,c.low]);
+  const low = values.length ? Math.min(...values) : 0, high = values.length ? Math.max(...values) : 1;
+  const span = high-low || Math.max(high*.02,1);
+  const t0 = candles[0]?.at ?? 0, t1 = Math.max(candles.at(-1)?.at ?? 0, points.at(-1)?.at ?? 0,t0+interval);
+  const x = (t:number) => LEFT+12+(t-t0)/(t1-t0)*(W-LEFT-RIGHT-24);
+  const y = (v:number) => TOP+(1-(v-low+span*.1)/(span*1.2))*(H-TOP-BOTTOM);
+  const width = Math.max(2,Math.min(30,(W-LEFT-RIGHT-24)*interval/(t1-t0)*.6));
+  const time = (at:number) => new Date(at*1000).toLocaleString(undefined,{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'});
+  return <section aria-label="Price chart" className="trade-chart">
+    <header><div><h2>{ticker} / BTC</h2><span>sat per {ticker}</span></div><div className="chart-controls"><div role="group" aria-label="Chart style" className="view-switch">{(['candles','line'] as const).map(v=><button key={v} aria-pressed={mode===v} onClick={()=>setMode(v)}>{v==='candles'?'Candles':'Line'}</button>)}</div>{mode==='candles' && <select aria-label="Candle interval" value={interval} onChange={e=>setInterval(Number(e.target.value))}><option value={900}>15m</option><option value={3600}>1h</option><option value={14400}>4h</option></select>}</div></header>
+    {!candles.length ? <div className="chart-empty"><span aria-hidden="true">⌁</span><h3>No trades reported yet</h3><p>The chart appears when makers report trades. Open orders alone do not create candles.</p></div> : <svg viewBox={`0 0 ${W} ${H}`} role="img" aria-label={`${mode==='candles'?'Candlestick':'Price line'} chart for ${ticker}: ${points.length} reported trades`}>
+      {[high+span*.05,(high+low)/2,low-span*.05].map((v,i)=><g key={i}><line x1={LEFT} x2={W-RIGHT} y1={y(v)} y2={y(v)} stroke="currentColor" strokeOpacity=".12" strokeDasharray="3 4"/><text x={W-RIGHT+8} y={y(v)+4} fill="currentColor" fontSize="11">{fmtPrice(v)}</text></g>)}
+      {mode==='candles' ? candles.map(c=><g key={c.at} stroke={c.close>=c.open?'#61dfad':'#f7808b'} fill={c.close>=c.open?'#61dfad':'#f7808b'}><title>{`${time(c.at)} · O ${fmtPrice(c.open)} H ${fmtPrice(c.high)} L ${fmtPrice(c.low)} C ${fmtPrice(c.close)} · ${c.trades} reported trades`}</title><line x1={x(c.at)} x2={x(c.at)} y1={y(c.high)} y2={y(c.low)} strokeWidth="1.5"/><rect x={x(c.at)-width/2} y={Math.min(y(c.open),y(c.close))-1} width={width} height={Math.max(2,Math.abs(y(c.open)-y(c.close)))} rx="1"/></g>) : <><path d={points.map((p,i)=>`${i?'L':'M'}${x(p.at)},${y(p.price)}`).join(' ')} fill="none" stroke="#61dfad" strokeWidth="2"/>{points.map((p,i)=><circle key={i} cx={x(p.at)} cy={y(p.price)} r="3" fill="#61dfad"><title>{`${time(p.at)} · ${fmtPrice(p.price)} sat`}</title></circle>)}</>}
+      <text x={LEFT} y={H-8} fill="currentColor" fontSize="10">{time(t0)}</text><text x={W-RIGHT} y={H-8} textAnchor="end" fill="currentColor" fontSize="10">{time(t1)}</text>
+    </svg>}
+    <p className="chart-source">Maker-reported trades · not independently verified. Limited history (up to 10 recent trades per maker); empty intervals stay empty.</p>
+  </section>;
 }

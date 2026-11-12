@@ -1,0 +1,31 @@
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { afterEach, expect, it, vi } from 'vitest';
+import type { RgbBookState, RgbOffer } from '../../api/rgbp2p';
+vi.mock('../../api/webrgb',()=>({useWebRgb:()=>({status:'connected',network:'signetcustom',canTake:true,balance:{spendable:100000,freeColorableUtxos:2},assets:[]})}));
+vi.mock('../../api/swaps',()=>({useSwaps:()=>({swaps:[]})}));
+vi.mock('../../api/catalog',()=>({useCatalog:()=>({})}));
+vi.mock('../../api/registry',()=>({useRegistry:()=>({})}));
+vi.mock('./PairBar',()=>({PairBar:({selected}:{selected:{assetId:string}})=><div data-testid="selected-pair">{selected.assetId}</div>}));
+vi.mock('./MySwaps',()=>({MySwaps:()=>null}));
+import { Market } from './Market';
+const offer=(key:string,assetId:string)=>({key,assetId,ticker:assetId,network:'signetcustom',expiry:Math.floor(Date.now()/1000)+600,side:'sell',amount:10,priceSat:1000,precision:0,maker:'maker',createdAt:1}) as RgbOffer;
+const book=(offers:RgbOffer[])=>({url:'wss://example.test',offers,fills:[],status:'open'}) as RgbBookState;
+afterEach(()=>{cleanup();localStorage.clear();});
+it('keeps the selected pair when live order counts reorder the markets',()=>{
+ const a=offer('a','A'),b=offer('b','B');
+ const {rerender}=render(<Market book={book([a,b])}/>);
+ expect(screen.getByTestId('selected-pair').textContent).toBe('A');
+ rerender(<Market book={book([a,b,offer('b2','B')])}/>);
+ expect(screen.getByTestId('selected-pair').textContent).toBe('A');
+});
+it('switches market views and remembers the layout without duplicating the selector',()=>{
+ render(<Market book={book([offer('a','A')])}/>);
+ expect(screen.getByRole('region',{name:'Order book'})).toBeTruthy();
+ fireEvent.click(screen.getByRole('button',{name:'Chart'}));
+ expect(screen.queryByRole('region',{name:'Order book'})).toBeNull();
+ expect(screen.getByRole('region',{name:'Price chart'})).toBeTruthy();
+ expect(localStorage.getItem('mosaik.trade.layout')).toBe('chart');
+ fireEvent.click(screen.getByRole('button',{name:'Both'}));
+ expect(screen.getByRole('region',{name:'Order book'})).toBeTruthy();
+ expect(screen.getAllByTestId('selected-pair')).toHaveLength(1);
+});

@@ -31,11 +31,10 @@ it('shows funding before preparation when no spendable BTC is available',()=>{
 });
 it('takes a prepared wallet straight to offers and keeps setup explanations optional',()=>{
  state.free=2;render(<Onboarding />);
- expect(screen.getByRole('link',{name:'Explore offers ↓'})).toBeTruthy();
+ expect(screen.getByText('Wallet ready')).toBeTruthy();
  expect(screen.queryByRole('button',{name:'Prepare wallet'})).toBeNull();
  expect(screen.queryByText('See the complete guide ↗')).toBeNull();
- fireEvent.click(screen.getByRole('button',{name:'How do the apps work together? +'}));
- expect(screen.getByText('See the complete guide ↗')).toBeTruthy();
+ expect(screen.getByRole('link',{name:'Setup & help ↗'})).toBeTruthy();
 });
 it('gives a missing extension a setup route instead of an unusable connect button',()=>{
  state.status='absent';render(<Onboarding />);

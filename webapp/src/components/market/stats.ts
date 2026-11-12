@@ -67,3 +67,17 @@ export function marketStats(raw: RgbFill[], now: number): MarketStats {
     points,
   };
 }
+
+export interface Candle { at: number; open: number; high: number; low: number; close: number; trades: number }
+/** Only buckets with reported trades exist; never synthesize candles across gaps. */
+export function candlesOf(points: Point[], interval: number): Candle[] {
+  if (!Number.isFinite(interval) || interval <= 0) return [];
+  const buckets = new Map<number, Candle>();
+  for (const p of [...points].filter(p => Number.isFinite(p.at) && Number.isFinite(p.price) && p.price > 0).sort((a,b) => a.at-b.at)) {
+    const at = Math.floor(p.at / interval) * interval;
+    const c = buckets.get(at);
+    if (c) { c.high = Math.max(c.high,p.price); c.low = Math.min(c.low,p.price); c.close = p.price; c.trades++; }
+    else buckets.set(at,{at,open:p.price,high:p.price,low:p.price,close:p.price,trades:1});
+  }
+  return [...buckets.values()];
+}

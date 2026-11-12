@@ -1,12 +1,11 @@
 import clsx from 'clsx';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type { RgbBookState, RgbOffer } from '../../api/rgbp2p';
 import { snapshotOf, type OrderSnapshot, type SwapRecord } from '../../api/swaps';
 import { useSwaps } from '../../api/swaps';
 import { useWebRgb } from '../../api/webrgb';
 import { useCatalog } from '../../api/catalog';
 import { Onboarding } from './Onboarding';
-import { Catalog, AssetDetails } from './Catalog';
 import { useRegistry } from '../../api/registry';
 import { TakeModal } from '../TakeModal';
 import { btnPrimary, btnSecondary, Notice } from '../ui';
@@ -40,6 +39,7 @@ export function Market({ book }: { book: RgbBookState }) {
     return !known || (known.precision === o.precision && (!o.ticker || known.ticker === o.ticker));
   }), [onNetwork, catalog.data]);
   const markets = useMemo(() => marketsOf(eligible, catalog.data?.assets), [eligible, catalog.data]);
+  useEffect(() => { if (!assetId && markets[0]) setAssetId(markets[0].assetId); }, [assetId, markets]);
   const market = markets.find((m) => m.assetId === assetId) ?? markets[0];
   const offers = useMemo(() => eligible.filter((o) => o.assetId === market?.assetId), [eligible, market?.assetId]);
   const { asks, bids } = useMemo(() => ladder(offers), [offers]);
@@ -56,7 +56,10 @@ export function Market({ book }: { book: RgbBookState }) {
     return r ? r.order.priceSat / (r.order.amount / 10 ** r.order.precision) : undefined;
   }, [swaps.swaps, market?.assetId, shown]);
 
-  const selectedAsset = catalog.data?.assets.find(a => a.contractId === market?.assetId);
+  const [layout, setLayout] = useState<'book' | 'chart' | 'both'>(() => {
+    try { const saved = localStorage.getItem('mosaik.trade.layout'); return saved === 'chart' || saved === 'both' ? saved : 'book'; } catch { return 'book'; }
+  });
+  const chooseLayout = (value: 'book' | 'chart' | 'both') => { setLayout(value); try { localStorage.setItem('mosaik.trade.layout', value); } catch { /* private mode */ } };
   const connected = wallet.status === 'connected';
   const take = (o: RgbOffer) => setTarget({ order: snapshotOf(o) });
   const open = (r: SwapRecord) => setTarget({ order: r.order, swapId: r.swapId });
@@ -67,10 +70,8 @@ export function Market({ book }: { book: RgbBookState }) {
       <Onboarding />
       {connected && <WalletNotices shown={shown} />}
       {catalog.isError && <Notice tone="warning">The curated catalog could not be refreshed. {catalog.data ? 'Showing the last loaded list.' : 'Offers can still be discovered; curated assets will return when the catalog is available.'}</Notice>}
-      {catalog.data && <Catalog assets={catalog.data.assets} markets={markets} selected={market?.assetId} onSelect={setAssetId} />}
       {eligible.length !== onNetwork.length && <Notice tone="warning">Some offers were hidden because their metadata conflicts with the curated asset identity.</Notice>}
       {registry.isError && <Notice tone="warning">RGBMap is unavailable. {registry.data ? 'Showing cached registry information; it may be out of date.' : 'Listing status is unknown, not unlisted.'}</Notice>}
-      {selectedAsset && <AssetDetails asset={selectedAsset} />}
 
       {markets.length === 0 ? (
         <section className="empty-market" aria-live="polite">
@@ -94,22 +95,18 @@ export function Market({ book }: { book: RgbBookState }) {
             stats={stats}
             orders={offers.length}
           /></div>
-          {trust && market && <TrustNotice trust={trust} assetId={market.assetId} />}
-          <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_21rem]">
-            <div className="min-w-0 lg:col-start-1">
-              <Ladder asks={asks} bids={bids} ticker={ticker} nowSec={nowSec} onPick={take} />
-            </div>
-            <div className="flex flex-col gap-4 lg:col-start-2 lg:row-span-3 lg:row-start-1">
-              <Ticket ticker={ticker} precision={market?.precision ?? 0} asks={asks} bids={bids} nowSec={nowSec} onTake={take} />
-              <MySwaps onOpen={open} />
-            </div>
-            <div className="min-w-0 lg:col-start-1">
-              <PriceChart points={stats.points} ticker={ticker} />
-            </div>
-            <div className="min-w-0 lg:col-start-1">
+          {trust && market && (trust.level === 'warning' || trust.level === 'caution') && <TrustNotice trust={trust} assetId={market.assetId} />}
+          <div className="trading-workspace">
+            <div className="market-visuals">
+              <div className="market-view-toolbar"><div role="group" aria-label="Market view" className="view-switch">{(['book', 'chart', 'both'] as const).map(value => <button key={value} aria-pressed={layout === value} onClick={() => chooseLayout(value)}>{value === 'book' ? 'Order book' : value === 'chart' ? 'Chart' : 'Both'}</button>)}</div><span className="book-live"><i className={book.status === 'open' ? 'online' : ''} />{book.status === 'open' ? 'Live orders' : 'Reconnecting'}</span></div>
+              {layout !== 'chart' && <Ladder asks={asks} bids={bids} ticker={ticker} nowSec={nowSec} onPick={take} />}
+              {layout !== 'book' && <PriceChart points={stats.points} ticker={ticker} />}
               <TradeFeed fills={fills} ticker={ticker} nowSec={nowSec} />
             </div>
+            <div className="market-ticket"><Ticket ticker={ticker} precision={market?.precision ?? 0} asks={asks} bids={bids} nowSec={nowSec} onTake={take} /><MySwaps onOpen={open} /></div>
           </div>
+          {trust && market && trust.level !== 'warning' && trust.level !== 'caution' && <TrustNotice trust={trust} assetId={market.assetId} />}
+          <div className="maker-inline"><span><strong>Want to list an asset?</strong> Publish an offer from the desktop app or run an automated p2pd maker. Keep it online to fill trades.</span><a href="#learn">Maker guide ↗</a></div>
         </>
       )}
       {markets.length === 0 && connected && <MySwaps onOpen={open} />}
