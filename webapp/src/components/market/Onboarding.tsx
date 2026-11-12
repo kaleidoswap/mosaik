@@ -32,14 +32,14 @@ export function Onboarding() {
     finally { setBusy(false); }
   }
   const step = !networkReady ? 0 : !funded ? 1 : !prepared ? 2 : 3;
-  const titles = ['Connect your wallet', 'Add test BTC', 'Prepare your wallet', 'Choose your first offer'];
+  const titles = ['Connect your wallet', 'Add test BTC', 'Prepare your wallet', 'Choose an offer'];
   const descriptions = [
     'Use the KaleidoSwap browser extension. Your keys and approvals stay there.',
     'Copy your RGB receive address from the extension, then request coins from the Mutinynet faucet.',
     'Set aside two 10,000-sat outputs for RGB assets, plus network fees. Review the transaction in your extension.',
     'Select an asset below, choose Buy or Sell, and review the full cost before approving.',
   ];
-  return <Card className="onboarding-card journey-card"><CardContent>
+  return <Card className={`onboarding-card journey-card ${step === 3 ? 'is-ready' : ''}`}><CardContent>
     <div className="journey-heading"><span className="eyebrow">{step === 3 ? 'READY TO EXPLORE' : 'YOUR FIRST TRADE'}</span><button className="text-link" disabled={!connected || busy} onClick={() => void syncWallet()}>{busy ? 'Syncing…' : 'Refresh wallet'}</button></div>
     <ol className="journey-track" aria-label="Wallet setup progress">{['Connect', 'Fund', 'Prepare', 'Trade'].map((label, i) => <li key={label} aria-current={step === i ? 'step' : undefined} className={i < step ? 'is-done' : i === step ? 'is-current' : ''}><span>{i < step ? '✓' : i + 1}</span>{label}</li>)}</ol>
     <div className="journey-action"><div><h2>{titles[step]}</h2><p>{descriptions[step]}</p></div><div className="journey-cta">

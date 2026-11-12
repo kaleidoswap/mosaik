@@ -1,9 +1,9 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
-const state=vi.hoisted(()=>({network:'signetcustom',sync:vi.fn().mockResolvedValue({refreshed:true}),create:vi.fn().mockResolvedValue({created:2}),refresh:vi.fn().mockResolvedValue(undefined)}));
-vi.mock('../../api/webrgb',()=>({useWebRgb:()=>({status:'connected',network:state.network,balance:{spendable:100000,freeColorableUtxos:0},provider:{createUtxos:state.create,refresh:state.sync},refresh:state.refresh})}));
+const state=vi.hoisted(()=>({network:'signetcustom',spendable:100000,free:0,status:'connected',sync:vi.fn().mockResolvedValue({refreshed:true}),create:vi.fn().mockResolvedValue({created:2}),refresh:vi.fn().mockResolvedValue(undefined)}));
+vi.mock('../../api/webrgb',()=>({useWebRgb:()=>({status:state.status,network:state.network,balance:{spendable:state.spendable,freeColorableUtxos:state.free},provider:{createUtxos:state.create,refresh:state.sync},refresh:state.refresh})}));
 import { Onboarding } from './Onboarding';
-afterEach(()=>{cleanup();state.network='signetcustom';vi.clearAllMocks();});
+afterEach(()=>{cleanup();state.network='signetcustom';state.spendable=100000;state.free=0;state.status='connected';vi.clearAllMocks();});
 it('never prepares outputs on another network',()=>{
  state.network='bitcoin';render(<Onboarding />);
  expect(screen.queryByRole('button',{name:'Prepare wallet'})).toBeNull();
@@ -22,4 +22,23 @@ it('syncs the network before rereading balances on manual refresh',async()=>{
  await waitFor(()=>expect(screen.getByRole('status').textContent).toContain('Wallet synced'));
  expect(state.sync).toHaveBeenCalledOnce();expect(state.refresh).toHaveBeenCalledOnce();
  expect(state.sync.mock.invocationCallOrder[0]).toBeLessThan(state.refresh.mock.invocationCallOrder[0]!);
+});
+
+it('shows funding before preparation when no spendable BTC is available',()=>{
+ state.spendable=0;render(<Onboarding />);
+ expect(screen.getByRole('link',{name:'Get test BTC ↗'})).toBeTruthy();
+ expect(screen.queryByRole('button',{name:'Prepare wallet'})).toBeNull();
+});
+it('takes a prepared wallet straight to offers and keeps setup explanations optional',()=>{
+ state.free=2;render(<Onboarding />);
+ expect(screen.getByRole('link',{name:'Explore offers ↓'})).toBeTruthy();
+ expect(screen.queryByRole('button',{name:'Prepare wallet'})).toBeNull();
+ expect(screen.queryByText('See the complete guide ↗')).toBeNull();
+ fireEvent.click(screen.getByRole('button',{name:'How do the apps work together? +'}));
+ expect(screen.getByText('See the complete guide ↗')).toBeTruthy();
+});
+it('gives a missing extension a setup route instead of an unusable connect button',()=>{
+ state.status='absent';render(<Onboarding />);
+ expect(screen.getByRole('link',{name:'Set up the extension ↗'}).getAttribute('href')).toBe('#learn');
+ expect(screen.queryByRole('button',{name:'Connect wallet'})).toBeNull();
 });
