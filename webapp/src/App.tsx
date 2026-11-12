@@ -2,7 +2,7 @@ import { lazy, Suspense, useEffect, useState } from 'react';
 import { Button, Card, CardContent } from 'kaleido-ui';
 import kaleidoMark from 'kaleido-ui/brand/kaleidoswap-pictogram.svg?url';
 import { useRgbP2pBook } from './api/rgbp2p';
-import { WebRgbProvider } from './api/webrgb';
+import { WebRgbProvider, useWebRgb } from './api/webrgb';
 import { SwapsProvider, type SwapRecord } from './api/swaps';
 import { Market } from './components/market/Market';
 import { MySwaps } from './components/market/MySwaps';
@@ -25,6 +25,13 @@ function readView(): View {
   return NAV.some(n => n.id === hash) ? hash as View : 'trade';
 }
 export function App() {
+  const [welcome, setWelcome] = useState(() => !window.location.hash || window.location.hash === '#welcome');
+  useEffect(() => {
+    const update = () => setWelcome(!window.location.hash || window.location.hash === '#welcome');
+    window.addEventListener('hashchange', update);
+    return () => window.removeEventListener('hashchange', update);
+  }, []);
+  if (welcome) return <Welcome />;
   return <WebRgbProvider><SwapsProvider><Shell /></SwapsProvider></WebRgbProvider>;
 }
 function Shell() {
@@ -58,7 +65,7 @@ function Shell() {
         </header>
         <nav className="mobile-nav" aria-label="Mobile navigation">{NAV.map(n => <a key={n.id} href={`#${n.id}`} aria-current={view === n.id ? 'page' : undefined}>{n.label}</a>)}</nav>
         <main id="main" tabIndex={-1} className="mosaik-content">
-          {view === 'trade' && <><div className="page-heading"><div><span className="eyebrow">RGB × BITCOIN</span><h1>Trade on your terms.</h1><p>Choose an asset. Review an offer. Approve in your wallet.</p></div><a className="text-link" href="#learn">How it works ↗</a></div><div className="preview-notice"><span aria-hidden="true">◈</span><p><strong>Test coins only.</strong> Mutinynet · TESTUSD and TESTXAU have no real-world value.</p></div><Market book={book} /></>}
+          {view === 'trade' && <><div className="page-heading"><div><span className="eyebrow">RGB × BITCOIN</span><h1>Trade on your terms.</h1><p>Choose an asset. Review an offer. Approve in your wallet.</p></div><a className="text-link" href="#learn">How it works ↗</a></div><div className="preview-notice"><span aria-hidden="true">◈</span><p><strong>Test coins only.</strong> Mutinynet · TESTUSD and TESTXAU have no real-world value.</p></div><TradingEntry><Market book={book} /></TradingEntry></>}
           {view === 'activity' && <><PageHeading eyebrow="YOUR TRADING HISTORY" title="Follow every trade." text="See what is waiting for approval, in progress or completed. Your wallet continues the swap if you close this page." /><Activity /></>}
           {view === 'wallet' && <><PageHeading eyebrow="SELF-CUSTODY" title="Your wallet, connected." text="Mosaik reads the balances you share. Keys, approvals and signing stay in your browser extension." /><WalletPanel /></>}
           {view === 'learn' && <Learn />}
@@ -70,7 +77,7 @@ function Shell() {
   );
 }
 function Brand() {
-  return <a href="#trade" className="mosaik-brand" aria-label="Mosaik home"><span className="mosaik-symbol" aria-hidden="true"><i /><i /><i /><i /></span><span>Mosaik<small>BY KALEIDOSWAP</small></span></a>;
+  return <a href="#welcome" className="mosaik-brand" aria-label="Mosaik home"><span className="mosaik-symbol" aria-hidden="true"><i /><i /><i /><i /></span><span>Mosaik<small>BY KALEIDOSWAP</small></span></a>;
 }
 function PageHeading({ eyebrow, title, text }: { eyebrow: string; title: string; text: string }) {
   return <div className="page-heading"><div><span className="eyebrow">{eyebrow}</span><h1>{title}</h1><p>{text}</p></div></div>;
@@ -99,4 +106,30 @@ function Labs() {
     <Card className="lab-card"><CardContent><div className="lab-symbol" aria-hidden="true">◇</div><span className="eyebrow">RESEARCH · LIQUID / SIMPLICITY</span><h2>Covenant DEX / Tessera</h2><p>An offer whose settlement rules are enforced by a covenant. This explores a different model from the interactive maker-and-wallet flow used by Mosaik’s RGB market.</p><div className="lab-state">Roadmap to be defined</div><p className="helper-copy">Separate wallet requirements, backend and network. No Covenant trading is enabled in this preview.</p>{LAB_ENABLED && <Button variant="secondary" onClick={() => setOpen(!open)}>{open ? 'Close research workspace' : 'Open research workspace'}</Button>}</CardContent></Card>
     {LAB_ENABLED && open && <Suspense fallback={<p>Loading research workspace…</p>}><CovenantWorkspace /></Suspense>}
   </>;
+}
+
+function Welcome() {
+  return <div className="welcome-page">
+    <header className="welcome-header"><Brand /><span className="welcome-badge"><span className="network-dot" /> Internal preview · Signet</span></header>
+    <main id="welcome-main" className="welcome-main">
+      <section className="welcome-hero" aria-labelledby="welcome-title">
+        <div className="welcome-copy"><span className="eyebrow">THE PEER-TO-PEER RGB MARKET</span><h1 id="welcome-title">Your wallet.<br />Your next <em>trade.</em></h1><p>Discover RGB assets. Trade directly with another participant, using your KaleidoSwap wallet.</p><Button variant="cta" onClick={() => { window.location.hash = 'trade'; }}>Enter Mosaik <span aria-hidden="true">↗</span></Button><span className="welcome-caption">Connect your wallet inside. Every trade needs your approval.</span></div>
+        <div className="welcome-art" aria-hidden="true"><div className="welcome-orbit" /><div className="welcome-tiles"><i /><i /><i /><i /></div><span className="asset-chip asset-usd">TESTUSD <small>Test dollar</small></span><span className="asset-chip asset-xau">TESTXAU <small>Test gold</small></span><span className="art-caption">RGB ASSETS · BITCOIN SETTLEMENT</span></div>
+      </section>
+      <section className="welcome-path" aria-label="Getting started">{[
+        ['01', 'Connect', 'Unlock KaleidoSwap in desktop Chrome and connect your wallet.'],
+        ['02', 'Get ready', 'Choose Mutinynet and fund your wallet with test coins. We’ll guide you.'],
+        ['03', 'Trade', 'Choose an offer, review the total and approve in your extension.'],
+      ].map(([number, title, copy]) => <div key={number}><span>{number}</span><h2>{title}</h2><p>{copy}</p></div>)}</section>
+      <div className="welcome-test-note"><span aria-hidden="true">◈</span><p><strong>A place to test, with test coins.</strong> TESTUSD and TESTXAU have no real-world value. This internal preview runs on Mutinynet, a custom Signet.</p><a href="#learn">How trading works ↗</a></div>
+    </main><footer className="welcome-footer"><span>Built with KaleidoSwap</span><span>Your keys stay in your wallet.</span></footer>
+  </div>;
+}
+function TradingEntry({ children }: { children: React.ReactNode }) {
+  const wallet = useWebRgb();
+  if (wallet.status === 'connected') return <>{children}</>;
+  return <Card className="wallet-entry"><CardContent><div className="entry-icon" aria-hidden="true">◫</div><span className="eyebrow">YOUR FIRST STEP</span><h2>Connect KaleidoSwap.</h2><p>Your wallet is your way in. Connect to see your balances and start trading.</p>
+    {wallet.status === 'absent' ? <><a className="btn-primary" href="#learn">Set up KaleidoSwap ↗</a><p className="helper-copy">Use desktop Chrome with the private extension supplied to testers. Already installed? Unlock it and reload this page.</p></> : <><Button variant="cta" disabled={wallet.status === 'connecting'} onClick={() => void wallet.connect()}>{wallet.status === 'connecting' ? 'Approve in KaleidoSwap…' : 'Connect KaleidoSwap'}</Button><p className="helper-copy">Unlock the extension, then approve this connection. No email or password is entered on Mosaik.</p></>}
+    {wallet.error && <p role="alert" className="entry-error">{wallet.error}</p>}<div className="entry-trust">Connecting does not authorize a trade.<br />You review and approve each swap in your wallet.</div><a className="text-link" href="#learn">New here? Follow the setup guide ↗</a>
+  </CardContent></Card>;
 }

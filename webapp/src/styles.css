@@ -224,3 +224,47 @@ a, button { -webkit-tap-highlight-color: transparent; }
 .journey-card.is-ready .journey-track { margin:14px 0; }
 .journey-card.is-ready .journey-action h2 { font-size:19px; margin-bottom:4px; }
 .journey-card.is-ready .journey-help { margin-top:10px; }
+
+/* Internal welcome: one clear route into the wallet-led trading flow. */
+.welcome-page { max-width: 1240px; margin: auto; padding: 0 48px; font-family: Satoshi, sans-serif; }
+.welcome-header, .welcome-footer { display:flex; justify-content:space-between; align-items:center; padding:30px 0; gap:20px; }
+.welcome-badge { display:flex; align-items:center; gap:9px; font-size:12px; color:#b3b8ca; border:1px solid #36384c; padding:9px 14px; border-radius:24px; }
+.welcome-hero { display:grid; grid-template-columns:1.15fr 1fr; align-items:center; min-height:510px; gap:40px; }
+.welcome-copy h1 { font-size:clamp(48px,6.3vw,82px); line-height:1.06; letter-spacing:-.055em; font-weight:700; margin:22px 0; }
+.welcome-copy h1 em { color:#15e99a; font-style:normal; }
+.welcome-copy > p { font-size:18px; line-height:1.7; color:#a8adc3; max-width:440px; margin-bottom:28px; }
+.welcome-copy button { min-height:50px; padding:0 24px; gap:32px; font-size:16px; }
+.welcome-caption { display:block; font-size:12px; line-height:1.6; color:#a8adc3; margin-top:14px; max-width:330px; }
+.welcome-art { position:relative; min-height:400px; display:grid; place-items:center; background:radial-gradient(ellipse,#20403855,transparent 68%); }
+.welcome-orbit { width:330px; height:330px; border:1px solid #15e99a22; border-radius:50%; position:absolute; }
+.welcome-orbit:after { content:''; position:absolute; inset:35px; border:1px dashed #15e99a33; border-radius:50%; }
+.welcome-tiles { display:grid; grid-template-columns:repeat(2,90px); gap:12px; transform:rotate(-12deg); }
+.welcome-tiles i { height:90px; border-radius:24px 24px 5px 24px; background:linear-gradient(145deg,#67f5c3,#15bb83); box-shadow:0 16px 45px #0004; }
+.welcome-tiles i:nth-child(2) { background:linear-gradient(140deg,#bdabfb,#7653cd); transform:rotate(90deg); }
+.welcome-tiles i:nth-child(3) { background:linear-gradient(140deg,#66687e,#33364e); transform:rotate(-90deg); }
+.welcome-tiles i:nth-child(4) { transform:rotate(180deg); }
+.asset-chip { position:absolute; background:#202332; border:1px solid #46495d; border-radius:14px; padding:14px 22px; font-weight:700; box-shadow:0 12px 35px #0005; }
+.asset-chip small { display:block; font-size:11px; color:#a8adc3; margin-top:3px; font-weight:400; }
+.asset-usd { top:58px; left:0; transform:rotate(-5deg); color:#60eab6; }
+.asset-xau { right:0; bottom:68px; transform:rotate(5deg); color:#e7cf92; }
+.art-caption { position:absolute; bottom:8px; font-size:10px; letter-spacing:.16em; color:#9ba3bd; }
+.welcome-path { display:grid; grid-template-columns:repeat(3,1fr); gap:32px; border-top:1px solid #36384c; padding:34px 0; }
+.welcome-path > div { position:relative; padding-left:42px; }
+.welcome-path > div > span { position:absolute; left:0; top:3px; color:#15e99a; font:12px 'Geist Mono',monospace; }
+.welcome-path h2 { font-size:19px; font-weight:600; margin-bottom:8px; }
+.welcome-path p { font-size:14px; line-height:1.6; color:#a8adc3; }
+.welcome-test-note { display:flex; align-items:center; gap:18px; padding:22px; border:1px solid #36384c; border-radius:16px; background:#191b28; }
+.welcome-test-note > span { color:#15e99a; font-size:26px; }
+.welcome-test-note p { flex:1; color:#a8adc3; font-size:12px; line-height:1.7; }
+.welcome-test-note strong { display:block; color:#e8e9f2; font-size:13px; }
+.welcome-test-note a { font-size:12px; white-space:nowrap; color:#15e99a; }
+.welcome-footer { color:#9ba3bd; font-size:11px; }
+.wallet-entry { max-width:620px; margin:36px auto; text-align:center; border:1px solid #41455b; background:radial-gradient(ellipse at top,#1e3d3544,transparent 65%),#191b28; }
+.wallet-entry > div { padding:40px 32px; }
+.entry-icon { color:#15e99a; font-size:38px; margin-bottom:18px; }
+.wallet-entry h2 { font-size:32px; font-weight:600; letter-spacing:-.03em; margin:10px 0; }
+.wallet-entry p { color:#b0b5c9; line-height:1.7; max-width:400px; margin:0 auto 24px; }
+.wallet-entry .helper-copy { margin:16px auto; font-size:12px; }
+.wallet-entry .entry-error { color:#fca5a5; overflow-wrap:anywhere; }
+.entry-trust { border-top:1px solid #36384c; padding-top:20px; margin:24px 0 18px; font-size:12px; color:#b0b5c9; line-height:1.8; }
+@media(max-width:760px) { .welcome-page { padding:0 24px; } .welcome-header { flex-wrap:wrap; padding:24px 0; } .welcome-badge { font-size:10px; } .welcome-hero { grid-template-columns:1fr; gap:12px; padding:32px 0; } .welcome-art { min-height:330px; max-width:400px; width:100%; margin:auto; } .welcome-orbit { width:280px; height:280px; } .welcome-path { grid-template-columns:1fr; gap:24px; } .welcome-test-note { flex-wrap:wrap; } .welcome-test-note a { margin-left:36px; } .welcome-footer { align-items:flex-start; font-size:10px; } .wallet-entry > div { padding:28px 20px; } }

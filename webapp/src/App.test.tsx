@@ -1,9 +1,10 @@
 import { act, cleanup, render, screen, fireEvent } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
 import type { ReactNode } from 'react';
+const wallet = vi.hoisted(() => ({ status: 'ready', connect: vi.fn(), error: undefined as string | undefined }));
 const research = vi.hoisted(() => ({ mounted: vi.fn() }));
 vi.mock('./api/rgbp2p', () => ({ useRgbP2pBook: () => ({ status: 'open', orders: [], fills: [] }) }));
-vi.mock('./api/webrgb', () => ({ WebRgbProvider: ({children}: {children: ReactNode}) => children }));
+vi.mock('./api/webrgb', () => ({ WebRgbProvider: ({children}: {children: ReactNode}) => children, useWebRgb: () => wallet }));
 vi.mock('./api/swaps', () => ({ SwapsProvider: ({children}: {children: ReactNode}) => children }));
 vi.mock('./components/market/Market', () => ({ Market: () => <div>Signet market</div> }));
 vi.mock('./components/market/MySwaps', () => ({ MySwaps: () => <div>Trade history</div> }));
@@ -12,7 +13,7 @@ vi.mock('./components/WalletButton', () => ({ WalletButton: () => <button>Connec
 vi.mock('./components/WalletPanel', () => ({ WalletPanel: () => <div>Wallet balances</div> }));
 vi.mock('./components/CovenantWorkspace', () => ({ default: () => { research.mounted(); return <div>Research trading</div>; } }));
 import { App } from './App';
-afterEach(() => { cleanup(); window.history.replaceState(null, '', '/'); vi.clearAllMocks(); });
+afterEach(() => { cleanup(); window.history.replaceState(null, '', '/'); vi.clearAllMocks(); wallet.status = 'ready'; wallet.error = undefined; });
 it('keeps Covenant disabled and unmounted in the Signet preview, including the Labs deep link', () => {
   window.history.replaceState(null, '', '#labs');
   render(<App />);
@@ -34,4 +35,27 @@ it('skip link focuses content without navigating away from the current view', ()
   fireEvent.click(screen.getByText('Skip to content'));
   expect(document.activeElement?.id).toBe('main');
   expect(window.location.hash).toBe('#learn');
+});
+
+it('starts with the welcome page, without mounting the market', () => {
+  render(<App />);
+  expect(screen.getByRole('heading', {name: /Your wallet/})).toBeTruthy();
+  expect(screen.queryByText('Signet market')).toBeNull();
+  fireEvent.click(screen.getByRole('button', {name: /Enter Mosaik/}));
+  expect(window.location.hash).toBe('#trade');
+  act(() => window.dispatchEvent(new HashChangeEvent('hashchange')));
+  expect(screen.getByRole('heading', {name: 'Connect KaleidoSwap.'})).toBeTruthy();
+  expect(wallet.connect).not.toHaveBeenCalled();
+});
+it('requires explicit wallet connection before displaying the market', () => {
+  window.history.replaceState(null, '', '#trade');
+  const { rerender } = render(<App />);
+  expect(screen.queryByText('Signet market')).toBeNull();
+  fireEvent.click(screen.getByRole('button', {name: 'Connect KaleidoSwap'}));
+  expect(wallet.connect).toHaveBeenCalledOnce();
+  wallet.status = 'connected'; rerender(<App />);
+  expect(screen.getByText('Signet market')).toBeTruthy();
+  wallet.status = 'ready'; wallet.error = 'Connection declined'; rerender(<App />);
+  expect(screen.queryByText('Signet market')).toBeNull();
+  expect(screen.getByRole('alert').textContent).toBe('Connection declined');
 });
