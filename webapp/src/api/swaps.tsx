@@ -35,6 +35,7 @@ export interface SwapRecord {
   updatedAt: number;
   state: SwapState;
   txid?: string;
+  recovery?: SwapStatus['recovery'];
   confirmations?: number;
   error?: { code: string; message: string };
   /** Balances when the swap was requested, to show what changed. */
@@ -142,6 +143,7 @@ export function SwapsProvider({ children }: { children: ReactNode }) {
             : {
                 ...r,
                 state: s.state,
+                recovery: s.recovery,
                 txid: s.txid ?? r.txid,
                 confirmations: s.confirmations ?? r.confirmations,
                 error: s.error ?? (s.state === 'failed' || s.state === 'expired' ? r.error : undefined),

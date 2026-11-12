@@ -416,6 +416,12 @@ function ProgressView({ record, order, now }: { record?: SwapRecord; order: Orde
           <div>
             <p className="text-body font-medium">The maker answered. Your wallet is signing or waiting for the broadcast.</p>
             <p className="text-caption text-content-secondary">If the connection drops after signing, the swap may still complete. Reconnect and reopen this swap; do not start another one to replace it.</p>
+            {elapsed >= MAKER_WAIT_SECONDS && <div className="mt-3 space-y-2 border-t border-border-subtle pt-3">
+              <p className="text-body font-medium">Recovery is waiting for the maker</p>
+              <p className="text-caption text-content-secondary">Keep your wallet unlocked and this swap open. The wallet retries the same operation; it does not create another trade. An expired offer does not invalidate a signature already sent.</p>
+              <p className="text-caption text-content-secondary">If the maker never returns, these inputs must stay reserved until a verified recovery is possible. Do not reset the wallet or restore only its seed: RGB history and the pending swap data are also needed.</p>
+              {record?.recovery?.candidateTxid && <p className="text-caption text-content-secondary break-all">Candidate transaction (not proof of broadcast): <span className="font-mono">{record.recovery.candidateTxid}</span></p>}
+            </div>}
           </div>
         </div>
       )}

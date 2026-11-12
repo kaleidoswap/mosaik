@@ -21,6 +21,7 @@ export type SwapState = 'awaiting_maker' | 'signing' | 'broadcast' | 'settled' |
 export interface SwapStatus {
   swapId: string;
   state: SwapState;
+  recovery?: { action: 'wait_for_maker'; canCancel: false; candidateTxid?: string };
   confirmations?: number;
   txid?: string;
   error?: { code: string; message: string };
