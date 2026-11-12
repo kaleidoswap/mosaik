@@ -2,7 +2,7 @@ import { lazy, Suspense, useEffect, useState } from 'react';
 import { Button, Card, CardContent } from 'kaleido-ui';
 import kaleidoMark from 'kaleido-ui/brand/kaleidoswap-pictogram.svg?url';
 import { useRgbP2pBook } from './api/rgbp2p';
-import { WebRgbProvider, useWebRgb } from './api/webrgb';
+import { WebRgbProvider } from './api/webrgb';
 import { SwapsProvider, type SwapRecord } from './api/swaps';
 import { Market } from './components/market/Market';
 import { MySwaps } from './components/market/MySwaps';
@@ -65,7 +65,7 @@ function Shell() {
         </header>
         <nav className="mobile-nav" aria-label="Mobile navigation">{NAV.map(n => <a key={n.id} href={`#${n.id}`} aria-current={view === n.id ? 'page' : undefined}>{n.label}</a>)}</nav>
         <main id="main" tabIndex={-1} className="mosaik-content">
-          {view === 'trade' && <><div className="trading-heading"><h1>Market</h1><a className="text-link" href="#learn">Trading guide ↗</a></div><nav className="swap-mode-nav" aria-label="Swap model"><a href="#trade" aria-current="page">Interactive <span>RGB · maker online</span></a><a href="#labs">Non-interactive <span>Liquid & Arkade · Labs ↗</span></a></nav><TradingEntry><Market book={book} /></TradingEntry></>}
+          {view === 'trade' && <><div className="trading-heading"><h1>Market</h1><a className="text-link" href="#learn">Trading guide ↗</a></div><Market book={book} /></>}
           {view === 'activity' && <><PageHeading eyebrow="YOUR TRADING HISTORY" title="Follow every trade." text="See what is waiting for approval, in progress or completed. Your wallet continues the swap if you close this page." /><Activity /></>}
           {view === 'wallet' && <><PageHeading eyebrow="SELF-CUSTODY" title="Your wallet, connected." text="Mosaik reads the balances you share. Keys, approvals and signing stay in your browser extension." /><WalletPanel /></>}
           {view === 'learn' && <Learn />}
@@ -105,7 +105,7 @@ function Labs() {
   const [open, setOpen] = useState(false);
   return <>
     <PageHeading eyebrow="KALEIDOSWAP LABS · NON-INTERACTIVE SWAPS" title="Fund an offer. Let the market come to you." text="Explore DEX offers whose spending rules are set in advance. Once an offer is funded and published, the maker does not need to come back online to sign a fill." />
-    <nav className="swap-mode-nav" aria-label="Swap model"><a href="#trade">Interactive <span>RGB · maker online ↗</span></a><a href="#labs" aria-current="page">Non-interactive <span>Liquid & Arkade · Labs</span></a></nav>
+
     <div className="labs-flow" aria-label="Non-interactive swap flow"><div><span>01</span><strong>Maker funds</strong><p>Lock the offered assets with the price and spend conditions.</p></div><div><span>02</span><strong>Offer stays available</strong><p>The maker can disconnect after funding and publication are complete.</p></div><div><span>03</span><strong>Taker fulfils</strong><p>Pay the required asset. The spending rules release the offered asset.</p></div></div>
     <div className="labs-dex-grid">
       <Card className="labs-dex-card"><CardContent><span className="eyebrow">LIQUID ASSETS · SIMPLICITY</span><h2>Covenant DEX / Tessera</h2><p>Exchange Liquid assets through a funded covenant UTXO. Settlement enforces the maker’s payment without a fresh maker signature.</p><div className="labs-facts"><span>Assets<strong>L-BTC & Liquid-issued assets</strong></span><span>Maker presence<strong>Offline after funding & publication</strong></span><span>Availability<strong>Integration pending · not enabled here</strong></span></div><details><summary>How settlement works</summary><p>The taker spends the offer under its covenant conditions. Liquid chain access and a compatible wallet are still required. An offer must remain unspent and valid; reclaim conditions are defined by the contract.</p></details>{LAB_ENABLED && <Button variant="secondary" onClick={() => { setBackend('liquid'); setOpen(true); }}>Open Liquid research workspace</Button>}</CardContent></Card>
@@ -133,12 +133,4 @@ function Welcome() {
       <div className="welcome-test-note"><span aria-hidden="true">◈</span><p><strong>A place to test, with test coins.</strong> TESTUSD and TESTXAU have no real-world value. This internal preview runs on Mutinynet, a custom Signet.</p><a href="#learn">How trading works ↗</a></div>
     </main><footer className="welcome-footer"><span>Built with KaleidoSwap</span><span>Your keys stay in your wallet.</span></footer>
   </div>;
-}
-function TradingEntry({ children }: { children: React.ReactNode }) {
-  const wallet = useWebRgb();
-  if (wallet.status === 'connected') return <>{children}</>;
-  return <Card className="wallet-entry"><CardContent><div className="entry-icon" aria-hidden="true">◫</div><span className="eyebrow">YOUR FIRST STEP</span><h2>Connect KaleidoSwap.</h2><p>Your wallet is your way in. Connect to see your balances and start trading.</p>
-    {wallet.status === 'absent' ? <><a className="btn-primary" href="#learn">Set up KaleidoSwap ↗</a><p className="helper-copy">Use desktop Chrome with the private extension supplied to testers. Already installed? Unlock it and reload this page.</p></> : <><Button variant="cta" disabled={wallet.status === 'connecting'} onClick={() => void wallet.connect()}>{wallet.status === 'connecting' ? 'Approve in KaleidoSwap…' : 'Connect KaleidoSwap'}</Button><p className="helper-copy">Unlock the extension, then approve this connection. No email or password is entered on Mosaik.</p></>}
-    {wallet.error && <p role="alert" className="entry-error">{wallet.error}</p>}<div className="entry-trust">Connecting does not authorize a trade.<br />You review and approve each swap in your wallet.</div><a className="text-link" href="#learn">New here? Follow the setup guide ↗</a>
-  </CardContent></Card>;
 }

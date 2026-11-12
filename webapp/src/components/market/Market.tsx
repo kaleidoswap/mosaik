@@ -5,7 +5,6 @@ import { snapshotOf, type OrderSnapshot, type SwapRecord } from '../../api/swaps
 import { useSwaps } from '../../api/swaps';
 import { useWebRgb } from '../../api/webrgb';
 import { useCatalog } from '../../api/catalog';
-import { Onboarding } from './Onboarding';
 import { useRegistry } from '../../api/registry';
 import { TakeModal } from '../TakeModal';
 import { btnPrimary, btnSecondary, Notice } from '../ui';
@@ -67,7 +66,6 @@ export function Market({ book }: { book: RgbBookState }) {
   return (
     <div className="flex flex-col gap-4">
       {book.error && <Notice tone="warning">We cannot refresh offers right now. Mosaik will reconnect automatically. Check your connection if this continues.</Notice>}
-      <Onboarding />
       {connected && <WalletNotices shown={shown} />}
       {catalog.isError && <Notice tone="warning">The curated catalog could not be refreshed. {catalog.data ? 'Showing the last loaded list.' : 'Offers can still be discovered; curated assets will return when the catalog is available.'}</Notice>}
       {eligible.length !== onNetwork.length && <Notice tone="warning">Some offers were hidden because their metadata conflicts with the curated asset identity.</Notice>}

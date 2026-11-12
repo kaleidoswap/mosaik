@@ -46,18 +46,13 @@ it('starts with the welcome page, without mounting the market', () => {
   fireEvent.click(screen.getByRole('button', {name: /Enter Mosaik/}));
   expect(window.location.hash).toBe('#trade');
   act(() => window.dispatchEvent(new HashChangeEvent('hashchange')));
-  expect(screen.getByRole('heading', {name: 'Connect KaleidoSwap.'})).toBeTruthy();
+  expect(screen.getByText('Signet market')).toBeTruthy();
   expect(wallet.connect).not.toHaveBeenCalled();
 });
-it('requires explicit wallet connection before displaying the market', () => {
+it('lets users browse the market without a wallet setup gate', () => {
   window.history.replaceState(null, '', '#trade');
-  const { rerender } = render(<App />);
-  expect(screen.queryByText('Signet market')).toBeNull();
-  fireEvent.click(screen.getByRole('button', {name: 'Connect KaleidoSwap'}));
-  expect(wallet.connect).toHaveBeenCalledOnce();
-  wallet.status = 'connected'; rerender(<App />);
+  render(<App />);
   expect(screen.getByText('Signet market')).toBeTruthy();
-  wallet.status = 'ready'; wallet.error = 'Connection declined'; rerender(<App />);
-  expect(screen.queryByText('Signet market')).toBeNull();
-  expect(screen.getByRole('alert').textContent).toBe('Connection declined');
+  expect(screen.getByRole('button', {name: 'Connect wallet'})).toBeTruthy();
+  expect(wallet.connect).not.toHaveBeenCalled();
 });
