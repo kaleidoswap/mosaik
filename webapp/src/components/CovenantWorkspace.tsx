@@ -8,8 +8,8 @@ import { MakeOfferForm } from './MakeOfferForm';
 import { TradeTape } from './TradeTape';
 import { SwapBoard } from './SwapBoard';
 import { RelayFeed } from './RelayFeed';
-export default function CovenantWorkspace() {
-  const [backend, setBackend] = useState<Backend>('liquid');
+export default function CovenantWorkspace({ initialBackend = 'liquid' }: { initialBackend?: Backend }) {
+  const [backend, setBackend] = useState<Backend>(initialBackend);
   const [activeMaker, setActiveMaker] = useState('user');
   const state = useApiState();
   const relay = useRelayFeed();

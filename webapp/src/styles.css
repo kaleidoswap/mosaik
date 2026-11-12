@@ -314,3 +314,30 @@ a, button { -webkit-tap-highlight-color: transparent; }
 @media(max-width:1100px) { .trading-workspace { grid-template-columns:minmax(0,1fr) 280px; } }
 @media(max-width:950px) { .trading-workspace { grid-template-columns:1fr; } .market-ticket { display:grid; grid-template-columns:1fr 1fr; } }
 @media(max-width:600px) { .market-ticket { display:flex; } .ready-strip small { display:none; } .maker-inline { flex-direction:column; align-items:flex-start; gap:6px; } .trade-chart header { flex-wrap:wrap; } .book-live { font-size:9px; } .view-switch button { padding:7px 9px; } }
+
+.swap-mode-nav { display:flex; gap:8px; margin:0 0 18px; padding:4px; border:1px solid #ffffff12; border-radius:12px; width:fit-content; max-width:100%; }
+.swap-mode-nav a { padding:9px 14px; border-radius:8px; color:#a7b2c7; font-size:13px; font-weight:600; }
+.swap-mode-nav a[aria-current=page] { background:#55e7a815; color:#7deaba; }
+.swap-mode-nav span { display:block; font-size:10px; font-weight:400; margin-top:2px; color:#a7b2c7; }
+.labs-flow { display:grid; grid-template-columns:repeat(3,1fr); gap:26px; padding:28px 0; margin-bottom:12px; }
+.labs-flow div { padding-left:38px; position:relative; }
+.labs-flow span { position:absolute; left:0; color:#75eaba; font:12px 'Geist Mono',monospace; top:3px; }
+.labs-flow strong { font-size:15px; font-weight:600; }
+.labs-flow p { color:#a7b2c7; font-size:12px; line-height:1.7; margin-top:8px; }
+.labs-dex-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:18px; }
+.labs-dex-card { border:1px solid #7878ad35; background:linear-gradient(140deg,#252535,#181d28); }
+.labs-dex-card>div { padding:28px; }
+.labs-dex-card h2 { font-size:25px; letter-spacing:-.6px; font-weight:650; margin:12px 0; }
+.labs-dex-card p { color:#aeb8cc; font-size:13px; line-height:1.75; }
+.labs-facts { display:grid; gap:14px; padding:22px 0; margin-top:14px; border-top:1px solid #ffffff12; }
+.labs-facts>span { font-size:11px; color:#9ca9c1; }
+.labs-facts strong { display:block; color:#e0e8f4; font-size:13px; margin-top:3px; font-weight:500; }
+.labs-dex-card details { border-top:1px solid #ffffff12; padding-top:15px; }
+.labs-dex-card summary { color:#c4b5fb; font-size:12px; cursor:pointer; }
+.labs-dex-card details p { margin-top:12px; font-size:12px; }
+.labs-scope { margin:28px 0; padding:24px; border:1px solid #ffffff12; border-radius:14px; }
+.labs-scope h2 { font-size:20px; font-weight:600; margin-bottom:14px; }
+.labs-scope p,.labs-readiness p { color:#aeb8cc; font-size:13px; line-height:1.75; margin-bottom:12px; }
+.labs-scope strong { color:#e0e8f4; }
+.labs-readiness { padding:18px; }
+@media(max-width:700px) { .labs-flow,.labs-dex-grid { grid-template-columns:1fr; } .labs-flow { gap:20px; } .labs-dex-card>div { padding:22px; } .swap-mode-nav a { padding:8px 10px; font-size:12px; } }

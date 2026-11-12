@@ -18,7 +18,9 @@ it('keeps Covenant disabled and unmounted in the Signet preview, including the L
   window.history.replaceState(null, '', '#labs');
   render(<App />);
   expect(screen.getByText('Covenant DEX / Tessera')).toBeTruthy();
-  expect(screen.queryByRole('button', {name: 'Open research workspace'})).toBeNull();
+  expect(screen.getByText('Arkade DEX / Banco')).toBeTruthy();
+  expect(screen.getAllByText('Integration pending · not enabled here')).toHaveLength(2);
+  expect(screen.queryByRole('button', {name: /Open .* research workspace/})).toBeNull();
   expect(research.mounted).not.toHaveBeenCalled();
 });
 it('responds to history navigation and explains full-order approval', () => {
