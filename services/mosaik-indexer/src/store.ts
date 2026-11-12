@@ -11,6 +11,7 @@ CREATE TABLE IF NOT EXISTS orders (
   maker TEXT NOT NULL, order_id TEXT NOT NULL,
   side TEXT NOT NULL, asset_id TEXT NOT NULL, amount INTEGER NOT NULL, price_sat INTEGER NOT NULL,
   expiry INTEGER NOT NULL, first_seen INTEGER NOT NULL, last_seen INTEGER NOT NULL,
+  received_at INTEGER NOT NULL,
   status TEXT NOT NULL, taken_at INTEGER, aborted INTEGER NOT NULL DEFAULT 0,
   terms TEXT NOT NULL, txid_hint TEXT,
   settle_state TEXT NOT NULL DEFAULT 'none', settlement TEXT,
@@ -39,6 +40,7 @@ interface OrderRow {
   expiry: number;
   first_seen: number;
   last_seen: number;
+  received_at: number;
   status: string;
   taken_at: number | null;
   aborted: number;
@@ -128,12 +130,12 @@ export class Store {
       const takenAt = o.status === 'taken' ? o.createdAt : null;
       this.db
         .prepare(
-          `INSERT INTO orders (maker, order_id, side, asset_id, amount, price_sat, expiry, first_seen, last_seen, status, taken_at,
-             terms, txid_hint, settle_state, next_check)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          `INSERT INTO orders (maker, order_id, side, asset_id, amount, price_sat, expiry, first_seen, last_seen, received_at, status,
+             taken_at, terms, txid_hint, settle_state, next_check)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         )
         .run(
-          o.maker, o.orderId, o.side, o.assetId, o.amount, o.priceSat, o.expiry, o.createdAt, o.createdAt, o.status, takenAt,
+          o.maker, o.orderId, o.side, o.assetId, o.amount, o.priceSat, o.expiry, o.createdAt, o.createdAt, now, o.status, takenAt,
           JSON.stringify(terms), o.txidHint,
           o.status === 'taken' ? 'pending' : 'none',
           o.status === 'taken' ? now : o.status === 'active' ? Math.max(now, o.expiry) + 600 : null,
@@ -156,7 +158,9 @@ export class Store {
       if (settleState === 'none') settleState = 'pending';
       nextCheck = now;
     }
-    if (o.status === 'cancelled') {
+    // p2pd never lists a taken order again (it relists the terms under a new `d`): `taken` followed
+    // by `active` or `cancelled` is a negotiation that did not finish
+    if (o.status === 'cancelled' || (o.status === 'active' && takenAt !== null)) {
       if (takenAt !== null && settleState !== 'settled') {
         aborted = 1;
         settleState = 'none';
@@ -216,6 +220,7 @@ export class Store {
       priceSat: r.price_sat,
       firstSeen: r.first_seen,
       lastSeen: r.last_seen,
+      receivedAt: r.received_at,
       takenAt: r.taken_at,
       aborted: r.aborted === 1,
       settleState: r.settle_state,

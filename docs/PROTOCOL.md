@@ -322,9 +322,9 @@ for the dev key and the open decision on the production key).
 | `counterparties` | integer | Distinct counterparties among them. |
 | `self_trades` | integer | Settled trades whose taker the chain links to the maker. |
 | `negotiations` | integer | Orders seen `taken`, or found settled, in the window. |
-| `aborted` | integer | Negotiations that did not finish: `taken` then `cancelled`, or `taken` with no settlement within 48 h. |
+| `aborted` | integer | Negotiations that did not finish: `taken` then `cancelled` (or `active`), or `taken` with no settlement within 48 h. |
 | `abort_rate` | `0.0000`–`1.0000` | `aborted / (aborted + every confirmed settlement)`, i.e. over resolved negotiations. Absent when there are none. |
-| `presence` | `0.0000`–`1.0000` | Share of 5-minute slots, while the indexer was watching, in which the maker published a 30053 event. Absent when the indexer watched no slot. |
+| `presence` | `0.0000`–`1.0000` | Share of 5-minute slots, while the indexer was watching, in which it received a fresh 30053 event from the maker (recorded at receive time; backdated events do not count). Absent when the indexer watched no slot. |
 | `verified` | `1` \| `0` | All badge thresholds met (thresholds are in the content; provisional). |
 | `expiration` | unix seconds | NIP-40, `created_at + 172800`: a score the indexer stops refreshing disappears. |
 
@@ -356,7 +356,9 @@ for the dev key and the open decision on the production key).
 }
 ```
 
-`aborted` in the tags is `negotiations.aborted + negotiations.unsettled`. Every `txid` in
+`aborted` in the tags is `negotiations.aborted + negotiations.unsettled`. A settlement transaction is credited to
+one order only: the one whose offer the indexer received first, dated before the transaction
+confirmed; copies of another maker's offer earn nothing. Every `txid` in
 `settlements` can be checked against Esplora by anyone.
 
 ### Verifying (clients)

@@ -22,8 +22,11 @@ export interface OrderRecord {
   assetId: string;
   amount: number;
   priceSat: number;
+  /** `created_at` of the first event of the order: the maker's own clock. */
   firstSeen: number;
   lastSeen: number;
+  /** When the indexer first received the order: its own clock. */
+  receivedAt: number;
   /** When a `taken` status was first seen: the maker accepted a taker's request. */
   takenAt: number | null;
   /** `taken`, then `cancelled`: the negotiation did not finish (p2pd's `release`). */
@@ -75,6 +78,36 @@ export interface MakerScore {
   verified: boolean;
   thresholds: Thresholds;
   settlements: SettledTrade[];
+}
+
+/**
+ * One settlement, one maker. Offers are public, so anyone can republish another maker's terms
+ * (receive script included) under their own key and point at that maker's swap. A transaction is
+ * credited only to the order whose offer the indexer received first, and only if that offer was
+ * dated before the transaction confirmed. Two claims received at the same time (both backfilled
+ * at start-up, say) are left to nobody. Orders that lose drop out of scoring altogether: they are
+ * neither trades nor aborts, and their scripts are not clustered.
+ */
+export function attributeSettlements(orders: OrderRecord[]): OrderRecord[] {
+  const claims = new Map<string, OrderRecord[]>();
+  for (const o of orders) {
+    if (o.settleState !== 'settled' || !o.settlement) continue;
+    const list = claims.get(o.settlement.txid) ?? [];
+    list.push(o);
+    claims.set(o.settlement.txid, list);
+  }
+  const losers = new Set<OrderRecord>();
+  for (const list of claims.values()) {
+    const plausible = list.filter((o) => o.settlement!.blockTime === null || o.firstSeen <= o.settlement!.blockTime);
+    for (const o of list) if (!plausible.includes(o)) losers.add(o);
+    if (plausible.length <= 1) continue;
+    const first = Math.min(...plausible.map((o) => o.receivedAt));
+    const winners = plausible.filter((o) => o.receivedAt === first);
+    const keep = winners.length === 1 ? winners[0] : null;
+    // the same maker listing the terms twice is still one trade: keep its earliest order only
+    for (const o of plausible) if (o !== keep) losers.add(o);
+  }
+  return orders.filter((o) => !losers.has(o));
 }
 
 /** Union-find over makers and scripts: inputs one transaction side signed share an owner. */

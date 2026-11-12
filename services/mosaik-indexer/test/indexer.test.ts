@@ -184,3 +184,24 @@ test('signing produces verifiable score and list events', async () => {
   assert.equal(again.some((e) => e.kind === 30055), false);
   assert.equal(store.published(30055)[0]?.id, list.id);
 });
+
+test('presence counts fresh events at receive time; backdated ones fill nothing', () => {
+  const { store, indexer } = setup(chainWith([]));
+  const now = T0 + 10 * 86_400;
+  indexer.ingest(offerEvent('order-8', 'active', now - 5 * 86_400), now); // written to look old
+  assert.deepEqual(store.presenceOf(maker.pubkey, 0), []);
+  indexer.ingest(offerEvent('order-8', 'active', now - 30), now);
+  assert.deepEqual(store.presenceOf(maker.pubkey, 0), [Math.floor(now / 300)]);
+});
+
+test('taken, then active again, is an abort and keeps no escape from the deadline', async () => {
+  const { store, indexer } = setup(chainWith([]));
+  indexer.ingest(offerEvent('order-9', 'taken', T0), T0);
+  indexer.ingest(offerEvent('order-9', 'active', T0 + 60), T0 + 60);
+  const [o] = store.scoredOrders();
+  assert.equal(o?.aborted, true);
+  // and the settlement check itself goes by takenAt, whatever the latest status
+  const job = { maker: maker.pubkey, orderId: 'y', status: 'active', expiry: T0 + 3600, takenAt: T0, lastSeen: T0 + 60,
+    terms: parseOffer(offerEvent('y', 'active', T0))!, txidHint: null, settleState: 'pending' as const, checks: 5 };
+  assert.equal((await checkOrder(job, chainWith([]), T0 + SETTLE_DEADLINE_SECS + 1)).state, 'unsettled');
+});

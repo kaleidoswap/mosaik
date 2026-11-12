@@ -6,7 +6,7 @@ import type { Chain } from './esplora.ts';
 import { isValidEvent, type NostrEvent, type Signer } from './nostr.ts';
 import { OFFER_KIND, PROTOCOL_TAG, parseOffer, tag } from './offers.ts';
 import { findSettlement, type EsploraTx, type SwapMatch } from './settlement.ts';
-import { BUCKET_SECS, WINDOW_SECS, buildClusters, scoreMaker, type MakerScore, type SettleState } from './scoring.ts';
+import { BUCKET_SECS, WINDOW_SECS, attributeSettlements, buildClusters, scoreMaker, type MakerScore, type SettleState } from './scoring.ts';
 import { CATALOG_KIND, catalogD, catalogTemplate, reputationTemplate } from './events.ts';
 import { parseCatalog } from './catalog.ts';
 import type { CheckJob, Store } from './store.ts';
@@ -46,8 +46,10 @@ export async function checkOrder(job: CheckJob, chain: Chain, now: number): Prom
   const m = findSettlement(job.terms, txs);
   if (m?.confirmed) return { state: 'settled', settlement: m, nextCheck: null };
   const backoff = Math.min(3600, 300 * 2 ** Math.min(job.checks, 4));
-  if (job.status === 'taken') {
-    const since = job.takenAt ?? job.lastSeen;
+  // decided by whether it was ever taken, not by its latest status: a maker cannot step out of the
+  // deadline by publishing another status afterwards
+  if (job.takenAt !== null) {
+    const since = job.takenAt;
     if (!m && now - since > SETTLE_DEADLINE_SECS) return { state: 'unsettled', settlement: null, nextCheck: null };
     return { state: 'pending', settlement: m, nextCheck: now + (m ? 600 : backoff) };
   }
@@ -79,7 +81,9 @@ export class Indexer {
     if (e.kind === OFFER_KIND) {
       const o = parseOffer(e);
       if (!o || o.network !== this.cfg.network) return 'ignored';
-      this.store.markPresent(o.maker, o.createdAt);
+      // presence is counted when the indexer receives a fresh event, never from the date the maker
+      // wrote: a backdated event cannot fill slots in which the maker was away
+      if (Math.abs(now - o.createdAt) <= BUCKET_SECS) this.store.markPresent(o.maker, now);
       const fresh = this.store.applyOffer(o, now);
       const last = Number(this.store.getMeta('last_offer_at') ?? 0);
       if (o.createdAt > last) this.store.setMeta('last_offer_at', String(o.createdAt));
@@ -141,7 +145,7 @@ export class Indexer {
   }
 
   scores(now = Math.floor(Date.now() / 1000)): MakerScore[] {
-    const orders = this.store.scoredOrders();
+    const orders = attributeSettlements(this.store.scoredOrders());
     const clusters = buildClusters(orders);
     const fromBucket = Math.floor((now - WINDOW_SECS) / BUCKET_SECS);
     const observed = this.store.coverage(fromBucket);

@@ -92,18 +92,27 @@ paying that script with that exact layout is the settlement; anything else is no
 [`src/settlement.ts`](src/settlement.ts). A `txid` tag on the offer, if p2pd adds one (proposal in
 PROTOCOL.md), is checked against the same layout and never trusted on its own.
 
+**One settlement, one maker.** Offers are public, so anyone can republish another maker's terms,
+receive script included, under their own key and claim that maker's swap. A transaction is credited
+only to the order the indexer *received* first (its own clock, not the event's `created_at`), and
+only if that offer is dated before the transaction confirmed. Claims received at the same moment
+(for example both backfilled at start-up) credit nobody. Losing claims are dropped from scoring:
+neither trades nor aborts, and not clustered.
+
 Orders are looked up when seen `taken` (then with backoff), and once after expiry when only `active`
 was ever seen (in case the `taken` update was missed).
 
 **Negotiations and aborts.** `taken` is published when the maker accepts a request, before any
-signature. `taken` followed by `cancelled` for the same order is an abort (p2pd's `release`: taker
+signature. `taken` followed by `cancelled` (or by `active`, which p2pd never does) for the same
+order is an abort (p2pd's `release`: taker
 abort, proposal timeout, rejected completion, restart). `taken` with no settlement found within
 48 hours is *unsettled*, counted with aborts. Abort rate = (aborted + unsettled) / (settled +
 aborted + unsettled). Orders still pending are left out until they resolve.
 
 **Presence.** Time is cut into 5-minute slots. A slot counts when the indexer was subscribed in it;
-the maker is present in it if it published any kind-30053 event (p2pd republishes every open offer
-every 60 s). Presence = present slots / watched slots. A maker with nothing open is not present.
+the maker is present in it if the indexer received a fresh kind-30053 event from it then (p2pd
+republishes every open offer every 60 s). Presence is recorded at receive time, and only for events
+dated within 5 minutes of it, so a backdated event cannot fill slots in which the maker was away. Presence = present slots / watched slots. A maker with nothing open is not present.
 
 **Counterparties and self-trades.** From the layout the indexer knows which inputs the maker signed
 and which the taker signed. It clusters coins by owner across all settled trades of all makers:

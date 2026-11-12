@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { BUCKET_SECS, DAY, buildClusters, presence, scoreMaker, type OrderRecord } from '../src/scoring.ts';
+import { BUCKET_SECS, DAY, attributeSettlements, buildClusters, presence, scoreMaker, type OrderRecord } from '../src/scoring.ts';
 import type { SwapMatch } from '../src/settlement.ts';
 
 const NOW = 1_800_000_000;
@@ -30,6 +30,7 @@ function settled(maker: string, opts: { taker: string[]; makerIn?: string[]; rec
     priceSat: opts.price ?? 10_000,
     firstSeen: at - 600,
     lastSeen: at - 60,
+    receivedAt: at - 600,
     takenAt: at - 120,
     aborted: false,
     settleState: 'settled',
@@ -48,6 +49,7 @@ function taken(maker: string, state: Partial<OrderRecord>): OrderRecord {
     priceSat: 10_000,
     firstSeen: NOW - DAY,
     lastSeen: NOW - DAY,
+    receivedAt: NOW - DAY,
     takenAt: NOW - DAY,
     aborted: false,
     settleState: 'pending',
@@ -156,4 +158,27 @@ test('verified needs every threshold', () => {
   assert.equal(scoreMaker(A, orders.slice(0, 2), c, { present: observed, observed }, NOW).verified, false, 'two trades');
   const one = [settled(A, { taker: [s(1)] }), settled(A, { taker: [s(1)] }), settled(A, { taker: [s(1)] })];
   assert.equal(scoreMaker(A, one, buildClusters(one), { present: observed, observed }, NOW).verified, false, 'one counterparty');
+});
+
+test('a copied offer cannot claim another maker\'s settlement', () => {
+  const real = settled(A, { taker: [s(1)] });
+  // B republishes A's terms under its own key, seen by the indexer later, and claims the same tx
+  const copy: OrderRecord = { ...real, maker: B, orderId: 'copy', receivedAt: real.receivedAt + 60 };
+  const kept = attributeSettlements([real, copy]);
+  assert.deepEqual(kept, [real]);
+  const c = buildClusters(kept);
+  assert.equal(scoreMaker(B, kept, c, allPresent, NOW).negotiations.settled, 0);
+  assert.equal(scoreMaker(A, kept, c, allPresent, NOW).volume.trades, 1);
+});
+
+test('two claims received at the same time credit nobody', () => {
+  const real = settled(A, { taker: [s(1)] });
+  const copy: OrderRecord = { ...real, maker: B, orderId: 'copy' };
+  assert.deepEqual(attributeSettlements([real, copy]), []);
+});
+
+test('an offer dated after its transaction confirmed is not credited', () => {
+  const late = settled(A, { taker: [s(1)] });
+  late.firstSeen = late.settlement!.blockTime! + 1;
+  assert.deepEqual(attributeSettlements([late]), []);
 });
