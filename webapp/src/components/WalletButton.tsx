@@ -17,8 +17,8 @@ export function WalletButton() {
 
   if (w.status === 'absent') {
     return (
-      <a className="btn-secondary" href="https://kaleidoswap.com" target="_blank" rel="noreferrer" title="The extension holds your keys and signs swaps">
-        Get the extension
+      <a className="btn-secondary" href="#learn" title="The extension holds your keys and signs swaps">
+        Set up wallet
       </a>
     );
   }

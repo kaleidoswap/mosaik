@@ -83,7 +83,7 @@ function Learn() {
   return <>
     <PageHeading eyebrow="A CLEAR PATH FROM OFFER TO OWNERSHIP" title="Trade directly. Stay in control." text="Mosaik brings offers together. The KaleidoSwap extension handles your wallet and the trade, while the maker runs the other side." />
     <div className="learn-grid">{[
-      ['01', 'Connect your wallet', 'Install the KaleidoSwap extension, unlock it and select the RGB wallet on Mutinynet. Only approve connections to sites you recognise.'],
+      ['01', 'Connect your wallet', 'Use desktop Chrome with the private KaleidoSwap extension build supplied to testers. Unlock it, choose RGB → Mutinynet, then return here and connect.'],
       ['02', 'Choose an offer', 'Compare the available buyers and sellers. Each offer has a fixed quantity and an expiry. You take the whole offer, not part of it.'],
       ['03', 'Review, then approve', 'Check the asset ID, quantity, fees and final total. Approval happens in your extension; connecting a wallet does not approve a trade.'],
       ['04', 'Follow the result', 'Watch the trade in Activity. The maker must stay online. If something interrupts the flow, reopen the trade and follow the recovery instructions.'],
