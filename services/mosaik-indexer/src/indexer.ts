@@ -7,7 +7,7 @@ import { isValidEvent, type NostrEvent, type Signer } from './nostr.ts';
 import { OFFER_KIND, PROTOCOL_TAG, parseOffer, tag } from './offers.ts';
 import { findSettlement, type EsploraTx, type SwapMatch } from './settlement.ts';
 import { BUCKET_SECS, WINDOW_SECS, attributeSettlements, buildClusters, scoreMaker, type MakerScore, type SettleState } from './scoring.ts';
-import { CATALOG_KIND, catalogD, catalogTemplate, reputationTemplate } from './events.ts';
+import { CATALOG_KIND, REPUTATION_KIND, REPUTATION_TTL_SECS, catalogD, catalogTemplate, reputationTemplate } from './events.ts';
 import { parseCatalog } from './catalog.ts';
 import type { CheckJob, Store } from './store.ts';
 import type { Config } from './config.ts';
@@ -156,9 +156,18 @@ export class Indexer {
     });
   }
 
-  /** Sign every maker's score and the curated list; publish them when publishing is on. */
+  /**
+   * Sign every maker's score and the curated list, and publish what changed. The relay rate-limits,
+   * so an event is re-signed only when it says something new (or a score nears its expiration),
+   * and each signed event is sent to the relay once.
+   */
   async signAndPublish(now = Math.floor(Date.now() / 1000)) {
-    const signed: NostrEvent[] = this.scores(now).map((s) => this.signer.sign(reputationTemplate(s, this.cfg.network, now)));
+    const signed: NostrEvent[] = [];
+    for (const s of this.scores(now)) {
+      const tpl = reputationTemplate(s, this.cfg.network, now);
+      const prev = this.store.published(REPUTATION_KIND, s.maker)[0];
+      if (!prev || prev.pubkey !== this.signer.pubkey || scoreChanged(prev, tpl, now)) signed.push(this.signer.sign(tpl));
+    }
     try {
       const catalog = parseCatalog(JSON.parse(readFileSync(this.cfg.catalogPath, 'utf8')));
       if (catalog.network !== this.cfg.network) throw new Error(`catalog is for ${catalog.network}`);
@@ -166,17 +175,25 @@ export class Indexer {
       // a list is re-signed only when it changed, so its created_at says when it last did
       const tpl = catalogTemplate(catalog, now);
       if (!prev || prev.content !== tpl.content || prev.pubkey !== this.signer.pubkey) signed.push(this.signer.sign(tpl));
-      else if (this.cfg.publish) signed.push(prev);
     } catch (err) {
       log.error('curated list not signed', { error: String(err) });
     }
-    for (const e of signed) {
-      this.store.savePublished(e);
-      if (!this.cfg.publish) continue;
-      const r = await this.relay.publish(e).catch((err) => ({ ok: false, message: String(err) }));
-      if (!r.ok) log.warn('publish refused', { kind: e.kind, d: tag(e, 'd'), message: r.message });
+    for (const e of signed) this.store.savePublished(e);
+    let sent = 0;
+    if (this.cfg.publish) {
+      // everything signed and not yet accepted by the relay, including a list signed while publishing was off
+      const pending = [...this.store.published(REPUTATION_KIND), ...this.store.published(CATALOG_KIND)].filter(
+        (e) => e.pubkey === this.signer.pubkey && this.store.getMeta(`relayed:${e.kind}:${tag(e, 'd')}`) !== e.id,
+      );
+      for (const e of pending) {
+        const r = await this.relay.publish(e).catch((err) => ({ ok: false, message: String(err) }));
+        if (r.ok) {
+          this.store.setMeta(`relayed:${e.kind}:${tag(e, 'd')}`, e.id);
+          sent++;
+        } else log.warn('publish refused', { kind: e.kind, d: tag(e, 'd'), message: r.message });
+      }
     }
-    log.info(this.cfg.publish ? 'signed and published' : 'signed (publishing is off)', { events: signed.length });
+    log.info('signing run', { signed: signed.length, published: sent, publishing: this.cfg.publish });
     return signed;
   }
 
@@ -200,3 +217,22 @@ export class Indexer {
   }
 }
 
+
+/** Tags whose drift alone is not worth a new event. */
+const VOLATILE = new Set(['expiration', 'presence']);
+const PRESENCE_STEP = 0.01;
+
+/**
+ * Whether a fresh score says something the published one does not: any count, the badge, a
+ * presence move of a point or more, or the old event being past half its lifetime.
+ */
+export function scoreChanged(prev: NostrEvent, next: { tags: string[][] }, now: number): boolean {
+  if (now - prev.created_at > REPUTATION_TTL_SECS / 2) return true;
+  const firm = (tags: string[][]) => JSON.stringify(tags.filter((t) => !VOLATILE.has(t[0]!)));
+  if (firm(prev.tags) !== firm(next.tags)) return true;
+  const p = (tags: string[][]) => tags.find((t) => t[0] === 'presence')?.[1];
+  const a = p(prev.tags);
+  const b = p(next.tags);
+  if (a === undefined || b === undefined) return a !== b;
+  return Math.abs(Number(a) - Number(b)) >= PRESENCE_STEP;
+}

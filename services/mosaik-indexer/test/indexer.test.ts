@@ -205,3 +205,15 @@ test('taken, then active again, is an abort and keeps no escape from the deadlin
     terms: parseOffer(offerEvent('y', 'active', T0))!, txidHint: null, settleState: 'pending' as const, checks: 5 };
   assert.equal((await checkOrder(job, chainWith([]), T0 + SETTLE_DEADLINE_SECS + 1)).state, 'unsettled');
 });
+
+test('scores are re-signed only when they change or near expiry', async () => {
+  const { indexer } = setup(chainWith([sellTx]));
+  indexer.ingest(offerEvent('order-10', 'taken', T0), T0);
+  await indexer.runChecks(T0 + 10);
+  const first = await indexer.signAndPublish(T0 + 1000);
+  assert.equal(first.filter((e) => e.kind === 30054).length, 1);
+  assert.equal((await indexer.signAndPublish(T0 + 1600)).length, 0, 'nothing new');
+  indexer.ingest(offerEvent('order-11', 'taken', T0 + 1700), T0 + 1700);
+  assert.equal((await indexer.signAndPublish(T0 + 1800)).filter((e) => e.kind === 30054).length, 1, 'a new negotiation');
+  assert.equal((await indexer.signAndPublish(T0 + 1800 + 86_401)).filter((e) => e.kind === 30054).length, 1, 'half its lifetime');
+});
