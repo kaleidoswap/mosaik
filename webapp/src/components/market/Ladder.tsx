@@ -4,12 +4,15 @@ import type { RgbOffer } from '../../api/rgbp2p';
 import { shortId } from '../../lib/format';
 import { fmtLeft, fmtPrice, fmtUnits } from '../../lib/units';
 import type { Level } from './book';
+import type { MakerMark } from './listing';
+import { MakerMarks } from './Marks';
 
 const ROWS = 4;
 const COLS = 'grid-cols-[1.1fr_1fr_1fr] md:grid-cols-[1.1fr_1fr_1fr_1fr_0.6fr]';
 
-function Row({ l, kind, max, ticker, nowSec, onPick }: { l: Level; kind: 'ask' | 'bid'; max: number; ticker: string; nowSec: number; onPick: (o: RgbOffer) => void }) {
+function Row({ l, kind, max, ticker, nowSec, onPick, markFor }: { l: Level; kind: 'ask' | 'bid'; max: number; ticker: string; nowSec: number; onPick: (o: RgbOffer) => void; markFor?: (maker: string) => MakerMark }) {
   const o = l.offer;
+  const mark = markFor?.(o.maker);
   return (
     <li>
       <button
@@ -23,7 +26,7 @@ function Row({ l, kind, max, ticker, nowSec, onPick }: { l: Level; kind: 'ask' |
         <span className={clsx('relative font-medium', kind === 'ask' ? 'text-status-danger' : 'text-status-success')}>{fmtPrice(l.price)}</span>
         <span className="relative text-right text-content-primary">{fmtUnits(o.amount, o.precision)}</span>
         <span className="relative text-right text-content-secondary">{o.priceSat.toLocaleString()}</span>
-        <span className="relative hidden text-right font-mono text-tiny text-content-tertiary md:block" title={o.maker}>{shortId(o.maker, 4, 4)}</span>
+        <span className="relative hidden items-center justify-end gap-1 text-right font-mono text-tiny text-content-tertiary md:flex" title={o.maker}>{mark && <MakerMarks mark={mark} compact />}{shortId(o.maker, 4, 4)}</span>
         <span className="relative hidden text-right text-tiny text-content-tertiary md:block">{fmtLeft(o.expiry, nowSec)}</span>
       </button>
     </li>
@@ -36,13 +39,15 @@ interface Props {
   ticker: string;
   nowSec: number;
   onPick: (o: RgbOffer) => void;
+  /** Verified-maker badge and issuer label for an order's maker. */
+  markFor?: (maker: string) => MakerMark;
 }
 
 /**
  * Depth ladder: sellers above, buyers below, the best price of each side next to the middle. Every row is
  * one maker's order and is taken whole; clicking one opens the review for it.
  */
-export function Ladder({ asks, bids, ticker, nowSec, onPick }: Props) {
+export function Ladder({ asks, bids, ticker, nowSec, onPick, markFor }: Props) {
   const [all, setAll] = useState(false);
   const shownAsks = all ? asks : asks.slice(0, ROWS);
   const shownBids = all ? bids : bids.slice(0, ROWS);
@@ -68,7 +73,7 @@ export function Ladder({ asks, bids, ticker, nowSec, onPick }: Props) {
       </div>
 
       <ul className="flex flex-col justify-end">
-        {shownAsks.length ? [...shownAsks].reverse().map((l) => <Row key={l.offer.key} l={l} kind="ask" max={max} ticker={ticker} nowSec={nowSec} onPick={onPick} />) : <li className="px-2 py-3 text-caption text-content-tertiary">No sellers right now</li>}
+        {shownAsks.length ? [...shownAsks].reverse().map((l) => <Row key={l.offer.key} l={l} kind="ask" max={max} ticker={ticker} nowSec={nowSec} onPick={onPick} markFor={markFor} />) : <li className="px-2 py-3 text-caption text-content-tertiary">No sellers right now</li>}
       </ul>
 
       <div className="my-1.5 flex items-baseline justify-between rounded-xl bg-surface-inset/25 px-3 py-2">
@@ -79,7 +84,7 @@ export function Ladder({ asks, bids, ticker, nowSec, onPick }: Props) {
       </div>
 
       <ul className="flex flex-col">
-        {shownBids.length ? shownBids.map((l) => <Row key={l.offer.key} l={l} kind="bid" max={max} ticker={ticker} nowSec={nowSec} onPick={onPick} />) : <li className="px-2 py-3 text-caption text-content-tertiary">No buyers right now</li>}
+        {shownBids.length ? shownBids.map((l) => <Row key={l.offer.key} l={l} kind="bid" max={max} ticker={ticker} nowSec={nowSec} onPick={onPick} markFor={markFor} />) : <li className="px-2 py-3 text-caption text-content-tertiary">No buyers right now</li>}
       </ul>
 
       {(hidden > 0 || all) && (asks.length > ROWS || bids.length > ROWS) && (

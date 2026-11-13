@@ -18,6 +18,9 @@ import { marketFills, marketStats } from './stats';
 import { PriceChart } from './PriceChart';
 import { TradeFeed } from './TradeFeed';
 import { TrustNotice } from './TrustNotice';
+import { useMakerScores } from '../../api/signed';
+import { listingOf, makerMark, marketMakers } from './listing';
+import { MarketMakers } from './Marks';
 
 /** The peer-to-peer market: an order book read from the relay, and a take flow that runs through the wallet. */
 export function Market({ book }: { book: RgbBookState }) {
@@ -44,6 +47,11 @@ export function Market({ book }: { book: RgbBookState }) {
   const { asks, bids } = useMemo(() => ladder(offers), [offers]);
   const ticker = market?.ticker ?? 'asset';
   const registry = useRegistry(shown);
+  const scores = useMakerScores(shown);
+  const listingFor = useMemo(() => (id: string) => listingOf(id, catalog.data, registry.data), [catalog.data, registry.data]);
+  const listing = market ? listingFor(market.assetId) : undefined;
+  const markFor = useMemo(() => (maker: string) => makerMark(maker, market?.assetId ?? '', catalog.data, scores.data), [market?.assetId, catalog.data, scores.data]);
+  const makers = useMemo(() => (market ? marketMakers(market.assetId, offers.map((o) => o.maker), catalog.data, scores.data) : undefined), [market, offers, catalog.data, scores.data]);
   const trust = useMemo(
     () => (market ? assetTrust({ assetId: market.assetId, ticker: market.ticker }, onNetwork, registry.data) : undefined),
     [market, onNetwork, registry.data],
@@ -67,6 +75,7 @@ export function Market({ book }: { book: RgbBookState }) {
     <div className="flex flex-col gap-4">
       {book.error && <Notice tone="warning">We cannot refresh offers right now. Mosaik will reconnect automatically. Check your connection if this continues.</Notice>}
       {connected && <WalletNotices shown={shown} />}
+      {catalog.data?.signedError && <Notice tone="info">The signed curated list could not be checked ({catalog.data.signedError}). Showing the bundled list; no market is marked Kaleido curated until the signature checks out.</Notice>}
       {catalog.isError && <Notice tone="warning">The curated catalog could not be refreshed. {catalog.data ? 'Showing the last loaded list.' : 'Offers can still be discovered; curated assets will return when the catalog is available.'}</Notice>}
       {eligible.length !== onNetwork.length && <Notice tone="warning">Some offers were hidden because their metadata conflicts with the curated asset identity.</Notice>}
       {registry.isError && <Notice tone="warning">RGBMap is unavailable. {registry.data ? 'Showing cached registry information; it may be out of date.' : 'Listing status is unknown, not unlisted.'}</Notice>}
@@ -92,18 +101,20 @@ export function Market({ book }: { book: RgbBookState }) {
             lastFill={lastFill ?? stats.last}
             stats={stats}
             orders={offers.length}
+            listingFor={listingFor}
           /></div>
-          {trust && market && (trust.level === 'warning' || trust.level === 'caution') && <TrustNotice trust={trust} assetId={market.assetId} />}
+          {trust && market && (trust.level === 'warning' || trust.level === 'caution' || listing?.tier === 'unlisted') && <TrustNotice trust={trust} assetId={market.assetId} listing={listing} />}
           <div className="trading-workspace">
             <div className="market-visuals">
               <div className="market-view-toolbar"><div role="group" aria-label="Market view" className="view-switch">{(['book', 'chart', 'both'] as const).map(value => <button key={value} aria-pressed={layout === value} onClick={() => chooseLayout(value)}>{value === 'book' ? 'Order book' : value === 'chart' ? 'Chart' : 'Both'}</button>)}</div><span className="book-live"><i className={book.status === 'open' ? 'online' : ''} />{book.status === 'open' ? 'Live orders' : 'Reconnecting'}</span></div>
-              {layout !== 'chart' && <Ladder asks={asks} bids={bids} ticker={ticker} nowSec={nowSec} onPick={take} />}
+              {layout !== 'chart' && <Ladder asks={asks} bids={bids} ticker={ticker} nowSec={nowSec} onPick={take} markFor={markFor} />}
               {layout !== 'book' && <PriceChart points={stats.points} ticker={ticker} />}
               <TradeFeed fills={fills} ticker={ticker} nowSec={nowSec} />
             </div>
             <div className="market-ticket"><Ticket ticker={ticker} precision={market?.precision ?? 0} asks={asks} bids={bids} nowSec={nowSec} onTake={take} /><MySwaps onOpen={open} /></div>
           </div>
-          {trust && market && trust.level !== 'warning' && trust.level !== 'caution' && <TrustNotice trust={trust} assetId={market.assetId} />}
+          {makers && <MarketMakers rows={makers.rows} sat={makers.sat} trades={makers.trades} ticker={ticker} scoresLoaded={!!scores.data} />}
+          {trust && market && trust.level !== 'warning' && trust.level !== 'caution' && listing?.tier !== 'unlisted' && <TrustNotice trust={trust} assetId={market.assetId} listing={listing} />}
           <div className="maker-inline"><span><strong>Want to list an asset?</strong> Publish an offer from the desktop app or run an automated p2pd maker. Keep it online to fill trades.</span><a href="#learn">Maker guide ↗</a></div>
         </>
       )}

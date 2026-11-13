@@ -54,6 +54,34 @@ deploy the image standalone (k8s, fly.io, …).
   friendly nudge to use the CLI for now.
 - **Trade tape**: settled trades this session.
 
+## Listing tiers, maker badges (RGB market)
+
+The RGB market reads two signed Nostr events from the relay and checks them in the browser
+(`src/api/signed.ts`; formats in `docs/PROTOCOL.md`, kinds 30054 and 30055):
+
+- **Listing tier** per market, by asset id only (`src/components/market/listing.ts`):
+  *Kaleido curated* (in the kind-30055 list and its signature checks against the list key),
+  *RGBMap listed* (in the registry), *Unlisted* (neither: shown with a warning and the asset id),
+  or *Listing unknown* (registry unreachable). If the signed list cannot be checked, the bundled
+  `/.well-known/rgb/tokens.json` is still used for names, but nothing is marked curated.
+- **Verified maker** badge from the signed kind-30054 score, with the page's own thresholds.
+- **Issuer** label when the signed list names the maker key under `issuer_makers` for that asset.
+- **Makers on this market**: open orders, settled trades, distinct counterparties and volume per
+  maker for this asset (30 days, verified on-chain, self-trades excluded).
+
+| Variable | Default | |
+|---|---|---|
+| `VITE_KALEIDO_LIST_PUBKEY` | Mutinynet dev key `0edf1c09…1937` | Key the curated list must be signed by |
+| `VITE_MOSAIK_INDEXER_PUBKEY` | same dev key | Key the maker scores must be signed by |
+| `VITE_VERIFIED_MIN_SETTLED` | `3` | Badge: settled trades with a distinct counterparty |
+| `VITE_VERIFIED_MIN_COUNTERPARTIES` | `2` | Badge: distinct counterparties |
+| `VITE_VERIFIED_MIN_PRESENCE` | `0.9` | Badge: presence over 30 days |
+| `VITE_VERIFIED_MAX_ABORT_RATE` | `0.2` | Badge: aborted negotiations |
+
+**Open decisions:** the badge thresholds above are provisional (design doc, "Open decisions"),
+and so is the production signing key for both events and where it is kept. The defaults are the
+Mutinynet development key, not a production identity.
+
 ## Theme tokens (Tailwind)
 
 - `ink-{400…900}` — the slate / void scale.

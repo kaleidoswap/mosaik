@@ -4,6 +4,7 @@ import type { RgbBookState, RgbOffer } from '../../api/rgbp2p';
 vi.mock('../../api/webrgb',()=>({useWebRgb:()=>({status:'connected',network:'signetcustom',canTake:true,balance:{spendable:100000,freeColorableUtxos:2},assets:[]})}));
 vi.mock('../../api/swaps',()=>({useSwaps:()=>({swaps:[]})}));
 vi.mock('../../api/catalog',()=>({useCatalog:()=>({})}));
+vi.mock('../../api/signed', () => ({ useMakerScores: () => ({ data: undefined }) }));
 vi.mock('../../api/registry',()=>({useRegistry:()=>({})}));
 vi.mock('./PairBar',()=>({PairBar:({selected}:{selected:{assetId:string}})=><div data-testid="selected-pair">{selected.assetId}</div>}));
 vi.mock('./MySwaps',()=>({MySwaps:()=>null}));
