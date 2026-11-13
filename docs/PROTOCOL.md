@@ -345,7 +345,7 @@ for the dev key and the open decision on the production key).
   "negotiations": { "taken": 6, "settled": 4, "aborted": 1, "unsettled": 0, "pending": 1, "abortRate": 0.2 },
   "volume": {
     "sat": 120000, "trades": 3, "counterparties": 2, "selfTrades": 1, "unattributedTrades": 0,
-    "byAsset": { "rgb:…": { "trades": 3, "amount": 300, "sat": 120000 } }   // amount in base units
+    "byAsset": { "rgb:…": { "trades": 3, "amount": 300, "sat": 120000, "counterparties": 2 } }   // amount in base units; counterparties distinct within the asset
   },
   "verified": true,
   "thresholds": { "minSettled": 3, "minCounterparties": 2, "minPresence": 0.9, "maxAbortRate": 0.2 },

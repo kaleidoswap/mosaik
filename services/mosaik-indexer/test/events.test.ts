@@ -26,7 +26,7 @@ const score: MakerScore = {
   firstSeen: NOW - 5 * 86_400,
   presence: { ratio: 0.9731, presentBuckets: 1401, observedBuckets: 1440, bucketSecs: 300 },
   negotiations: { taken: 6, settled: 4, aborted: 1, unsettled: 0, pending: 1, abortRate: 0.2 },
-  volume: { sat: 120_000, trades: 3, counterparties: 2, selfTrades: 1, unattributedTrades: 0, byAsset: { 'rgb:x': { trades: 3, amount: 300, sat: 120_000 } } },
+  volume: { sat: 120_000, trades: 3, counterparties: 2, selfTrades: 1, unattributedTrades: 0, byAsset: { 'rgb:x': { trades: 3, amount: 300, sat: 120_000, counterparties: 2 } } },
   verified: true,
   thresholds: DEFAULT_THRESHOLDS,
   settlements: [],

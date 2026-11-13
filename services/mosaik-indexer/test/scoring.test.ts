@@ -71,6 +71,7 @@ test('distinct counterparties: takers that share a coin are one counterparty', (
   assert.equal(score.volume.counterparties, 2);
   assert.equal(score.volume.sat, 30_000);
   assert.equal(score.volume.selfTrades, 0);
+  assert.deepEqual(score.volume.byAsset['rgb:demo-asset-0001'], { trades: 3, amount: 300, sat: 30_000, counterparties: 2 });
 });
 
 test('a taker paying with a coin the maker received is the maker itself', () => {

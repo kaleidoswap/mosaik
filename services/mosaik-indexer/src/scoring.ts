@@ -73,7 +73,8 @@ export interface MakerScore {
     counterparties: number;
     selfTrades: number;
     unattributedTrades: number;
-    byAsset: Record<string, { trades: number; amount: number; sat: number }>;
+    /** Per asset; `counterparties` is distinct within that asset. */
+    byAsset: Record<string, { trades: number; amount: number; sat: number; counterparties: number }>;
   };
   verified: boolean;
   thresholds: Thresholds;
@@ -196,6 +197,7 @@ export function scoreMaker(
   const self = clusters.find(`m:${maker}`);
   const counterparties = new Set<string>();
   const byAsset: MakerScore['volume']['byAsset'] = {};
+  const assetOwners = new Map<string, Set<string>>();
   let sat = 0;
   let trades = 0;
   let selfTrades = 0;
@@ -230,7 +232,11 @@ export function scoreMaker(
     counterparties.add(owner!);
     trades++;
     sat += o.priceSat;
-    const a = (byAsset[o.assetId] ??= { trades: 0, amount: 0, sat: 0 });
+    const a = (byAsset[o.assetId] ??= { trades: 0, amount: 0, sat: 0, counterparties: 0 });
+    const owners = assetOwners.get(o.assetId) ?? new Set<string>();
+    owners.add(owner!);
+    assetOwners.set(o.assetId, owners);
+    a.counterparties = owners.size;
     a.trades++;
     a.amount += o.amount;
     a.sat += o.priceSat;
