@@ -18,7 +18,7 @@ function Row({ l, kind, max, ticker, nowSec, onPick, markFor }: { l: Level; kind
       <button
         type="button"
         onClick={() => onPick(o)}
-        className={clsx('group relative grid w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-caption tabular-nums transition-colors hover:bg-surface-elevated focus-visible:bg-surface-elevated', COLS)}
+        className={clsx('group relative grid w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-caption tabular-nums transition-colors hover:bg-surface-elevated focus-visible:bg-surface-elevated', o.away && 'opacity-60', COLS)}
         title={`${kind === 'ask' ? 'Buy' : 'Sell'} ${fmtUnits(o.amount, o.precision)} ${ticker} for ${o.priceSat.toLocaleString()} sat. The whole order is taken at once.`}
         aria-label={`${kind === 'ask' ? 'Buy' : 'Sell'} ${fmtUnits(o.amount, o.precision)} ${ticker} at ${fmtPrice(l.price)} sat each, ${o.priceSat} sat total. Opens the review.`}
       >
@@ -26,7 +26,7 @@ function Row({ l, kind, max, ticker, nowSec, onPick, markFor }: { l: Level; kind
         <span className={clsx('relative font-medium', kind === 'ask' ? 'text-status-danger' : 'text-status-success')}>{fmtPrice(l.price)}</span>
         <span className="relative text-right text-content-primary">{fmtUnits(o.amount, o.precision)}</span>
         <span className="relative text-right text-content-secondary">{o.priceSat.toLocaleString()}</span>
-        <span className="relative hidden items-center justify-end gap-1 text-right font-mono text-tiny text-content-tertiary md:flex" title={o.maker}>{mark && <MakerMarks mark={mark} compact />}{shortId(o.maker, 4, 4)}</span>
+        <span className="relative hidden items-center justify-end gap-1 text-right font-mono text-tiny text-content-tertiary md:flex" title={o.maker}>{o.away && <span title="No sign of this maker for over 3 minutes. It must be online to finish the swap." className="rounded-full bg-status-warning-subtle px-1.5 font-sans text-status-warning">away</span>}{mark && <MakerMarks mark={mark} compact />}{shortId(o.maker, 4, 4)}</span>
         <span className="relative hidden text-right text-tiny text-content-tertiary md:block">{fmtLeft(o.expiry, nowSec)}</span>
       </button>
     </li>

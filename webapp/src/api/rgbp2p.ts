@@ -16,6 +16,32 @@ import { safeLabel } from '../lib/text';
 
 export const RGB_OFFER_KIND = 30053;
 export const RGB_PROTOCOL_TAG = 'rgb-psbt-v1';
+/** A maker's "I am around" event (p2pd docs/PROTOCOL.md): replaceable, one per key, sent every minute. */
+export const RGB_PRESENCE_KIND = 10053;
+
+/**
+ * Liveness, as p2pd defines it: a maker's last seen is the later of its presence event and the
+ * offer event's own time. Makers that predate presence events republish every offer every minute,
+ * so for them the offer's time alone keeps them online.
+ */
+export const AWAY_AFTER = 3 * 60;
+export const GONE_AFTER = 15 * 60;
+/** Offers are refreshed every 30 minutes: read two refreshes back, plus slack. */
+export const OFFER_WINDOW = 75 * 60;
+/** How far ahead of our clock a timestamp may be before it is not believed. */
+export const CLOCK_SKEW = 5 * 60;
+
+export type Liveness = 'online' | 'away' | 'gone';
+
+export function lastSeen(offerAt: number, presenceAt: number | undefined, now: number): number {
+  const ok = (t: number | undefined) => (t !== undefined && t <= now + CLOCK_SKEW ? Math.min(t, now) : 0);
+  return Math.max(ok(offerAt), ok(presenceAt));
+}
+
+export function liveness(seen: number, now: number): Liveness {
+  const ago = now - seen;
+  return ago > GONE_AFTER ? 'gone' : ago > AWAY_AFTER ? 'away' : 'online';
+}
 
 const DEFAULT_RELAY = import.meta.env.VITE_RGB_RELAY_URL ?? 'wss://relay.kaleidoswap.com';
 const MAX_EVENTS = 500;
@@ -45,6 +71,9 @@ export interface RgbOffer {
   networkFeeSat?: number;
   /** Sats the RGB output carries. */
   rgbOutputSat?: number;
+  /** Set by the book: when the maker was last seen, and whether that was over 3 minutes ago. */
+  lastSeen?: number;
+  away?: boolean;
 }
 
 const tag = (e: Event, name: string): string | undefined => e.tags.find((t) => t[0] === name)?.[1];
@@ -170,6 +199,8 @@ export interface RgbBookState {
   /** Orders makers report as taken, newest first. Self-reported. */
   fills: RgbFill[];
   error?: string;
+  /** Latest presence event per maker in the book (seconds). */
+  presence?: Map<string, number>;
 }
 
 /** The live book: newest event per order, expired and non-active ones dropped. */
@@ -194,7 +225,7 @@ export function useRgbP2pBook(relayUrl: string = DEFAULT_RELAY): RgbBookState {
     const pool = new SimplePool({ enablePing: true, enableReconnect: true });
     const sub = pool.subscribeMany(
       [relayUrl],
-      { kinds: [RGB_OFFER_KIND], '#t': [RGB_PROTOCOL_TAG], limit: MAX_EVENTS },
+      { kinds: [RGB_OFFER_KIND], '#t': [RGB_PROTOCOL_TAG], since: Math.floor(Date.now() / 1000) - OFFER_WINDOW, limit: MAX_EVENTS },
       {
         onevent(e: Event) {
           if (stopped) return;
@@ -249,12 +280,25 @@ export function useRgbP2pBook(relayUrl: string = DEFAULT_RELAY): RgbBookState {
     };
   }, [relayUrl, retry]);
 
+  // presence of the makers whose offers are in the book, and only theirs: one replaceable event per
+  // key, so keys outside the book cannot crowd them out
+  const makersKey = useMemo(
+    () => [...new Set([...byKey.values()].flatMap((v) => (v.offer ? [v.offer.maker] : [])))].sort().join(','),
+    [byKey],
+  );
+  const presence = usePresence(relayUrl, makersKey);
+
   const offers = useMemo(
     () =>
       [...byKey.values()]
         .map((v) => v.offer)
-        .filter((o): o is RgbOffer => o !== null && o.expiry > now),
-    [byKey, now],
+        .filter((o): o is RgbOffer => o !== null && o.expiry > now)
+        .map((o) => {
+          const seen = lastSeen(o.createdAt, presence.get(o.maker), now);
+          return { ...o, lastSeen: seen, away: liveness(seen, now) === 'away' };
+        })
+        .filter((o) => liveness(o.lastSeen, now) !== 'gone'),
+    [byKey, now, presence],
   );
 
   const fills = useMemo(
@@ -262,5 +306,47 @@ export function useRgbP2pBook(relayUrl: string = DEFAULT_RELAY): RgbBookState {
     [byKey],
   );
 
-  return { url: relayUrl, status, offers, fills, error };
+  return { url: relayUrl, status, offers, fills, error, presence };
+}
+
+/** Newest presence time per maker, for the makers listed in `makersKey` (comma-separated). */
+function usePresence(relayUrl: string, makersKey: string): Map<string, number> {
+  const [presence, setPresence] = useState<Map<string, number>>(new Map());
+  useEffect(() => {
+    if (!makersKey) return;
+    const authors = makersKey.split(',');
+    let stopped = false;
+    const pool = new SimplePool({ enablePing: true, enableReconnect: true });
+    // no `until` on a live subscription: it would filter out every event still to come
+    const sub = pool.subscribeMany(
+      [relayUrl],
+      { kinds: [RGB_PRESENCE_KIND], authors, '#t': [RGB_PROTOCOL_TAG], since: Math.floor(Date.now() / 1000) - GONE_AFTER },
+      {
+        onevent(e: Event) {
+          if (stopped || e.kind !== RGB_PRESENCE_KIND || tag(e, 't') !== RGB_PROTOCOL_TAG || !authors.includes(e.pubkey)) return;
+          if (e.created_at > Math.floor(Date.now() / 1000) + CLOCK_SKEW) return;
+          setPresence((prev) => {
+            if ((prev.get(e.pubkey) ?? 0) >= e.created_at) return prev;
+            const next = new Map(prev);
+            next.set(e.pubkey, e.created_at);
+            return next;
+          });
+        },
+      },
+    );
+    return () => {
+      stopped = true;
+      try {
+        sub.close();
+      } catch {
+        /* already closed */
+      }
+      try {
+        pool.close([relayUrl]);
+      } catch {
+        /* already closed */
+      }
+    };
+  }, [relayUrl, makersKey]);
+  return presence;
 }

@@ -7,6 +7,14 @@ import { useWebRgb } from '../api/webrgb';
 import { shortId } from '../lib/format';
 import { EXPLORER_TX, fmtClock, fmtLeft, fmtPrice, fmtUnits } from '../lib/units';
 import { btnPrimary, btnSecondary, CopyValue, Icon, Notice, Pill, Spinner } from './ui';
+import { liveness } from '../api/rgbp2p';
+
+/** What the page knows about the maker while the review is open: live, from the book. */
+export interface MakerStatus {
+  /** Seconds; undefined when the maker is no longer in the book and has sent no presence. */
+  lastSeen?: number;
+  verified?: boolean;
+}
 
 type View = 'review' | 'approve' | 'tracking' | 'problem';
 
@@ -20,7 +28,7 @@ const sat = (n: number) => `${n.toLocaleString()} sat`;
  * and runs the swap, and this dialog only shows what the wallet reports. Closing it never stops a swap
  * that is already running; it keeps going in the wallet and stays listed under "My swaps".
  */
-export function TakeModal({ order, swapId: existing, onClose }: { order: OrderSnapshot; swapId?: string; onClose: () => void }) {
+export function TakeModal({ order, swapId: existing, onClose, maker }: { order: OrderSnapshot; swapId?: string; onClose: () => void; maker?: MakerStatus }) {
   const wallet = useWebRgb();
   const swaps = useSwaps();
   const [view, setView] = useState<View>(existing ? 'tracking' : 'review');
@@ -204,7 +212,7 @@ export function TakeModal({ order, swapId: existing, onClose }: { order: OrderSn
           {shownProblem ? (
             <ProblemView problem={shownProblem} record={record} onClose={onClose} onRetry={shownProblem.retry && !existing ? () => { setProblem(undefined); setSwapId(undefined); setView('review'); } : undefined} />
           ) : view === 'review' ? (
-            <ReviewView order={o} checks={checks} nowSec={nowSec} />
+            <ReviewView order={o} checks={checks} nowSec={nowSec} maker={maker} />
           ) : view === 'approve' ? (
             <ApproveView />
           ) : state === 'settled' && record ? (
@@ -280,7 +288,23 @@ function Leg({ label, value, sub, tone }: { label: string; value: string; sub?: 
   );
 }
 
-function ReviewView({ order: o, checks, nowSec }: { order: OrderSnapshot; checks: ReturnType<typeof preflight>; nowSec: number }) {
+function MakerStatusLine({ maker, nowSec }: { maker?: MakerStatus; nowSec: number }) {
+  const seen = maker?.lastSeen;
+  const state = seen === undefined ? undefined : liveness(seen, nowSec);
+  const ago = seen === undefined ? undefined : Math.max(0, nowSec - seen);
+  const agoText = ago === undefined ? '' : ago < 60 ? 'just now' : `${Math.floor(ago / 60)} min ago`;
+  return (
+    <span className="inline-flex flex-wrap items-center justify-end gap-1.5">
+      {maker?.verified ? <Pill tone="success">Verified</Pill> : <Pill tone="warning">Not verified</Pill>}
+      {state === 'online' && <Pill tone="success">Online</Pill>}
+      {state === 'away' && <Pill tone="warning">Away</Pill>}
+      {state === 'gone' && <Pill tone="danger">Gone</Pill>}
+      <span className="hidden text-content-tertiary sm:inline">{seen === undefined ? 'not seen recently' : `last seen ${agoText}`}</span>
+    </span>
+  );
+}
+
+function ReviewView({ order: o, checks, nowSec, maker }: { order: OrderSnapshot; checks: ReturnType<typeof preflight>; nowSec: number; maker?: MakerStatus }) {
   const wallet = useWebRgb();
   const youBuy = o.side === 'sell';
   const ticker = o.ticker ?? 'asset';
@@ -320,10 +344,7 @@ function ReviewView({ order: o, checks, nowSec }: { order: OrderSnapshot; checks
           <CopyValue value={o.maker} shown={shortId(o.maker, 8, 6)} className="text-content-primary" />
         </Row>
         <Row label="Maker status">
-          <span className="inline-flex flex-wrap items-center justify-end gap-1.5">
-            <Pill tone="warning">Not verified</Pill>
-            <span className="hidden text-content-tertiary sm:inline">online status is not published</span>
-          </span>
+          <MakerStatusLine maker={maker} nowSec={nowSec} />
         </Row>
         <Row label="Order expires in" hint={new Date(o.expiry * 1000).toLocaleString()}>
           <span className={clsx('inline-flex items-center gap-1.5', left < 600 && 'text-status-warning')}><Icon name="clock" size={13} />{left > 0 ? fmtLeft(o.expiry, nowSec) : 'expired'}</span>

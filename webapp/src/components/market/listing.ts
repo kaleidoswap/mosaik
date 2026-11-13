@@ -84,6 +84,8 @@ export interface MarketMakerRow {
   sat: number;
   /** Distinct counterparties within this asset; undefined when the score predates the field. */
   counterparties?: number;
+  /** For a maker with open orders: online, or away (no sign for over 3 minutes). */
+  status?: 'online' | 'away';
 }
 
 /**
@@ -92,14 +94,15 @@ export interface MarketMakerRow {
  * within the asset. Volumes add up across makers; counterparties do not (one taker can trade with
  * several makers), so there is no market-wide counterparty total.
  */
-export function marketMakers(assetId: string, openMakers: string[], catalog: Catalog | undefined, scores: Map<string, MakerScore> | undefined, t?: Thresholds) {
+export function marketMakers(assetId: string, openMakers: string[], catalog: Catalog | undefined, scores: Map<string, MakerScore> | undefined, t?: Thresholds, away?: Set<string>) {
   const open = new Map<string, number>();
   for (const m of openMakers) open.set(m, (open.get(m) ?? 0) + 1);
   const makers = new Set([...open.keys(), ...[...(scores?.values() ?? [])].filter((s) => s.byAsset[assetId]).map((s) => s.maker)]);
   const rows: MarketMakerRow[] = [...makers].map((maker) => {
     const mark = makerMark(maker, assetId, catalog, scores, t);
     const v = mark.score?.byAsset[assetId];
-    return { maker, mark, open: open.get(maker) ?? 0, trades: v?.trades ?? 0, sat: v?.sat ?? 0, counterparties: v?.counterparties };
+    const n = open.get(maker) ?? 0;
+    return { maker, mark, open: n, trades: v?.trades ?? 0, sat: v?.sat ?? 0, counterparties: v?.counterparties, ...(n ? { status: away?.has(maker) ? 'away' as const : 'online' as const } : {}) };
   });
   rows.sort((a, b) => b.sat - a.sat || b.open - a.open || a.maker.localeCompare(b.maker));
   return { rows, trades: rows.reduce((n, r) => n + r.trades, 0), sat: rows.reduce((n, r) => n + r.sat, 0) };

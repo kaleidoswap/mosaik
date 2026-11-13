@@ -3,7 +3,7 @@
 Measured maker reputation for the Mosaik RGB↔BTC order book, and the signed Kaleido curated asset
 list. **Mutinynet (`signetcustom`) only**: the service refuses any other network.
 
-It reads kind-30053 offers (`t=rgb-psbt-v1`) and kind-30051 maker profiles from
+It reads kind-30053 offers (`t=rgb-psbt-v1`), kind-10053 maker presence, and kind-30051 maker profiles from
 `wss://relay.kaleidoswap.com`, verifies fills on `https://esplora.signet.kaleidoswap.com`, and
 signs:
 
@@ -110,8 +110,10 @@ abort, proposal timeout, rejected completion, restart). `taken` with no settleme
 aborted + unsettled). Orders still pending are left out until they resolve.
 
 **Presence.** Time is cut into 5-minute slots. A slot counts when the indexer was subscribed in it;
-the maker is present in it if the indexer received a fresh kind-30053 event from it then (p2pd
-republishes every open offer every 60 s). Presence is recorded at receive time, and only for events
+the maker is present in it if the indexer received a fresh event from it then: its kind-10053
+presence event (p2pd sends one a minute while it has open offers, and refreshes offers only every
+30 minutes), or a kind-30053 offer (makers before presence events republished every offer every
+minute). Presence events count only for keys that have listed offers. Presence is recorded at receive time, and only for events
 dated within 5 minutes of it, so a backdated event cannot fill slots in which the maker was away. Presence = present slots / watched slots. A maker with nothing open is not present.
 
 **Counterparties and self-trades.** From the layout the indexer knows which inputs the maker signed

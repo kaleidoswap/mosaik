@@ -84,6 +84,7 @@ export function MarketMakers({ rows, sat, trades, ticker, scoresLoaded, threshol
                 <td className="py-1.5">
                   <span className="mr-1.5 font-mono text-tiny text-content-secondary" title={r.maker}>{shortId(r.maker, 6, 4)}</span>
                   <MakerMarks mark={r.mark} thresholds={thresholds} />
+                  {r.status === 'away' && <span title="No sign of this maker for over 3 minutes" className="ml-1 rounded-full bg-status-warning-subtle px-1.5 text-tiny text-status-warning">away</span>}
                 </td>
                 <td className="py-1.5 text-right">{r.open}</td>
                 <td className="py-1.5 text-right">{r.trades}</td>

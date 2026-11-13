@@ -19,7 +19,8 @@ import { PriceChart } from './PriceChart';
 import { TradeFeed } from './TradeFeed';
 import { TrustNotice } from './TrustNotice';
 import { useMakerScores } from '../../api/signed';
-import { listingOf, makerMark, marketMakers } from './listing';
+import { isVerifiedMaker, listingOf, makerMark, marketMakers } from './listing';
+import { lastSeen } from '../../api/rgbp2p';
 import { MarketMakers } from './Marks';
 
 /** The peer-to-peer market: an order book read from the relay, and a take flow that runs through the wallet. */
@@ -51,7 +52,20 @@ export function Market({ book }: { book: RgbBookState }) {
   const listingFor = useMemo(() => (id: string) => listingOf(id, catalog.data, registry.data), [catalog.data, registry.data]);
   const listing = market ? listingFor(market.assetId) : undefined;
   const markFor = useMemo(() => (maker: string) => makerMark(maker, market?.assetId ?? '', catalog.data, scores.data), [market?.assetId, catalog.data, scores.data]);
-  const makers = useMemo(() => (market ? marketMakers(market.assetId, offers.map((o) => o.maker), catalog.data, scores.data) : undefined), [market, offers, catalog.data, scores.data]);
+  // a maker is away when every one of its orders here is: one fresh order means it is around
+  const awayMakers = useMemo(() => {
+    const online = new Set(offers.filter((o) => !o.away).map((o) => o.maker));
+    return new Set(offers.filter((o) => o.away && !online.has(o.maker)).map((o) => o.maker));
+  }, [offers]);
+  const makers = useMemo(() => (market ? marketMakers(market.assetId, offers.map((o) => o.maker), catalog.data, scores.data, undefined, awayMakers) : undefined), [market, offers, catalog.data, scores.data, awayMakers]);
+  // live status of the maker under review: from its order while in the book, else its presence alone
+  const reviewMaker = useMemo(() => {
+    if (!target) return undefined;
+    const live = book.offers.find((o) => o.key === target.order.key);
+    const presenceAt = book.presence?.get(target.order.maker);
+    const seen = live?.lastSeen ?? (presenceAt !== undefined ? lastSeen(0, presenceAt, nowSec) : undefined);
+    return { lastSeen: seen || undefined, verified: isVerifiedMaker(scores.data?.get(target.order.maker)) };
+  }, [target, book.offers, book.presence, nowSec, scores.data]);
   const trust = useMemo(
     () => (market ? assetTrust({ assetId: market.assetId, ticker: market.ticker }, onNetwork, registry.data) : undefined),
     [market, onNetwork, registry.data],
@@ -120,7 +134,7 @@ export function Market({ book }: { book: RgbBookState }) {
       )}
       {markets.length === 0 && connected && <MySwaps onOpen={open} />}
 
-      {target && <TakeModal key={target.swapId ?? target.order.key} order={target.order} swapId={target.swapId} onClose={() => setTarget(undefined)} />}
+      {target && <TakeModal key={target.swapId ?? target.order.key} order={target.order} swapId={target.swapId} maker={reviewMaker} onClose={() => setTarget(undefined)} />}
     </div>
   );
 }

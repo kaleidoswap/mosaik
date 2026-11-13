@@ -202,6 +202,10 @@ export class Store {
       .run(state, settlement ? JSON.stringify(settlement) : null, nextCheck, counted ? 1 : 0, maker, orderId);
   }
 
+  hasMaker(maker: string): boolean {
+    return this.db.prepare('SELECT 1 FROM orders WHERE maker = ? LIMIT 1').get(maker) !== undefined;
+  }
+
   makers(): string[] {
     return (this.db.prepare('SELECT DISTINCT maker FROM orders ORDER BY maker').all() as { maker: string }[]).map((r) => r.maker);
   }

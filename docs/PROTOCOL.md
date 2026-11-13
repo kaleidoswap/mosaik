@@ -271,6 +271,12 @@ last and is the only broadcaster, and the chain is the only source of truth.
 - The platform fee is part of the rgb-lib offer (`platformFeeSat`, `feeRecipientScriptPubkeyHex`)
   and is paid inside the swap transaction by the taker.
 
+Presence and liveness follow p2pd's `docs/PROTOCOL.md`: a maker sends a replaceable kind-10053
+event (`t=rgb-psbt-v1`, `network`, NIP-40 expiration 15 min, content `{"open_offers": n}`) every
+minute while it has open offers, and refreshes offers every 30 minutes. A maker's last seen is the
+later of its presence event and the offer's `created_at`; away after 3 minutes, gone (left out of
+the book) after 15. Clients read presence only for the makers whose offers are in the book.
+
 The swap messages (`request`, `proposal`, `completion`, `broadcast`, `abort`) are JSON carried in
 NIP-17 private messages (kind 1059 gift wraps), so the relay never sees PSBTs.
 
@@ -324,7 +330,7 @@ for the dev key and the open decision on the production key).
 | `negotiations` | integer | Orders seen `taken`, or found settled, in the window. |
 | `aborted` | integer | Negotiations that did not finish: `taken` then `cancelled` (or `active`), or `taken` with no settlement within 48 h. |
 | `abort_rate` | `0.0000`–`1.0000` | `aborted / (aborted + every confirmed settlement)`, i.e. over resolved negotiations. Absent when there are none. |
-| `presence` | `0.0000`–`1.0000` | Share of 5-minute slots, while the indexer was watching, in which it received a fresh 30053 event from the maker (recorded at receive time; backdated events do not count). Absent when the indexer watched no slot. |
+| `presence` | `0.0000`–`1.0000` | Share of 5-minute slots, while the indexer was watching, in which it received a fresh 10053 presence or 30053 offer event from the maker (recorded at receive time; backdated events do not count). Absent when the indexer watched no slot. |
 | `verified` | `1` \| `0` | All badge thresholds met (thresholds are in the content; provisional). |
 | `expiration` | unix seconds | NIP-40, `created_at + 172800`: a score the indexer stops refreshing disappears. |
 

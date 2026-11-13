@@ -217,3 +217,18 @@ test('scores are re-signed only when they change or near expiry', async () => {
   assert.equal((await indexer.signAndPublish(T0 + 1800)).filter((e) => e.kind === 30054).length, 1, 'a new negotiation');
   assert.equal((await indexer.signAndPublish(T0 + 1800 + 86_401)).filter((e) => e.kind === 30054).length, 1, 'half its lifetime');
 });
+
+test('a fresh kind-10053 presence event counts for a maker in the book', () => {
+  const { store, indexer } = setup(chainWith([]));
+  const now = T0 + 20 * 86_400;
+  const presence = (at: number, key = maker, network = 'signetcustom') =>
+    key.sign({ kind: 10053, created_at: at, content: '{"open_offers":1}', tags: [['t', 'rgb-psbt-v1'], ['network', network]] });
+  // not yet a maker the indexer knows: ignored
+  assert.equal(indexer.ingest(presence(now), now), 'ignored');
+  indexer.ingest(offerEvent('order-12', 'active', now - 1800), now); // a 30-minute-old offer counts nothing
+  assert.deepEqual(store.presenceOf(maker.pubkey, 0), []);
+  assert.equal(indexer.ingest(presence(now - 30), now), 'presence');
+  assert.deepEqual(store.presenceOf(maker.pubkey, 0), [Math.floor(now / 300)]);
+  assert.equal(indexer.ingest(presence(now - 3600), now + 60), 'ignored', 'stale');
+  assert.equal(indexer.ingest(presence(now, maker, 'bitcoin'), now), 'ignored', 'other network');
+});

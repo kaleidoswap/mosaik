@@ -15,6 +15,11 @@ import { log } from './log.ts';
 
 export const PROFILE_KIND = 30051;
 export const PROFILE_D = 'mosaik-maker';
+/**
+ * p2pd's presence event (p2pd docs/PROTOCOL.md): replaceable, one per maker key, sent every minute
+ * while the maker has open offers; offers themselves are refreshed only every 30 minutes.
+ */
+export const PRESENCE_KIND = 10053;
 /** A maker that says `taken` and shows no settlement within this long is counted as unsettled. */
 export const SETTLE_DEADLINE_SECS = 48 * 3600;
 const MAX_FUTURE_SECS = 600;
@@ -76,7 +81,7 @@ export class Indexer {
   }
 
   /** Fold one relay event in. Returns what it was taken as, for logs and tests. */
-  ingest(e: NostrEvent, now = Math.floor(Date.now() / 1000)): 'offer' | 'profile' | 'stale' | 'ignored' {
+  ingest(e: NostrEvent, now = Math.floor(Date.now() / 1000)): 'offer' | 'presence' | 'profile' | 'stale' | 'ignored' {
     if (!isValidEvent(e) || e.created_at > now + MAX_FUTURE_SECS) return 'ignored';
     if (e.kind === OFFER_KIND) {
       const o = parseOffer(e);
@@ -88,6 +93,14 @@ export class Indexer {
       const last = Number(this.store.getMeta('last_offer_at') ?? 0);
       if (o.createdAt > last) this.store.setMeta('last_offer_at', String(o.createdAt));
       return fresh ? 'offer' : 'stale';
+    }
+    if (e.kind === PRESENCE_KIND) {
+      // only for makers whose offers the indexer has seen, the same rule clients follow; a key that
+      // never listed an offer gets no score, so its presence would only take up room
+      if (tag(e, 't') !== PROTOCOL_TAG || tag(e, 'network') !== this.cfg.network) return 'ignored';
+      if (Math.abs(now - e.created_at) > BUCKET_SECS || !this.store.hasMaker(e.pubkey)) return 'ignored';
+      this.store.markPresent(e.pubkey, now);
+      return 'presence';
     }
     if (e.kind === PROFILE_KIND && tag(e, 'd') === PROFILE_D) {
       try {
@@ -102,7 +115,7 @@ export class Indexer {
   }
 
   subscribe(onBackfilled?: () => void) {
-    let pending = 2;
+    let pending = 3;
     const done = () => {
       if (--pending === 0) onBackfilled?.();
     };
@@ -113,6 +126,12 @@ export class Indexer {
         const last = Number(this.store.getMeta('last_offer_at') ?? 0);
         return { kinds: [OFFER_KIND], '#t': [PROTOCOL_TAG], ...(last ? { since: last - 3600 } : {}), limit: 500 };
       },
+      onEvent: (e) => this.ingest(e),
+      onEose: done,
+    });
+    this.relay.subscribe({
+      id: 'presence',
+      filter: () => ({ kinds: [PRESENCE_KIND], '#t': [PROTOCOL_TAG], since: Math.floor(Date.now() / 1000) - BUCKET_SECS }),
       onEvent: (e) => this.ingest(e),
       onEose: done,
     });
