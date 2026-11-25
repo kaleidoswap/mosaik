@@ -13,9 +13,10 @@ wallet** to create two 10,000-sat RGB allocation outputs after you approve the
 transaction on the phone. Taking peer-to-peer orders still requires the
 KaleidoSwap extension.
 
-To enable the button, set `VITE_WALLETCONNECT_PROJECT_ID` to your public Reown
-project ID before building and add the preview origin to the project's allowlist.
-For a GitHub Actions image build, set the repository variable of the same name.
+The QR uses Nostr Wallet Auth. Rate sends the approved requests over Nostr Wallet
+Connect on the KaleidoSwap relay. Each connection is scoped to Mutinynet and
+expires after one hour. Closing or reloading the page requires a new QR.
+The browser keeps its connection key in memory.
 
 ## Stack
 

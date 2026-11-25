@@ -6,7 +6,7 @@ set -eu
 : "${MOSAIK_API_HOST:=mosaik-api}"
 : "${MOSAIK_API_PORT:=8080}"
 # Relay origins the page may open WebSockets to, space separated (CSP connect-src).
-: "${MOSAIK_CONNECT_SRC:=wss://relay.kaleidoswap.com https://api.rgbmap.org wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com}"
+: "${MOSAIK_CONNECT_SRC:=wss://relay.kaleidoswap.com https://api.rgbmap.org}"
 export MOSAIK_API_HOST MOSAIK_API_PORT MOSAIK_CONNECT_SRC
 
 envsubst '${MOSAIK_API_HOST} ${MOSAIK_API_PORT}' \

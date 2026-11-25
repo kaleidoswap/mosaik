@@ -42,8 +42,6 @@ services:
     build:
       context: ../webapp
       dockerfile: Dockerfile
-      args:
-        VITE_WALLETCONNECT_PROJECT_ID: ${VITE_WALLETCONNECT_PROJECT_ID:-}
     container_name: mosaik-webapp
     restart: unless-stopped
     depends_on:

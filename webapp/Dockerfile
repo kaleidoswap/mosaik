@@ -25,7 +25,6 @@ COPY tsconfig.json vite.config.ts tailwind.config.js postcss.config.js index.htm
 COPY src ./src
 COPY public ./public
 
-ARG VITE_WALLETCONNECT_PROJECT_ID
 RUN npm run build
 
 # ─── runtime ─────────────────────────────────────────────────────────────────

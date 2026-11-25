@@ -27,7 +27,7 @@ export function WalletButton() {
           <div role="dialog" aria-label="Connect phone wallet" className="absolute right-0 top-full z-30 mt-2 w-64 rounded-xl border border-border-default bg-surface-overlay p-4 shadow-xl">
             {w.phone.uri ? <>
               <p className="mb-3 text-sm">Scan with Rate and approve the Mutinynet connection.</p>
-              <QRCodeSVG value={w.phone.uri} size={214} marginSize={4} title="WalletConnect pairing code" />
+              <QRCodeSVG value={w.phone.uri} size={214} marginSize={4} title="Nostr Wallet Auth pairing code" />
             </> : <p role="status" className="text-sm">{w.phone.error ?? 'Waiting for phone wallet…'}</p>}
             <button type="button" className="btn-secondary mt-3" onClick={w.phone.disconnect}>Cancel</button>
           </div> :

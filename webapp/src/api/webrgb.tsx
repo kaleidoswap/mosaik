@@ -1,9 +1,9 @@
 /**
  * The extension announces a provider or injects window.rgb. Phone wallets grant access
- * through WebRGB over WalletConnect. Both providers keep keys and approvals in the wallet.
+ * through Nostr Wallet Connect. Both providers keep keys and approvals in the wallet.
  */
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { usePhoneWallet, phoneWalletConfigured } from './phoneWallet';
+import { usePhoneWallet } from './phoneWallet';
 import type { RgbTakerProvider } from './rgbWallet';
 
 export interface WalletAsset {
@@ -47,7 +47,7 @@ interface WalletApi {
   connect: () => Promise<boolean>;
   disconnect: () => void;
   refresh: () => Promise<void>;
-  phone?: ReturnType<typeof usePhoneWallet>;
+  phone: ReturnType<typeof usePhoneWallet>;
 }
 
 export type BrowserProvider = RgbTakerProvider & {
@@ -143,6 +143,7 @@ export function WebRgbProvider({ children }: { children: ReactNode }) {
       // signetcustom. An injected wallet supplies its own swap network independently.
       if (active.current !== provider) return;
       setNetwork(p2pNet ?? (provider === phone.provider && info?.network === 'mutinynet' ? 'signetcustom' : undefined));
+      setError(undefined);
       setWalletLabel(info?.network);
       if (bal) {
         setBalance(toBalance(bal));
@@ -212,7 +213,7 @@ export function WebRgbProvider({ children }: { children: ReactNode }) {
       status: phone.provider ? 'connected' : phone.busy ? 'connecting' : status,
       provider, walletName: phone.provider ? 'Phone wallet' : walletName, network, walletLabel, balance, assets,
       error: phone.error ?? error, p2pProblem, canTake: !!provider?.p2pSwap, connect,
-      disconnect: phone.provider ? phone.disconnect : disconnect, refresh, phone: phoneWalletConfigured ? phone : undefined,
+      disconnect: phone.provider ? phone.disconnect : disconnect, refresh, phone,
     }),
     [status, provider, walletName, network, walletLabel, balance, assets, error, p2pProblem, connect, disconnect, refresh, phone],
   );

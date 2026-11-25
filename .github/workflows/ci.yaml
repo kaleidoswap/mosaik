@@ -15,7 +15,7 @@ on:
       - "feat/**"
 
 env:
-  RUST_TOOLCHAIN: "1.86"
+  RUST_TOOLCHAIN: "1.88"
   NODE_VERSION: "22.12"
   CARGO_TERM_COLOR: always
 
@@ -137,7 +137,6 @@ jobs:
         with:
           context: ${{ matrix.image.context }}
           file: ${{ matrix.image.dockerfile }}
-          build-args: ${{ matrix.image.name == 'mosaik-webapp' && format('VITE_WALLETCONNECT_PROJECT_ID={0}', vars.VITE_WALLETCONNECT_PROJECT_ID) || '' }}
           push: false
           load: true
           tags: ${{ matrix.image.name }}:ci
