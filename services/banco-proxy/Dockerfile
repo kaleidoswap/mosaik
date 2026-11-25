@@ -35,9 +35,9 @@ WORKDIR /app
 # Manifests + the postinstall patcher first so install caches across
 # source-only edits. The patcher needs to exist before `pnpm install` runs
 # its postinstall hook.
-COPY package.json tsconfig.json pnpm-workspace.yaml ./
+COPY package.json tsconfig.json pnpm-workspace.yaml pnpm-lock.yaml ./
 COPY scripts ./scripts
-RUN pnpm install --frozen-lockfile=false
+RUN pnpm install --frozen-lockfile
 
 COPY src ./src
 RUN pnpm run build
