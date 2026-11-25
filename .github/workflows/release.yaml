@@ -74,6 +74,7 @@ jobs:
         with:
           context: ${{ matrix.image.context }}
           file: ${{ matrix.image.dockerfile }}
+          build-args: ${{ matrix.image.name == 'mosaik-webapp' && format('VITE_WALLETCONNECT_PROJECT_ID={0}', vars.VITE_WALLETCONNECT_PROJECT_ID) || '' }}
           push: true
           platforms: linux/amd64,linux/arm64
           tags: ${{ steps.meta.outputs.tags }}

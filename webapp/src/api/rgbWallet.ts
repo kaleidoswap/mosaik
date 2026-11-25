@@ -43,9 +43,10 @@ export interface RgbTakerProvider {
   };
 }
 
-declare global {
-  interface Window {
-    rgb?: RgbTakerProvider;
+// The extension adds its interactive swap protocol to the standard WebRGB provider.
+declare module '@utexo/webrgb' {
+  interface RgbProvider {
+    p2pSwap?: RgbTakerProvider['p2pSwap'];
   }
 }
 

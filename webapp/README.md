@@ -5,6 +5,18 @@ drives `mosaik-api` over JSON-REST. Ships as `mosaik-webapp:dev` (nginx
 on top of the Vite build), wired into `docker/compose.yaml` and exposed
 on `:5173` in dev / prod.
 
+## Phone wallets on the Mutinynet preview
+
+Choose **Connect phone** in the header and scan the QR in Rate. On the **Wallet**
+tab, view your BTC and RGB balances. A funded phone wallet can use **Prepare
+wallet** to create two 10,000-sat RGB allocation outputs after you approve the
+transaction on the phone. Taking peer-to-peer orders still requires the
+KaleidoSwap extension.
+
+To enable the button, set `VITE_WALLETCONNECT_PROJECT_ID` to your public Reown
+project ID before building and add the preview origin to the project's allowlist.
+For a GitHub Actions image build, set the repository variable of the same name.
+
 ## Stack
 
 | | |
