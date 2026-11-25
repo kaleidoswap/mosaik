@@ -16,6 +16,7 @@
     "node": ">=22.12.0"
   },
   "dependencies": {
+    "qrcode.react": "4.2.0",
     "@tanstack/react-query": "^5.62.0",
     "clsx": "^2.1.1",
     "kaleido-ui": "0.2.6",

@@ -1,4 +1,5 @@
 import clsx from 'clsx';
+import { QRCodeSVG } from 'qrcode.react';
 import { useEffect, useRef, useState } from 'react';
 import { useWebRgb } from '../api/webrgb';
 import { fmtSats } from '../lib/format';
@@ -15,20 +16,23 @@ export function WalletButton() {
     return () => document.removeEventListener('mousedown', close);
   }, [open]);
 
-  if (w.status === 'absent') {
-    return (
-      <a className="btn-secondary" href="#learn" title="The extension holds your keys and signs swaps">
-        Set up wallet
-      </a>
-    );
-  }
   if (w.status !== 'connected') {
     return (
-      <div className="flex items-center gap-2">
-        {w.error && <span className="hidden text-xs text-status-danger md:inline">{w.error}</span>}
-        <button className="btn-primary" disabled={w.status === 'connecting'} onClick={() => void w.connect()} type="button">
-          {w.status === 'connecting' ? 'Approve in the wallet…' : `Connect ${w.walletName ?? 'wallet'}`}
-        </button>
+      <div className="relative flex items-center gap-2">
+        {w.status === 'absent' ? <a className="btn-secondary" href="#learn">Set up extension</a> :
+          !w.phone?.busy && <button className="btn-primary" disabled={w.status === 'connecting'} onClick={() => void w.connect()} type="button">
+            {w.status === 'connecting' ? 'Approve in the wallet…' : `Connect ${w.walletName ?? 'wallet'}`}
+          </button>}
+        {w.phone && (w.phone.busy ?
+          <div role="dialog" aria-label="Connect phone wallet" className="absolute right-0 top-full z-30 mt-2 w-64 rounded-xl border border-border-default bg-surface-overlay p-4 shadow-xl">
+            {w.phone.uri ? <>
+              <p className="mb-3 text-sm">Scan with Rate and approve the Mutinynet connection.</p>
+              <QRCodeSVG value={w.phone.uri} size={214} marginSize={4} title="Nostr Wallet Auth pairing code" />
+            </> : <p role="status" className="text-sm">{w.phone.error ?? 'Waiting for phone wallet…'}</p>}
+            <button type="button" className="btn-secondary mt-3" onClick={w.phone.disconnect}>Cancel</button>
+          </div> :
+          <button type="button" className="btn-primary" disabled={w.status === 'connecting'} onClick={() => void w.phone?.connect()}>Connect phone</button>)}
+        {w.error && !w.phone?.busy && <p role="alert" className="absolute right-0 top-full z-20 mt-2 w-64 rounded-xl bg-surface-overlay p-3 text-sm text-status-danger">{w.error}</p>}
       </div>
     );
   }

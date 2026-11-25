@@ -22,7 +22,7 @@ permissions:
   packages: write
 
 env:
-  RUST_TOOLCHAIN: "1.85"
+  RUST_TOOLCHAIN: "1.88"
   REGISTRY: ghcr.io
   ORG: kaleidoswap
 

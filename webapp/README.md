@@ -5,6 +5,19 @@ drives `mosaik-api` over JSON-REST. Ships as `mosaik-webapp:dev` (nginx
 on top of the Vite build), wired into `docker/compose.yaml` and exposed
 on `:5173` in dev / prod.
 
+## Phone wallets on the Mutinynet preview
+
+Choose **Connect phone** in the header and scan the QR in Rate. On the **Wallet**
+tab, view your BTC and RGB balances. A funded phone wallet can use **Prepare
+wallet** to create two 10,000-sat RGB allocation outputs after you approve the
+transaction on the phone. Taking peer-to-peer orders still requires the
+KaleidoSwap extension.
+
+The QR uses Nostr Wallet Auth. Rate sends the approved requests over Nostr Wallet
+Connect on the KaleidoSwap relay. Each connection is scoped to Mutinynet and
+expires after one hour. Closing or reloading the page requires a new QR.
+The browser keeps its connection key in memory.
+
 ## Stack
 
 | | |

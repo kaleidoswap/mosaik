@@ -120,10 +120,10 @@ function WalletNotices({ shown }: { shown?: string }) {
   const connected = wallet.status === 'connected';
   if (!wallet.canTake) {
     return (
-      <Notice tone="info">
+      <Notice tone="info" action={wallet.phone?.provider && <a className={btnSecondary} href="#wallet">Open wallet</a>}>
         {wallet.status === 'absent'
           ? 'Install the KaleidoSwap browser extension to take orders. It holds your keys and signs the swap; this page never sees them.'
-          : 'Your wallet does not support peer-to-peer swaps yet. Update the extension.'}
+          : wallet.phone?.provider ? 'Your phone can prepare RGB outputs. Taking an order requires the KaleidoSwap extension with peer-to-peer swaps.' : 'Your wallet does not support peer-to-peer swaps yet. Update the extension.'}
       </Notice>
     );
   }

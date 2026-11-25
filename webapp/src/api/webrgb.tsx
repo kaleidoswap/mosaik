@@ -1,10 +1,9 @@
 /**
- * Sign-in with a WebRGB wallet (the browser extension). The page never holds keys: "connecting"
- * is `enable()` on the provider, which asks the user once per site, and everything shown about the
- * wallet is read from it. Providers are found two ways: the `rgb:announceProvider` discovery event
- * and `window.rgb`, which a content script may define after the page's first render.
+ * The extension announces a provider or injects window.rgb. Phone wallets grant access
+ * through Nostr Wallet Connect. Both providers keep keys and approvals in the wallet.
  */
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { usePhoneWallet } from './phoneWallet';
 import type { RgbTakerProvider } from './rgbWallet';
 
 export interface WalletAsset {
@@ -48,9 +47,10 @@ interface WalletApi {
   connect: () => Promise<boolean>;
   disconnect: () => void;
   refresh: () => Promise<void>;
+  phone: ReturnType<typeof usePhoneWallet>;
 }
 
-type Provider = RgbTakerProvider & {
+export type BrowserProvider = RgbTakerProvider & {
   getInfo?: () => Promise<{ network?: string }>;
   getBtcBalance?: () => Promise<{ swapSpendable?: number; colored?: { settled: number }; vanilla: { spendable: number; future: number; settled: number }; freeColorableUtxos: number | null }>;
   listAssets?: () => Promise<unknown[]>;
@@ -77,7 +77,11 @@ export function toAsset(raw: unknown): WalletAsset | undefined {
 const Ctx = createContext<WalletApi | null>(null);
 
 export function WebRgbProvider({ children }: { children: ReactNode }) {
-  const [provider, setProvider] = useState<Provider>();
+  const [injected, setProvider] = useState<BrowserProvider>();
+  const phone = usePhoneWallet();
+  const provider = phone.provider ?? (phone.busy ? undefined : injected);
+  const active = useRef(provider);
+  active.current = provider;
   const [walletName, setWalletName] = useState<string>();
   const [status, setStatus] = useState<WalletStatus>('absent');
   const [network, setNetwork] = useState<string>();
@@ -89,7 +93,7 @@ export function WebRgbProvider({ children }: { children: ReactNode }) {
   const found = useRef(false);
 
   useEffect(() => {
-    const adopt = (p: Provider, name?: string) => {
+    const adopt = (p: BrowserProvider, name?: string) => {
       if (found.current) return;
       found.current = true;
       setProvider(p);
@@ -97,17 +101,17 @@ export function WebRgbProvider({ children }: { children: ReactNode }) {
       setStatus((s) => (s === 'absent' ? 'ready' : s));
     };
     const onAnnounce = (e: Event) => {
-      const d = (e as CustomEvent<{ info?: { name?: string }; provider?: Provider }>).detail;
+      const d = (e as CustomEvent<{ info?: { name?: string }; provider?: BrowserProvider }>).detail;
       if (d?.provider) adopt(d.provider, d.info?.name);
     };
     window.addEventListener('rgb:announceProvider', onAnnounce);
     window.dispatchEvent(new CustomEvent('rgb:requestProvider'));
     let tries = 0;
     const poll = window.setInterval(() => {
-      if (window.rgb) adopt(window.rgb as Provider);
+      if (window.rgb) adopt(window.rgb as BrowserProvider);
       if (found.current || ++tries > 40) window.clearInterval(poll);
     }, 250);
-    if (window.rgb) adopt(window.rgb as Provider);
+    if (window.rgb) adopt(window.rgb as BrowserProvider);
     return () => {
       window.removeEventListener('rgb:announceProvider', onAnnounce);
       window.clearInterval(poll);
@@ -123,6 +127,7 @@ export function WebRgbProvider({ children }: { children: ReactNode }) {
         p2pNet = await provider.p2pSwap?.network();
       } catch (e) {
         const m = e instanceof Error ? e.message : String(e);
+        if (active.current !== provider) return;
         setP2pProblem(
           /no rgb wallet is connected|no active protocol|locked/i.test(m)
             ? 'locked'
@@ -134,18 +139,20 @@ export function WebRgbProvider({ children }: { children: ReactNode }) {
         provider.getBtcBalance?.(),
         provider.listAssets?.(),
       ]);
-      // Only the swap network is comparable with the orders' (rgb-lib names such as `signetcustom`);
-      // the wallet's own label (`mutinynet`) is not, so it is shown but never compared.
-      setNetwork(p2pNet);
+      // The phone session explicitly requests rgb:mutinynet. Mosaik orders call that chain
+      // signetcustom. An injected wallet supplies its own swap network independently.
+      if (active.current !== provider) return;
+      setNetwork(p2pNet ?? (provider === phone.provider && info?.network === 'mutinynet' ? 'signetcustom' : undefined));
+      setError(undefined);
       setWalletLabel(info?.network);
       if (bal) {
         setBalance(toBalance(bal));
       }
       setAssets((list ?? []).map(toAsset).filter((a): a is WalletAsset => !!a));
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      if (active.current === provider) setError(e instanceof Error ? e.message : String(e));
     }
-  }, [provider]);
+  }, [provider, phone.provider]);
 
   const connect = useCallback(async () => {
     if (!provider) return false;
@@ -174,8 +181,8 @@ export function WebRgbProvider({ children }: { children: ReactNode }) {
 
   // A site the user connected before reconnects when the wallet is there; the wallet only asks again if it forgot.
   useEffect(() => {
-    if (provider && status === 'ready' && store.get()) void connect();
-  }, [provider, status, connect]);
+    if (!phone.provider && !phone.busy && provider && status === 'ready' && store.get()) void connect();
+  }, [provider, status, connect, phone.provider, phone.busy]);
 
   // A locked wallet is not an error: look again until the user unlocks it in the extension.
   useEffect(() => {
@@ -186,14 +193,29 @@ export function WebRgbProvider({ children }: { children: ReactNode }) {
 
   // Keep balances fresh while connected.
   useEffect(() => {
-    if (status !== 'connected') return;
+    if (status !== 'connected' && !phone.provider) return;
     const t = window.setInterval(() => void refresh(), 30_000);
     return () => window.clearInterval(t);
-  }, [status, refresh]);
+  }, [status, refresh, phone.provider]);
+
+  useEffect(() => {
+    setAssets([]);
+    setBalance(undefined);
+    setNetwork(undefined);
+    setWalletLabel(undefined);
+    setP2pProblem(undefined);
+    setError(undefined);
+    if (phone.provider) void refresh();
+  }, [phone.provider, refresh]);
 
   const value = useMemo<WalletApi>(
-    () => ({ status, provider, walletName, network, walletLabel, balance, assets, error, p2pProblem, canTake: !!provider?.p2pSwap, connect, disconnect, refresh }),
-    [status, provider, walletName, network, walletLabel, balance, assets, error, p2pProblem, connect, disconnect, refresh],
+    () => ({
+      status: phone.provider ? 'connected' : phone.busy ? 'connecting' : status,
+      provider, walletName: phone.provider ? 'Phone wallet' : walletName, network, walletLabel, balance, assets,
+      error: phone.error ?? error, p2pProblem, canTake: !!provider?.p2pSwap, connect,
+      disconnect: phone.provider ? phone.disconnect : disconnect, refresh, phone,
+    }),
+    [status, provider, walletName, network, walletLabel, balance, assets, error, p2pProblem, connect, disconnect, refresh, phone],
   );
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }
