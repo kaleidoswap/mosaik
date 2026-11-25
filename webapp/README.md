@@ -77,7 +77,9 @@ The RGB market reads two signed Nostr events from the relay and checks them in t
   *RGBMap listed* (in the registry), *Unlisted* (neither: shown with a warning and the asset id),
   or *Listing unknown* (registry unreachable). If the signed list cannot be checked, the bundled
   `/.well-known/rgb/tokens.json` is still used for names, but nothing is marked curated.
-- **Verified maker** badge from the signed kind-30054 score, with the page's own thresholds.
+- The **Verified maker** badge requires a positive attestation in a valid kind-30054 event
+  from the trusted Mosaik indexer and a score that meets this page's configured thresholds.
+  An authenticated score with a negative attestation still contributes market statistics.
 - **Issuer** label when the signed list names the maker key under `issuer_makers` for that asset.
 - **Makers on this market**: open orders, settled trades, distinct counterparties and volume per
   maker for this asset (30 days, verified on-chain, self-trades excluded).

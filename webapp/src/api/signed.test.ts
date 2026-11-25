@@ -28,10 +28,10 @@ function listEvent(catalog: Record<string, unknown> = tokens, key = sk, at = NOW
   }, key);
 }
 
-function scoreEvent(over: { settled?: number; counterparties?: number; presence?: string; abortRate?: string; at?: number; key?: Uint8Array } = {}): Event {
+function scoreEvent(over: { settled?: number; counterparties?: number; presence?: string; abortRate?: string; verified?: boolean; at?: number; key?: Uint8Array } = {}): Event {
   const settled = over.settled ?? 4;
   const content = {
-    v: 1, network: 'signetcustom', computedAt: over.at ?? NOW, maker: MAKER,
+    v: 1, network: 'signetcustom', computedAt: over.at ?? NOW, maker: MAKER, verified: over.verified ?? true,
     volume: { sat: 50_000, trades: settled, counterparties: over.counterparties ?? 3, selfTrades: 1, unattributedTrades: 0,
       byAsset: { [ASSET]: { trades: settled, amount: 400, sat: 50_000, counterparties: 2 } } },
   };
@@ -42,7 +42,7 @@ function scoreEvent(over: { settled?: number; counterparties?: number; presence?
     tags: [
       ['d', MAKER], ['p', MAKER], ['t', 'mosaik-reputation-v1'], ['network', 'signetcustom'], ['window', '2592000'],
       ['settled', String(settled)], ['volume_sat', '50000'], ['counterparties', String(over.counterparties ?? 3)], ['self_trades', '1'],
-      ['negotiations', '5'], ['aborted', '1'], ['verified', '1'], ['expiration', String((over.at ?? NOW) + 172_800)],
+      ['negotiations', '5'], ['aborted', '1'], ['verified', content.verified ? '1' : '0'], ['expiration', String((over.at ?? NOW) + 172_800)],
       ['presence', over.presence ?? '0.9500'], ['abort_rate', over.abortRate ?? '0.2000'],
     ],
   }, over.key ?? sk);
@@ -82,8 +82,19 @@ describe('reputation event', () => {
     const r = checkReputationEvent(scoreEvent(), KEY, 'signetcustom', NOW + 60);
     expect(r.ok).toBe(true);
     if (r.ok) {
-      expect(r.value).toMatchObject({ maker: MAKER, settled: 4, counterparties: 3, volumeSat: 50_000, presence: 0.95, abortRate: 0.2 });
+      expect(r.value).toMatchObject({ maker: MAKER, indexerVerified: true, settled: 4, counterparties: 3, volumeSat: 50_000, presence: 0.95, abortRate: 0.2 });
       expect(r.value.byAsset[ASSET]).toEqual({ trades: 4, amount: 400, sat: 50_000, counterparties: 2 });
+    }
+  });
+  it('reads a negative attestation and rejects a signed verdict inconsistent with its tags', () => {
+    const negative = scoreEvent({ verified: false });
+    const r = checkReputationEvent(negative, KEY, 'signetcustom', NOW);
+    expect(r.ok && r.value.indexerVerified).toBe(false);
+    expect(r.ok).toBe(true);
+    const tags = negative.tags.filter((t) => t[0] !== 'verified');
+    for (const verdict of [[], [['verified', '1']], [['verified', 'false']]]) {
+      const e = finalizeEvent({ ...negative, tags: [...tags, ...verdict] }, sk);
+      expect(checkReputationEvent(e, KEY, 'signetcustom', NOW).ok).toBe(false);
     }
   });
   it('refuses another key, an expired score, and tags that disagree with the content', () => {

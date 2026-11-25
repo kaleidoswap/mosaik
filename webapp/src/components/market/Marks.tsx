@@ -28,7 +28,7 @@ function scoreHint(m: MakerMark, t: Thresholds) {
   return [
     `${s.settled} settled trades with ${s.counterparties} distinct counterparties, ${s.volumeSat.toLocaleString()} sat (30 days, verified on-chain)`,
     `presence ${pct(s.presence)} · aborts ${pct(s.abortRate)}`,
-    m.verified ? 'Verified: meets every threshold.' : `Verified needs ≥${t.minSettled} trades, ≥${t.minCounterparties} counterparties, presence ≥${t.minPresence * 100}%, aborts ≤${t.maxAbortRate * 100}%.`,
+    `Verified by the Mosaik indexer. This market requires ≥${t.minSettled} trades, ≥${t.minCounterparties} counterparties, presence ≥${t.minPresence * 100}%, and aborts ≤${t.maxAbortRate * 100}%.`,
   ].join('\n');
 }
 

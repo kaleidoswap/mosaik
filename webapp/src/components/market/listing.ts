@@ -33,9 +33,8 @@ export function listingOf(assetId: string, catalog: Catalog | undefined, registr
 }
 
 /**
- * When a maker counts as verified. An open decision in the design doc: these defaults match the
- * indexer's provisional ones and each can be set at build time. The page decides from the signed
- * numbers with its own thresholds; it does not take the indexer's own `verified` tag.
+ * Local criteria for displaying the indexer's verification. The defaults match the indexer's
+ * provisional thresholds. A deployment can add stricter criteria to the signed attestation.
  */
 export interface Thresholds {
   minSettled: number;
@@ -57,7 +56,7 @@ export const VERIFIED_THRESHOLDS: Thresholds = {
 };
 
 export function isVerifiedMaker(s: MakerScore | undefined, t: Thresholds = VERIFIED_THRESHOLDS): boolean {
-  if (!s || s.presence === null) return false;
+  if (!s?.indexerVerified || s.presence === null) return false;
   return s.settled >= t.minSettled && s.counterparties >= t.minCounterparties && s.presence >= t.minPresence && (s.abortRate ?? 0) <= t.maxAbortRate;
 }
 

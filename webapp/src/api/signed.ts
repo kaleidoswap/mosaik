@@ -82,6 +82,7 @@ export interface AssetVolume {
 /** A maker's score, as the indexer measured it from the relay and the chain. */
 export interface MakerScore {
   maker: string;
+  indexerVerified: boolean;
   computedAt: number;
   expiresAt: number;
   /** Settled trades with a distinct counterparty (self-trades and unattributed ones excluded). */
@@ -110,15 +111,16 @@ export function checkReputationEvent(e: Event, pubkey: string, network: string, 
   const expiresAt = count(tag(e, 'expiration'));
   if (expiresAt === undefined || expiresAt <= now) return { ok: false, error: 'expired' };
   const n = ['settled', 'volume_sat', 'counterparties', 'self_trades', 'negotiations', 'aborted'].map((k) => count(tag(e, k)));
-  if (n.some((x) => x === undefined)) return { ok: false, error: 'malformed tags' };
+  const verified = tag(e, 'verified');
+  if (n.some((x) => x === undefined) || (verified !== '0' && verified !== '1')) return { ok: false, error: 'malformed tags' };
   const [settled, volumeSat, counterparties, selfTrades, negotiations, aborted] = n as number[];
-  let content: { v?: unknown; network?: unknown; maker?: unknown; computedAt?: unknown; volume?: { trades?: unknown; sat?: unknown; byAsset?: unknown } };
+  let content: { v?: unknown; network?: unknown; maker?: unknown; computedAt?: unknown; verified?: unknown; volume?: { trades?: unknown; sat?: unknown; byAsset?: unknown } };
   try {
     content = JSON.parse(e.content);
   } catch {
     return { ok: false, error: 'content is not JSON' };
   }
-  if (!content || content.v !== 1 || content.network !== network || content.computedAt !== e.created_at || content.maker !== maker || content.volume?.trades !== settled || content.volume?.sat !== volumeSat)
+  if (!content || content.v !== 1 || content.network !== network || content.computedAt !== e.created_at || content.maker !== maker || content.verified !== (verified === '1') || content.volume?.trades !== settled || content.volume?.sat !== volumeSat)
     return { ok: false, error: 'content does not match the tags' };
   const byAsset: Record<string, AssetVolume> = {};
   const raw = content.volume?.byAsset;
@@ -133,6 +135,7 @@ export function checkReputationEvent(e: Event, pubkey: string, network: string, 
     ok: true,
     value: {
       maker,
+      indexerVerified: verified === '1',
       computedAt: typeof content.computedAt === 'number' ? content.computedAt : e.created_at,
       expiresAt,
       settled: settled!,

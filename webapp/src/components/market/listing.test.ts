@@ -14,7 +14,7 @@ const signed = (raw: object = tokens): Catalog => ({ ...parseCatalog(raw, 'signe
 const unsigned = (): Catalog => ({ ...parseCatalog(tokens, 'signetcustom'), signedError: 'no curated list on the relay' });
 
 const score = (maker: string, over: Partial<MakerScore> = {}): MakerScore => ({
-  maker, computedAt: 0, expiresAt: 0, settled: 3, volumeSat: 30_000, counterparties: 2, selfTrades: 0, negotiations: 3, aborted: 0,
+  maker, indexerVerified: true, computedAt: 0, expiresAt: 0, settled: 3, volumeSat: 30_000, counterparties: 2, selfTrades: 0, negotiations: 3, aborted: 0,
   abortRate: 0, presence: 0.95, byAsset: { [USD]: { trades: 3, amount: 300, sat: 30_000, counterparties: 2 } }, ...over,
 });
 
@@ -47,6 +47,12 @@ describe('verified-maker badge', () => {
   });
   it('follows the configured thresholds', () => {
     expect(isVerifiedMaker(score(M1, { settled: 1, counterparties: 1 }), { ...VERIFIED_THRESHOLDS, minSettled: 1, minCounterparties: 1 })).toBe(true);
+  });
+  it('keeps an unattested maker’s volume and withholds the badge even above local thresholds', () => {
+    const scores = new Map([[M1, score(M1, { indexerVerified: false })]]);
+    const market = marketMakers(USD, [M1], signed(), scores, { ...VERIFIED_THRESHOLDS, minSettled: 1 });
+    expect(market.trades).toBe(3);
+    expect(market.rows[0]?.mark.verified).toBe(false);
   });
 });
 
