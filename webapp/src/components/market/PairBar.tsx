@@ -5,6 +5,8 @@ import { fmtPrice } from '../../lib/units';
 import { Icon } from '../ui';
 import type { Market } from './book';
 import type { MarketStats } from './stats';
+import type { Listing } from './listing';
+import { ListingChip } from './Marks';
 
 const short = (id: string) => shortId(id.replace('rgb:', ''), 6, 4);
 
@@ -17,7 +19,7 @@ function Stat({ label, value, tone, hint }: { label: string; value: string; tone
   );
 }
 
-function PairSelect({ markets, selected, onSelect }: { markets: Market[]; selected?: Market; onSelect: (id: string) => void }) {
+function PairSelect({ markets, selected, onSelect, listingFor }: { markets: Market[]; selected?: Market; onSelect: (id: string) => void; listingFor?: (assetId: string) => Listing }) {
   const [open, setOpen] = useState(false);
   const [q, setQ] = useState('');
   const box = useRef<HTMLDivElement>(null);
@@ -77,7 +79,10 @@ function PairSelect({ markets, selected, onSelect }: { markets: Market[]; select
                   <span className="block text-caption font-medium">{m.ticker ?? 'asset'} / BTC</span>
                   <span className="block truncate font-mono text-tiny text-content-tertiary" title={m.assetId}>{short(m.assetId)}{m.name ? ` · ${m.name}` : ''}</span>
                 </span>
-                <span className="text-tiny text-content-tertiary tabular-nums">{m.asks + m.bids} {m.asks + m.bids === 1 ? 'order' : 'orders'}</span>
+                <span className="flex flex-col items-end gap-0.5">
+                  {listingFor && <ListingChip listing={listingFor(m.assetId)} />}
+                  <span className="text-tiny text-content-tertiary tabular-nums">{m.asks + m.bids} {m.asks + m.bids === 1 ? 'order' : 'orders'}</span>
+                </span>
               </button>
             </li>
           ))}
@@ -99,10 +104,12 @@ interface Props {
   lastFill?: number;
   stats?: MarketStats;
   orders: number;
+  /** Listing tier of a market, by asset id. */
+  listingFor?: (assetId: string) => Listing;
 }
 
 /** Pair selector and the numbers a trader looks at first. */
-export function PairBar({ markets, selected, onSelect, networks, network, onNetwork, bestBid, bestAsk, lastFill, stats, orders }: Props) {
+export function PairBar({ markets, selected, onSelect, networks, network, onNetwork, bestBid, bestAsk, lastFill, stats, orders, listingFor }: Props) {
   const both = bestBid !== undefined && bestAsk !== undefined;
   const mid = both ? (bestBid + bestAsk) / 2 : undefined;
   const spread = both ? bestAsk - bestBid : undefined;
@@ -110,7 +117,10 @@ export function PairBar({ markets, selected, onSelect, networks, network, onNetw
   const t = selected?.ticker ?? 'unit';
   return (
     <header className="flex flex-wrap items-center gap-x-6 gap-y-3 rounded-2xl bg-surface-card/[0.04] px-4 py-3">
-      <PairSelect markets={markets} selected={selected} onSelect={onSelect} />
+      <div className="flex items-center gap-2">
+        <PairSelect markets={markets} selected={selected} onSelect={onSelect} listingFor={listingFor} />
+        {selected && listingFor && <ListingChip listing={listingFor(selected.assetId)} />}
+      </div>
       <dl className="grid w-full min-w-0 grid-cols-3 gap-x-4 gap-y-2 sm:grid-cols-5 lg:flex lg:w-auto lg:flex-1 lg:flex-wrap lg:gap-x-8">
         <Stat label="Last trade" value={lastFill !== undefined ? fmtPrice(lastFill) : '—'} hint="Your own latest completed swap here; if you have none, the latest trade a maker reported (unverified)" />
         <Stat

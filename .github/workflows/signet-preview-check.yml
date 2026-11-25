@@ -1,5 +1,7 @@
 name: Signet preview checks
 on:
+  pull_request:
+    branches: [codex/mosaik-signet-preview]
   push:
     branches: [codex/mosaik-signet-preview]
   workflow_dispatch:
@@ -22,3 +24,22 @@ jobs:
       - run: npm audit --audit-level=moderate
       - run: npm test
       - run: npm run build -- --mode signet
+
+  indexer:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: services/mosaik-indexer
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: pnpm
+          cache-dependency-path: services/mosaik-indexer/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm typecheck
+      - run: pnpm test

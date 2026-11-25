@@ -1,0 +1,50 @@
+{
+ "id": "0ed4ddca8ebbf4239006e6a75bd64e3648777d4cdad1c15a6945c93deba16f8a",
+ "kind": 30053,
+ "pubkey": "2e5edeb4f4dcadf9b14bdf0150eebb70b882c57ba994f216dc5dad7bbe0cb43b",
+ "created_at": 1794513712,
+ "content": "{\"offer\":{\"swapId\":\"epGqSQiN1cY1BIV15pV62IIGwtkHilVc\",\"makerGives\":{\"kind\":\"Rgb\",\"assetId\":\"rgb:9giqbeZi-Cs6oZhu-V9SoNP~-c90osSp-1Ebv0G5-Mv~4CY0\",\"amount\":250},\"makerReceives\":{\"kind\":\"Btc\",\"assetId\":null,\"amount\":138660},\"bitcoinNetwork\":\"SignetCustom\",\"networkFeeSat\":2000,\"rgbOutputSat\":1000,\"expirationTimestamp\":1794514312,\"makerBtcAddress\":\"tb1pn6k50zu4ggv0gk08jt07nmaecfudp8jfsl2ajg3sw24337a65fqsm25qwk\",\"makerRgbRecipientId\":null,\"makerRgbScriptPubkeyHex\":null,\"makerRgbBlinding\":null,\"proxyUrl\":\"https://proxy.iriswallet.com/0.2/json-rpc\",\"platformFeeSat\":1386,\"feeRecipientScriptPubkeyHex\":\"0014b43997d1acf0a9ede4418cbd5c0f55f8fb7a799c\"},\"status\":\"active\",\"asset\":{\"ticker\":\"TESTXAU\",\"name\":\"Mosaik Demo Gold\",\"precision\":4}}",
+ "tags": [
+  [
+   "d",
+   "epGqSQiN1cY1BIV15pV62IIGwtkHilVc"
+  ],
+  [
+   "expiration",
+   "1794514312"
+  ],
+  [
+   "t",
+   "rgb-psbt-v1"
+  ],
+  [
+   "status",
+   "active"
+  ],
+  [
+   "network",
+   "signetcustom"
+  ],
+  [
+   "side",
+   "sell"
+  ],
+  [
+   "asset",
+   "rgb:9giqbeZi-Cs6oZhu-V9SoNP~-c90osSp-1Ebv0G5-Mv~4CY0"
+  ],
+  [
+   "amount",
+   "250"
+  ],
+  [
+   "price",
+   "138660"
+  ],
+  [
+   "expiry",
+   "1794514312"
+  ]
+ ],
+ "sig": "b6a72dc745a05c308ae354c26b700d32505031a9b7439d54f88b6cb8df05a3367d1f0ce04bad7be543265b180f7c987c251e8afafbf3b24fdb16fc00aeec487e"
+}
